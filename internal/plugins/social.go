@@ -1,0 +1,157 @@
+package plugins
+
+import (
+	"context"
+	"html/template"
+	"strings"
+
+	"github.com/Alexander-D-Karpov/about/internal/storage"
+	"github.com/Alexander-D-Karpov/about/internal/stream"
+)
+
+type SocialPlugin struct {
+	storage *storage.Storage
+	hub     *stream.Hub
+}
+
+func NewSocialPlugin(storage *storage.Storage, hub *stream.Hub) *SocialPlugin {
+	return &SocialPlugin{
+		storage: storage,
+		hub:     hub,
+	}
+}
+
+func (p *SocialPlugin) Name() string {
+	return "social"
+}
+
+func (p *SocialPlugin) Render(ctx context.Context) (string, error) {
+	config := p.storage.GetPluginConfig(p.Name())
+	settings := config.Settings
+
+	sectionTitle := p.getConfigValue(settings, "ui.sectionTitle", "Links")
+
+	links, ok := settings["links"].([]interface{})
+	if !ok {
+		return "", nil
+	}
+	tmpl := `
+	<div class="social-section section">
+		<h3>{{.SectionTitle}}</h3>
+		<div class="social-links">
+			{{range .Links}}
+			<a href="{{.URL}}" title="{{.Name}}" target="_blank" rel="noopener" class="social-link">
+				<img src="{{.IconURL}}" alt="{{.Name}} icon" class="icon icon-social" loading="lazy">
+			</a>
+			{{end}}
+		</div>
+	</div>`
+
+	type socialLink struct {
+		Name    string
+		URL     string
+		IconURL string
+	}
+
+	var socialLinks []socialLink
+
+	for _, link := range links {
+		linkMap, ok := link.(map[string]interface{})
+		if !ok {
+			continue
+		}
+
+		name := p.getStringFromMap(linkMap, "name", "Link")
+		url := p.getStringFromMap(linkMap, "url", "#")
+
+		// Allow optional direct icon path override
+		iconURL := p.getStringFromMap(linkMap, "iconPath", "")
+		if iconURL == "" {
+			iconSlug := p.getStringFromMap(linkMap, "icon", "link")
+			// default location for icons: /static/icons/<slug>.svg
+			iconURL = "/static/icons/" + iconSlug + ".svg"
+		}
+
+		socialLinks = append(socialLinks, socialLink{
+			Name:    name,
+			URL:     url,
+			IconURL: iconURL,
+		})
+	}
+
+	data := struct {
+		SectionTitle string
+		Links        []socialLink
+	}{
+		SectionTitle: sectionTitle,
+		Links:        socialLinks,
+	}
+
+	t, err := template.New("social").Parse(tmpl)
+	if err != nil {
+		return "", err
+	}
+
+	var buf strings.Builder
+	err = t.Execute(&buf, data)
+	if err != nil {
+		return "", err
+	}
+
+	return buf.String(), nil
+}
+
+func (p *SocialPlugin) UpdateData(ctx context.Context) error {
+	return nil
+}
+
+func (p *SocialPlugin) GetSettings() map[string]interface{} {
+	config := p.storage.GetPluginConfig(p.Name())
+	return config.Settings
+}
+
+func (p *SocialPlugin) SetSettings(settings map[string]interface{}) error {
+	config := p.storage.GetPluginConfig(p.Name())
+	config.Settings = settings
+
+	err := p.storage.SetPluginConfig(p.Name(), config)
+	if err != nil {
+		return err
+	}
+
+	// Broadcast update
+	p.hub.Broadcast("plugin_update", map[string]interface{}{
+		"plugin": p.Name(),
+		"action": "settings_changed",
+	})
+
+	return nil
+}
+
+func (p *SocialPlugin) getConfigValue(settings map[string]interface{}, key string, defaultValue string) string {
+	keys := strings.Split(key, ".")
+	current := settings
+
+	for i, k := range keys {
+		if i == len(keys)-1 {
+			if value, ok := current[k].(string); ok {
+				return value
+			}
+			return defaultValue
+		} else {
+			if next, ok := current[k].(map[string]interface{}); ok {
+				current = next
+			} else {
+				return defaultValue
+			}
+		}
+	}
+	return defaultValue
+}
+
+func (p *SocialPlugin) getStringFromMap(m map[string]interface{}, key string, defaultValue string) string {
+	if value, ok := m[key].(string); ok {
+		return value
+	}
+	return defaultValue
+}

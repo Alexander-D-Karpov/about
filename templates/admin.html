@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Plugin Admin Dashboard</title>
+  <link rel="stylesheet" href="/static/css/admin.css">
+</head>
+<body>
+<div class="header">
+  <h1>Plugin Admin Dashboard</h1>
+  <div class="header-subtitle">Manage your about page plugins</div>
+</div>
+
+<div class="container">
+  <div class="controls">
+    <div class="controls-left">
+      <button class="btn btn-primary" onclick="saveAllPlugins()">Save All Changes</button>
+      <button class="btn btn-secondary" onclick="previewSite()">Preview Site</button>
+      <button class="btn btn-secondary" onclick="refreshData()">Refresh Data</button>
+    </div>
+    <div class="controls-right">
+      <div class="search-box">
+        <input type="text" class="search-input" placeholder="Search plugins..." id="plugin-search">
+      </div>
+    </div>
+  </div>
+
+  <div id="plugins-container" class="plugins-grid">
+    {{range .Plugins}}
+    <div class="plugin" data-plugin="{{.Name}}" data-order="{{.Order}}">
+      <div class="plugin-header">
+        <div class="plugin-info">
+          <div class="plugin-title">{{.Name}}</div>
+          <div class="plugin-description">{{.Description}}</div>
+        </div>
+        <div class="plugin-controls">
+          <div class="order-control">
+            <label class="order-label">Order</label>
+            <input type="number" name="order" value="{{.Order}}" class="order-input" min="0" max="100">
+          </div>
+          <label class="toggle-switch">
+            <input type="checkbox" class="plugin-toggle" data-plugin="{{.Name}}" {{if .Enabled}}checked{{end}}>
+            <span class="slider"></span>
+          </label>
+        </div>
+      </div>
+
+      <form class="plugin-form" data-plugin="{{.Name}}">
+        <div class="form-section">
+          <div class="form-section-title">Configuration</div>
+          <div id="settings-{{.Name}}" class="settings-editor"></div>
+        </div>
+
+        <div class="actions">
+          <button type="submit" class="btn btn-primary">Save Plugin</button>
+          <button type="button" class="btn btn-secondary export-btn" data-plugin="{{.Name}}">Export</button>
+          <button type="button" class="btn btn-secondary reset-btn" data-plugin="{{.Name}}">Reset</button>
+        </div>
+      </form>
+    </div>
+    {{end}}
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
+<script src="/static/js/admin.js"></script>
+<script>
+  const pluginsData = {
+  {{range .Plugins}}
+  "{{.Name}}": {{printf "%s" (printf "%v" .Settings | printf "%q")}},
+  {{end}}
+  };
+
+  Object.keys(pluginsData).forEach(key => {
+    try {
+      pluginsData[key] = JSON.parse(pluginsData[key]);
+    } catch (e) {
+      console.error('Error parsing plugin data for', key, e);
+      pluginsData[key] = {};
+    }
+  });
+
+  document.addEventListener('DOMContentLoaded', function() {
+    {{range .Plugins}}
+    initSettingsEditor('{{.Name}}', pluginsData['{{.Name}}']);
+    {{end}}
+
+    initSortable();
+    initSearch();
+  });
+</script>
+</body>
+</html>
