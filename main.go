@@ -24,7 +24,11 @@ var staticFiles embed.FS
 //go:embed templates/*
 var templateFiles embed.FS
 
+var appStartTime time.Time
+
 func main() {
+	appStartTime = time.Now()
+
 	if err := godotenv.Load(); err != nil {
 		log.Println("Warning: .env file not found")
 	}
@@ -39,7 +43,7 @@ func main() {
 	hub := stream.New()
 	go hub.Run()
 
-	pluginManager := plugins.NewManager(store, hub, cfg)
+	pluginManager := plugins.NewManager(store, hub, cfg, appStartTime)
 	if err := pluginManager.LoadAll(); err != nil {
 		log.Fatal("Failed to load plugins:", err)
 	}
@@ -93,7 +97,6 @@ func main() {
 
 func addCacheHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Disable caching for main page and dynamic content to ensure visitor counts update
 		if strings.Contains(r.URL.Path, ".css") || strings.Contains(r.URL.Path, ".js") || strings.Contains(r.URL.Path, ".png") || strings.Contains(r.URL.Path, ".jpg") || strings.Contains(r.URL.Path, ".svg") {
 			w.Header().Set("Cache-Control", "public, max-age=3600")
 		} else {

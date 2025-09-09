@@ -30,15 +30,17 @@ type Manager struct {
 	renderedCache  map[string]template.HTML
 	cacheTimestamp time.Time
 	lastUpdate     time.Time
+	appStartTime   time.Time
 }
 
-func NewManager(storage *storage.Storage, hub *stream.Hub, config *config.Config) *Manager {
+func NewManager(storage *storage.Storage, hub *stream.Hub, config *config.Config, appStartTime time.Time) *Manager {
 	return &Manager{
 		plugins:       make(map[string]Plugin),
 		storage:       storage,
 		hub:           hub,
 		config:        config,
 		renderedCache: make(map[string]template.HTML),
+		appStartTime:  appStartTime,
 	}
 }
 
@@ -56,7 +58,7 @@ func (m *Manager) LoadAll() error {
 		NewVisitorsPlugin(m.storage, m.hub, m.config.DataPath),
 		NewServicesPlugin(m.storage, m.hub),
 		NewCodePlugin(m.storage, m.hub),
-		NewInfoPlugin(m.storage, m.hub),
+		NewInfoPlugin(m.storage, m.hub, m.appStartTime),
 		NewPersonalPlugin(m.storage, m.hub),
 		NewMemePlugin(m.storage, m.hub),
 	}
@@ -127,7 +129,7 @@ func (m *Manager) preRenderPlugins(ctx context.Context) {
 	m.renderedCache = make(map[string]template.HTML)
 
 	for _, plugin := range enabledPlugins {
-		if plugin.Name() == "meme" || plugin.Name() == "info" || plugin.Name() == "visitors" {
+		if plugin.Name() == "meme" || plugin.Name() == "info" || plugin.Name() == "visitors" || plugin.Name() == "services" {
 			continue
 		}
 
@@ -165,7 +167,7 @@ func (m *Manager) GetRenderedPlugins(ctx context.Context) []template.HTML {
 	var renderedPlugins []template.HTML
 
 	for _, plugin := range enabledPlugins {
-		if plugin.Name() == "meme" || plugin.Name() == "info" || plugin.Name() == "visitors" {
+		if plugin.Name() == "meme" || plugin.Name() == "info" || plugin.Name() == "visitors" || plugin.Name() == "services" {
 			m.mutex.RUnlock()
 			rendered, err := plugin.Render(ctx)
 			m.mutex.RLock()
@@ -360,6 +362,25 @@ func (m *Manager) GetSystemStats() map[string]interface{} {
 			stats["total_visits"] = visitors.visitCount
 			stats["today_visits"] = visitors.todayCount
 			visitors.mutex.RUnlock()
+		}
+	}
+
+	if servicesPlugin, exists := m.GetPlugin("services"); exists {
+		if services, ok := servicesPlugin.(*ServicesPlugin); ok {
+			services.mutex.RLock()
+			onlineCount := 0
+			offlineCount := 0
+			for _, status := range services.serviceStatuses {
+				if status.Status == "online" {
+					onlineCount++
+				} else if status.Status == "offline" {
+					offlineCount++
+				}
+			}
+			stats["services_online"] = onlineCount
+			stats["services_offline"] = offlineCount
+			stats["services_total"] = len(services.serviceStatuses)
+			services.mutex.RUnlock()
 		}
 	}
 

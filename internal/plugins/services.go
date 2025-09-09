@@ -2,9 +2,11 @@ package plugins
 
 import (
 	"context"
+	"fmt"
 	"html/template"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Alexander-D-Karpov/about/internal/storage"
@@ -16,16 +18,19 @@ type ServicesPlugin struct {
 	hub             *stream.Hub
 	serviceStatuses map[string]ServiceStatus
 	lastCheck       time.Time
+	mutex           sync.RWMutex
+	httpClient      *http.Client
 }
 
 type ServiceStatus struct {
 	Name         string    `json:"name"`
 	URL          string    `json:"url"`
-	Status       string    `json:"status"` // "online", "offline", "unknown"
+	Status       string    `json:"status"`
 	ResponseTime int64     `json:"response_time"`
 	Description  string    `json:"description"`
 	Icon         string    `json:"icon"`
 	LastChecked  time.Time `json:"last_checked"`
+	StatusCode   int       `json:"status_code"`
 }
 
 func NewServicesPlugin(storage *storage.Storage, hub *stream.Hub) *ServicesPlugin {
@@ -33,6 +38,9 @@ func NewServicesPlugin(storage *storage.Storage, hub *stream.Hub) *ServicesPlugi
 		storage:         storage,
 		hub:             hub,
 		serviceStatuses: make(map[string]ServiceStatus),
+		httpClient: &http.Client{
+			Timeout: 10 * time.Second,
+		},
 	}
 }
 
@@ -46,57 +54,93 @@ func (p *ServicesPlugin) Render(ctx context.Context) (string, error) {
 
 	services, ok := settings["services"].([]interface{})
 	if !ok || len(services) == 0 {
-		return "", nil
+		return p.renderNoServices(), nil
 	}
 
-	// Get configurable UI text
 	sectionTitle := p.getConfigValue(settings, "ui.sectionTitle", "🛠️ Local Services")
 	showStatus := p.getConfigBool(settings, "ui.showStatus", true)
 	showResponseTime := p.getConfigBool(settings, "ui.showResponseTime", true)
 
 	tmpl := `
-	<div class="services-section section">
-		<h3>{{.SectionTitle}}</h3>
-		<div class="services-grid">
-			{{range .Services}}
-			<div class="service-item">
-				<div class="service-header">
-					{{if .Icon}}
-					<span class="service-icon">{{.Icon}}</span>
-					{{end}}
-					<div class="service-name">
-						{{if .URL}}
-						<a href="{{.URL}}" target="_blank" rel="noopener">{{.Name}}</a>
+	<div class="services-section section" data-w="2">
+		<div class="plugin-header">
+			<h3 class="plugin-title">{{.SectionTitle}}</h3>
+		</div>
+		<div class="plugin__inner">
+			<div class="services-grid">
+				{{range .Services}}
+				<div class="service-item" data-url="{{.URL}}" data-status="{{.Status}}">
+					<div class="service-header">
+						{{if .Icon}}
+						<span class="service-icon">{{.Icon}}</span>
 						{{else}}
-						{{.Name}}
+						<span class="service-icon">⚙️</span>
+						{{end}}
+						<div class="service-name">
+							{{if .URL}}
+							<a href="{{.URL}}" target="_blank" rel="noopener" class="service-link">{{.Name}}</a>
+							{{else}}
+							<span class="service-title">{{.Name}}</span>
+							{{end}}
+						</div>
+						{{if $.ShowStatus}}
+						<span class="status-indicator status-{{.Status}}" 
+							  title="{{.StatusText}} ({{.ResponseTime}}ms)"
+							  data-tooltip="{{.StatusText}}"></span>
 						{{end}}
 					</div>
-					{{if $.ShowStatus}}
-					<span class="status-indicator status-{{.Status}}" data-tooltip="{{.StatusText}}"></span>
+					{{if .Description}}
+					<div class="service-description">{{.Description}}</div>
 					{{end}}
+					<div class="service-stats">
+						{{if and $.ShowResponseTime .ResponseTime}}
+						<span class="service-response-time">{{.ResponseTime}}ms</span>
+						{{end}}
+						{{if .LastChecked}}
+						<span class="service-last-check">{{.LastCheckedText}}</span>
+						{{end}}
+						{{if .StatusCode}}
+						<span class="service-status-code">{{.StatusCode}}</span>
+						{{end}}
+					</div>
 				</div>
-				{{if .Description}}
-				<div class="service-description">{{.Description}}</div>
-				{{end}}
-				{{if and $.ShowResponseTime .ResponseTime}}
-				<div class="service-response-time">{{.ResponseTime}}ms</div>
 				{{end}}
 			</div>
-			{{end}}
+			
+			<div class="services-summary">
+				<div class="summary-item">
+					<span class="summary-label">Online</span>
+					<span class="summary-count online-count">{{.OnlineCount}}</span>
+				</div>
+				<div class="summary-item">
+					<span class="summary-label">Offline</span>
+					<span class="summary-count offline-count">{{.OfflineCount}}</span>
+				</div>
+				<div class="summary-item">
+					<span class="summary-label">Total</span>
+					<span class="summary-count total-count">{{.TotalCount}}</span>
+				</div>
+			</div>
 		</div>
 	</div>`
 
 	type serviceData struct {
-		Name         string
-		URL          string
-		Icon         string
-		Description  string
-		Status       string
-		StatusText   string
-		ResponseTime int64
+		Name            string
+		URL             string
+		Icon            string
+		Description     string
+		Status          string
+		StatusText      string
+		ResponseTime    int64
+		StatusCode      int
+		LastChecked     time.Time
+		LastCheckedText string
 	}
 
 	var serviceList []serviceData
+	onlineCount := 0
+	offlineCount := 0
+
 	for _, service := range services {
 		serviceMap, ok := service.(map[string]interface{})
 		if !ok {
@@ -105,29 +149,41 @@ func (p *ServicesPlugin) Render(ctx context.Context) (string, error) {
 
 		name := p.getStringFromMap(serviceMap, "name", "Service")
 		url := p.getStringFromMap(serviceMap, "url", "")
-		icon := p.getStringFromMap(serviceMap, "icon", "🔧")
+		icon := p.getStringFromMap(serviceMap, "icon", "")
 		description := p.getStringFromMap(serviceMap, "description", "")
 
-		// Get cached status
+		p.mutex.RLock()
 		status := p.serviceStatuses[name]
+		p.mutex.RUnlock()
+
 		statusText := "Unknown"
 		switch status.Status {
 		case "online":
 			statusText = "Online"
+			onlineCount++
 		case "offline":
 			statusText = "Offline"
+			offlineCount++
 		case "unknown":
 			statusText = "Unknown"
 		}
 
+		lastCheckedText := ""
+		if !status.LastChecked.IsZero() {
+			lastCheckedText = p.formatTimeAgo(status.LastChecked)
+		}
+
 		serviceList = append(serviceList, serviceData{
-			Name:         name,
-			URL:          url,
-			Icon:         icon,
-			Description:  description,
-			Status:       status.Status,
-			StatusText:   statusText,
-			ResponseTime: status.ResponseTime,
+			Name:            name,
+			URL:             url,
+			Icon:            icon,
+			Description:     description,
+			Status:          status.Status,
+			StatusText:      statusText,
+			ResponseTime:    status.ResponseTime,
+			StatusCode:      status.StatusCode,
+			LastChecked:     status.LastChecked,
+			LastCheckedText: lastCheckedText,
 		})
 	}
 
@@ -136,11 +192,17 @@ func (p *ServicesPlugin) Render(ctx context.Context) (string, error) {
 		Services         []serviceData
 		ShowStatus       bool
 		ShowResponseTime bool
+		OnlineCount      int
+		OfflineCount     int
+		TotalCount       int
 	}{
 		SectionTitle:     sectionTitle,
 		Services:         serviceList,
 		ShowStatus:       showStatus,
 		ShowResponseTime: showResponseTime,
+		OnlineCount:      onlineCount,
+		OfflineCount:     offlineCount,
+		TotalCount:       len(serviceList),
 	}
 
 	t, err := template.New("services").Parse(tmpl)
@@ -157,9 +219,22 @@ func (p *ServicesPlugin) Render(ctx context.Context) (string, error) {
 	return buf.String(), nil
 }
 
+func (p *ServicesPlugin) renderNoServices() string {
+	return `<div class="services-section section">
+		<div class="plugin-header">
+			<h3 class="plugin-title">🛠️ Services</h3>
+		</div>
+		<div class="plugin__inner">
+			<div class="no-services">
+				<p class="text-muted">No services configured</p>
+				<p class="text-muted">Add services in the admin panel to monitor their status</p>
+			</div>
+		</div>
+	</div>`
+}
+
 func (p *ServicesPlugin) UpdateData(ctx context.Context) error {
-	// Check services every 5 minutes
-	if time.Since(p.lastCheck) < 5*time.Minute {
+	if time.Since(p.lastCheck) < 2*time.Minute {
 		return nil
 	}
 
@@ -169,6 +244,7 @@ func (p *ServicesPlugin) UpdateData(ctx context.Context) error {
 		return nil
 	}
 
+	var wg sync.WaitGroup
 	for _, service := range services {
 		serviceMap, ok := service.(map[string]interface{})
 		if !ok {
@@ -177,54 +253,134 @@ func (p *ServicesPlugin) UpdateData(ctx context.Context) error {
 
 		name := p.getStringFromMap(serviceMap, "name", "")
 		url := p.getStringFromMap(serviceMap, "url", "")
+		description := p.getStringFromMap(serviceMap, "description", "")
+		icon := p.getStringFromMap(serviceMap, "icon", "")
 
 		if name == "" || url == "" {
 			continue
 		}
 
-		go p.checkServiceStatus(name, url)
+		wg.Add(1)
+		go func(serviceName, serviceUrl, desc, icn string) {
+			defer wg.Done()
+			p.checkServiceStatus(serviceName, serviceUrl, desc, icn)
+		}(name, url, description, icon)
 	}
 
+	wg.Wait()
 	p.lastCheck = time.Now()
+
+	p.broadcastStatusUpdate()
+
 	return nil
 }
 
-func (p *ServicesPlugin) checkServiceStatus(name, url string) {
+func (p *ServicesPlugin) checkServiceStatus(name, url, description, icon string) {
 	start := time.Now()
-	client := &http.Client{
-		Timeout: 10 * time.Second,
-	}
 
 	status := ServiceStatus{
 		Name:        name,
 		URL:         url,
 		Status:      "unknown",
+		Description: description,
+		Icon:        icon,
 		LastChecked: time.Now(),
 	}
 
-	resp, err := client.Get(url)
+	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		status.Status = "offline"
+		p.updateServiceStatus(name, status)
+		return
+	}
+
+	req.Header.Set("User-Agent", "AboutPage-ServiceMonitor/1.0")
+	req.Header.Set("Accept", "*/*")
+
+	resp, err := p.httpClient.Do(req)
+	if err != nil {
+		status.Status = "offline"
+		status.ResponseTime = time.Since(start).Milliseconds()
 	} else {
 		resp.Body.Close()
 		status.ResponseTime = time.Since(start).Milliseconds()
+		status.StatusCode = resp.StatusCode
 
 		if resp.StatusCode >= 200 && resp.StatusCode < 400 {
 			status.Status = "online"
-		} else {
+		} else if resp.StatusCode >= 400 && resp.StatusCode < 600 {
 			status.Status = "offline"
+		} else {
+			status.Status = "unknown"
 		}
 	}
 
-	// Update cached status
-	p.serviceStatuses[name] = status
+	p.updateServiceStatus(name, status)
+}
 
-	// Broadcast update
-	p.hub.Broadcast("service_status_update", map[string]interface{}{
-		"name":          name,
-		"status":        status.Status,
-		"response_time": status.ResponseTime,
+func (p *ServicesPlugin) updateServiceStatus(name string, status ServiceStatus) {
+	p.mutex.Lock()
+	oldStatus := p.serviceStatuses[name]
+	p.serviceStatuses[name] = status
+	p.mutex.Unlock()
+
+	if oldStatus.Status != status.Status {
+		p.hub.Broadcast("service_status_update", map[string]interface{}{
+			"name":          name,
+			"status":        status.Status,
+			"response_time": status.ResponseTime,
+			"status_code":   status.StatusCode,
+			"timestamp":     time.Now().Unix(),
+		})
+	}
+}
+
+func (p *ServicesPlugin) broadcastStatusUpdate() {
+	p.mutex.RLock()
+	onlineCount := 0
+	offlineCount := 0
+	totalCount := len(p.serviceStatuses)
+
+	statusMap := make(map[string]interface{})
+	for name, status := range p.serviceStatuses {
+		if status.Status == "online" {
+			onlineCount++
+		} else if status.Status == "offline" {
+			offlineCount++
+		}
+
+		statusMap[name] = map[string]interface{}{
+			"status":        status.Status,
+			"response_time": status.ResponseTime,
+			"status_code":   status.StatusCode,
+		}
+	}
+	p.mutex.RUnlock()
+
+	p.hub.Broadcast("services_summary_update", map[string]interface{}{
+		"online_count":  onlineCount,
+		"offline_count": offlineCount,
+		"total_count":   totalCount,
+		"services":      statusMap,
+		"timestamp":     time.Now().Unix(),
 	})
+}
+
+func (p *ServicesPlugin) formatTimeAgo(t time.Time) string {
+	duration := time.Since(t)
+
+	if duration < time.Minute {
+		return "just now"
+	} else if duration < time.Hour {
+		mins := int(duration.Minutes())
+		return fmt.Sprintf("%dm ago", mins)
+	} else if duration < 24*time.Hour {
+		hours := int(duration.Hours())
+		return fmt.Sprintf("%dh ago", hours)
+	} else {
+		days := int(duration.Hours() / 24)
+		return fmt.Sprintf("%dd ago", days)
+	}
 }
 
 func (p *ServicesPlugin) GetSettings() map[string]interface{} {
@@ -241,7 +397,8 @@ func (p *ServicesPlugin) SetSettings(settings map[string]interface{}) error {
 		return err
 	}
 
-	// Broadcast update
+	p.lastCheck = time.Time{}
+
 	p.hub.Broadcast("plugin_update", map[string]interface{}{
 		"plugin": p.Name(),
 		"action": "settings_changed",

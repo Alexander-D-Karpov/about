@@ -53,7 +53,6 @@ func (s *Storage) Load() error {
 		return s.saveToFile()
 	}
 
-	// Overlay env on every boot
 	s.applyEnvOverrides()
 	return nil
 }
@@ -361,7 +360,6 @@ func (s *Storage) getDefaultConfig() map[string]interface{} {
 						"sectionTitle": "Visitors",
 						"showTotal":    true,
 						"showToday":    true,
-						"showUptime":   true,
 						"showVisitors": true,
 					},
 				},
@@ -478,14 +476,12 @@ func (s *Storage) getDefaultConfig() map[string]interface{} {
 }
 
 func (s *Storage) applyEnvOverrides() {
-	// Profile
 	s.setPluginString("profile", "name", os.Getenv("PROFILE_NAME"))
 	s.setPluginString("profile", "title", os.Getenv("PROFILE_TITLE"))
 	s.setPluginString("profile", "subtitle", os.Getenv("PROFILE_SUBTITLE"))
 	s.setPluginString("profile", "bio", os.Getenv("PROFILE_BIO"))
 	s.setPluginString("profile", "profileImage", os.Getenv("PROFILE_IMAGE"))
 
-	// Social links: JSON array of {name,url,icon,iconPath?}
 	if j := os.Getenv("SOCIAL_LINKS_JSON"); j != "" {
 		var arr []map[string]interface{}
 		if json.Unmarshal([]byte(j), &arr) == nil {
@@ -493,7 +489,6 @@ func (s *Storage) applyEnvOverrides() {
 		}
 	}
 
-	// Tech stack: JSON array of {name,icon,iconPath?}
 	if j := os.Getenv("TECHSTACK_JSON"); j != "" {
 		var arr []map[string]interface{}
 		if json.Unmarshal([]byte(j), &arr) == nil {
@@ -501,17 +496,13 @@ func (s *Storage) applyEnvOverrides() {
 		}
 	}
 
-	// Code plugin: GitHub & Wakatime
 	s.setPluginNestedString("code", []string{"github", "username"}, os.Getenv("GITHUB_USERNAME"))
 	s.setPluginNestedString("code", []string{"wakatime", "api_key"}, os.Getenv("WAKATIME_API_KEY"))
 
-	// LastFM
 	s.setPluginString("lastfm", "username", os.Getenv("LASTFM_USERNAME"))
 
-	// Steam
 	s.setPluginNestedString("steam", []string{"steamid"}, os.Getenv("STEAM_ID"))
 
-	// Webring
 	if u := os.Getenv("WEBRING_URL"); u != "" {
 		s.setPluginString("webring", "webring_url", u)
 	}

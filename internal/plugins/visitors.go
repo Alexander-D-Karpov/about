@@ -24,7 +24,6 @@ type VisitorsPlugin struct {
 	dataPath      string
 	mutex         sync.RWMutex
 	lastSaveTime  time.Time
-	startTime     time.Time
 	lastDayCheck  time.Time
 	dailyStats    map[string]int64
 	lastBroadcast time.Time
@@ -46,7 +45,6 @@ func NewVisitorsPlugin(storage *storage.Storage, hub *stream.Hub, dataPath strin
 		dataPath:   dataPath,
 		dailyStats: make(map[string]int64),
 		currentDay: time.Now().Format("29.02.2006"),
-		startTime:  time.Now(),
 	}
 
 	plugin.loadVisitorsData()
@@ -100,13 +98,11 @@ func (p *VisitorsPlugin) Render(ctx context.Context) (string, error) {
 	p.mutex.RLock()
 	totalVisits := p.visitCount
 	todayVisits := p.todayCount
-	uptime := time.Since(p.startTime)
 	p.mutex.RUnlock()
 
 	sectionTitle := p.getConfigValue(settings, "ui.sectionTitle", "Visitors")
 	showTotal := p.getConfigBool(settings, "ui.showTotal", true)
 	showToday := p.getConfigBool(settings, "ui.showToday", true)
-	showUptime := p.getConfigBool(settings, "ui.showUptime", true)
 
 	tmpl := `
 	<div class="visitors-section section">
@@ -127,12 +123,6 @@ func (p *VisitorsPlugin) Render(ctx context.Context) (string, error) {
 					<div class="visitor-label">Today</div>
 				</div>
 				{{end}}
-				{{if .ShowUptime}}
-				<div class="visitor-stat">
-					<div class="visitor-uptime" data-uptime>{{.Uptime}}</div>
-					<div class="visitor-label">Uptime</div>
-				</div>
-				{{end}}
 			</div>
 		</div>
 	</div>`
@@ -141,18 +131,14 @@ func (p *VisitorsPlugin) Render(ctx context.Context) (string, error) {
 		SectionTitle string
 		ShowTotal    bool
 		ShowToday    bool
-		ShowUptime   bool
 		TotalVisits  string
 		TodayVisits  string
-		Uptime       string
 	}{
 		SectionTitle: sectionTitle,
 		ShowTotal:    showTotal,
 		ShowToday:    showToday,
-		ShowUptime:   showUptime,
 		TotalVisits:  formatNumber(totalVisits),
 		TodayVisits:  formatNumber(todayVisits),
-		Uptime:       formatDuration(uptime),
 	}
 
 	t, err := template.New("visitors").Parse(tmpl)
@@ -175,14 +161,11 @@ func (p *VisitorsPlugin) RecordVisit(userAgent, ip string) {
 
 	p.checkDayTransitionUnsafe()
 
-	// Always increment both counters on every visit
 	p.visitCount++
 	p.todayCount++
 
-	// Always broadcast immediately for real-time updates
 	go p.broadcastUpdate()
 
-	// Save immediately to ensure persistence
 	go func() {
 		p.mutex.Lock()
 		defer p.mutex.Unlock()
@@ -219,7 +202,6 @@ func (p *VisitorsPlugin) UpdateData(ctx context.Context) error {
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
 
-	// Always save when requested to ensure data persistence
 	return p.saveVisitorsDataUnsafe()
 }
 
@@ -363,19 +345,5 @@ func formatNumber(n int64) string {
 		return fmt.Sprintf("%.1fK", float64(n)/1000)
 	} else {
 		return fmt.Sprintf("%.1fM", float64(n)/1000000)
-	}
-}
-
-func formatDuration(d time.Duration) string {
-	days := int(d.Hours()) / 24
-	hours := int(d.Hours()) % 24
-	minutes := int(d.Minutes()) % 60
-
-	if days > 0 {
-		return fmt.Sprintf("%dd %dh", days, hours)
-	} else if hours > 0 {
-		return fmt.Sprintf("%dh %dm", hours, minutes)
-	} else {
-		return fmt.Sprintf("%dm", minutes)
 	}
 }

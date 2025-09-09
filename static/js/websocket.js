@@ -12,6 +12,7 @@
     let connectionRetryCount = 0;
     let lastFMCheckInterval = null;
     let clientCountRequestTimeout = null;
+    let imageLoadQueue = new Map();
 
     function connect() {
         if (ws && (ws.readyState === WebSocket.CONNECTING || ws.readyState === WebSocket.OPEN)) {
@@ -243,13 +244,23 @@
                     updateBeatLeader(message.data);
                     break;
                 case 'steam_update':
+                case 'steam_games_update':
                     updateSteam(message.data);
+                    break;
+                case 'steam_status_update':
+                    updateSteamStatus(message.data);
                     break;
                 case 'visitors_update':
                     updateVisitors(message.data);
                     break;
                 case 'webring_update':
                     updateWebring(message.data);
+                    break;
+                case 'services_summary_update':
+                    updateServicesStatus(message.data);
+                    break;
+                case 'service_status_update':
+                    updateSingleServiceStatus(message.data);
                     break;
                 case 'music_play':
                     if (window.musicPlayer) {
@@ -283,7 +294,6 @@
     function updateClientCount(data) {
         const clientsEl = document.getElementById('connected-clients');
         if (clientsEl && data && typeof data.count === 'number') {
-            // Animate the number change
             const oldCount = parseInt(clientsEl.textContent) || 0;
             const newCount = data.count;
 
@@ -345,26 +355,54 @@
         }
     }
 
+    function preloadImage(src, onLoad, onError) {
+        if (!src || imageLoadQueue.has(src)) return;
+
+        const img = new Image();
+        imageLoadQueue.set(src, img);
+
+        img.onload = () => {
+            imageLoadQueue.delete(src);
+            if (onLoad) onLoad(img);
+        };
+
+        img.onerror = () => {
+            imageLoadQueue.delete(src);
+            console.warn('Failed to preload image:', src);
+            if (onError) onError();
+        };
+
+        img.src = src;
+    }
+
     function updateLastFM(data) {
         const section = document.querySelector('.lastfm-section');
         if (!section) return;
 
-        const trackName = section.querySelector('.lastfm-track, .track-name, .track-title');
-        const trackArtist = section.querySelector('.lastfm-artist, .track-artist');
-        const trackAlbum = section.querySelector('.lastfm-album, .track-album');
+        const trackName = section.querySelector('.track-title, .track-name');
+        const trackArtist = section.querySelector('.track-artist');
+        const trackAlbum = section.querySelector('.track-album');
         const statusText = section.querySelector('.status-text');
-        const coverImg = section.querySelector('.lastfm-cover img, .track-cover img, .track-cover-large img');
+        const coverImg = section.querySelector('.track-cover-large img, .track-cover img');
 
-        if (trackName) trackName.textContent = data.name;
-        if (trackArtist) trackArtist.textContent = `by ${data.artist}`;
+        if (trackName) trackName.textContent = data.name || 'Unknown Track';
+        if (trackArtist) trackArtist.textContent = data.artist ? `by ${data.artist}` : 'Unknown Artist';
         if (trackAlbum && data.album) trackAlbum.textContent = `from ${data.album}`;
 
         if (statusText) {
             statusText.textContent = data.isPlaying ? 'Now Playing' : 'Last played';
+            const statusContainer = statusText.closest('.track-status');
+            if (statusContainer) {
+                statusContainer.className = data.isPlaying ? 'track-status now-playing' : 'track-status';
+            }
         }
 
         if (coverImg && data.image) {
-            coverImg.src = data.image;
+            loadImageSmoothly(coverImg, data.image);
+        } else if (coverImg && !data.image) {
+            coverImg.style.opacity = '0.3';
+            coverImg.src = '/static/images/default-album.png';
+            setTimeout(() => { coverImg.style.opacity = '1'; }, 150);
         }
 
         const statusIndicator = section.querySelector('.status-indicator');
@@ -378,26 +416,72 @@
         }
 
         if (data.recentTracks && data.recentTracks.length > 0) {
-            const recentContainer = section.querySelector('.recent-tracks-list');
-            if (recentContainer) {
-                recentContainer.innerHTML = '';
-                data.recentTracks.forEach(track => {
-                    const trackElement = document.createElement('div');
-                    trackElement.className = 'recent-track-item';
-                    trackElement.innerHTML = `
-                        ${track.image ? `<div class="recent-track-cover"><img src="${track.image}" alt="${track.name}" loading="lazy"></div>` : ''}
-                        <div class="recent-track-info">
-                            <div class="recent-track-name">${track.name}</div>
-                            <div class="recent-track-artist">${track.artist}</div>
-                            <div class="recent-track-time">${track.relativeTime}</div>
-                        </div>
-                    `;
-                    recentContainer.appendChild(trackElement);
-                });
-            }
+            updateRecentTracks(section, data.recentTracks);
         }
 
         animateUpdate(section);
+    }
+
+    function loadImageSmoothly(imgElement, newSrc) {
+        if (!imgElement || !newSrc) return;
+
+        if (imgElement.src === newSrc) return;
+
+        const fadeOut = () => {
+            imgElement.style.transition = 'opacity 0.2s ease, filter 0.2s ease';
+            imgElement.style.opacity = '0.4';
+            imgElement.style.filter = 'blur(2px)';
+        };
+
+        const fadeIn = () => {
+            imgElement.style.opacity = '1';
+            imgElement.style.filter = 'blur(0px)';
+            setTimeout(() => {
+                imgElement.style.transition = '';
+            }, 200);
+        };
+
+        preloadImage(newSrc,
+            (loadedImg) => {
+                imgElement.src = newSrc;
+                fadeIn();
+            },
+            () => {
+                imgElement.src = '/static/images/default-album.png';
+                fadeIn();
+            }
+        );
+
+        fadeOut();
+    }
+
+    function updateRecentTracks(section, recentTracks) {
+        const recentContainer = section.querySelector('.recent-tracks-list');
+        if (!recentContainer) return;
+
+        recentContainer.innerHTML = '';
+
+        recentTracks.forEach(track => {
+            const trackElement = document.createElement('div');
+            trackElement.className = 'recent-track-item';
+            trackElement.innerHTML = `
+                ${track.image ? `<div class="recent-track-cover"><img src="${track.image}" alt="${track.name}" loading="lazy"></div>` : ''}
+                <div class="recent-track-info">
+                    <div class="recent-track-name">${track.name}</div>
+                    <div class="recent-track-artist">${track.artist}</div>
+                </div>
+                <div class="recent-track-time">${track.relativeTime}</div>
+            `;
+
+            if (window.playTrack) {
+                trackElement.style.cursor = 'pointer';
+                trackElement.addEventListener('click', () => {
+                    window.playTrack(`${track.artist} ${track.name}`);
+                });
+            }
+
+            recentContainer.appendChild(trackElement);
+        });
     }
 
     function updateLastFMRealtime(data) {
@@ -408,12 +492,17 @@
         const section = document.querySelector('.beatleader-section');
         if (!section) return;
 
-        const statValues = section.querySelectorAll('.stat-value');
-        if (statValues.length >= 4) {
-            statValues[0].textContent = '#' + data.rank;
-            statValues[1].textContent = '#' + data.countryRank;
-            statValues[2].textContent = Math.round(data.pp) + 'pp';
-            statValues[3].textContent = data.accuracy.toFixed(1) + '%';
+        const statItems = section.querySelectorAll('.stat-item');
+        if (statItems.length >= 4) {
+            const rankStat = statItems[0].querySelector('.stat-value');
+            const countryRankStat = statItems[1].querySelector('.stat-value');
+            const ppStat = statItems[2].querySelector('.stat-value');
+            const accuracyStat = statItems[3].querySelector('.stat-value');
+
+            if (rankStat) rankStat.textContent = '#' + data.rank;
+            if (countryRankStat) countryRankStat.textContent = '#' + data.countryRank;
+            if (ppStat) ppStat.textContent = Math.round(data.pp) + 'pp';
+            if (accuracyStat) accuracyStat.textContent = data.accuracy.toFixed(1) + '%';
         }
 
         animateUpdate(section);
@@ -425,6 +514,99 @@
 
         console.debug('Steam games updated:', data.games);
         animateUpdate(section);
+    }
+
+    function updateSteamStatus(data) {
+        const section = document.querySelector('.steam-section');
+        if (!section) return;
+
+        const currentGameDiv = section.querySelector('.current-game');
+        const playerStatusDiv = section.querySelector('.player-status');
+
+        if (data.isPlaying && data.currentGame) {
+            if (!currentGameDiv) {
+                const headerElement = section.querySelector('h3');
+                if (headerElement) {
+                    const gameHTML = `
+                        <div class="current-game">
+                            <div class="current-game-header">
+                                <span class="status-indicator status-online"></span>
+                                <span class="current-game-status">Currently Playing</span>
+                            </div>
+                            <div class="current-game-info">
+                                <div class="current-game-name">${data.currentGame}</div>
+                                <div class="current-game-actions">
+                                    <a href="https://store.steampowered.com/search/?term=${encodeURIComponent(data.currentGame)}" target="_blank" rel="noopener" class="btn btn-sm">
+                                        <svg viewBox="0 0 24 24" width="14" height="14">
+                                            <path fill="currentColor" d="M14 3v2h3.59l-9.83 9.83 1.41 1.41L19 6.41V10h2V3m-2 16H5V5h7V3H5c-1.11 0-2 .89-2 2v14c0 1.11.89 2 2 2h14c1.11 0 2-.89 2-2v-7h-2v7Z"/>
+                                        </svg>
+                                        View on Steam
+                                    </a>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                    headerElement.insertAdjacentHTML('afterend', gameHTML);
+                }
+            } else {
+                const gameName = currentGameDiv.querySelector('.current-game-name');
+                const gameLink = currentGameDiv.querySelector('.current-game-actions a');
+                if (gameName) gameName.textContent = data.currentGame;
+                if (gameLink) gameLink.href = `https://store.steampowered.com/search/?term=${encodeURIComponent(data.currentGame)}`;
+            }
+
+            if (playerStatusDiv) playerStatusDiv.style.display = 'none';
+        } else {
+            if (currentGameDiv) currentGameDiv.remove();
+
+            if (!playerStatusDiv) {
+                const headerElement = section.querySelector('h3');
+                if (headerElement) {
+                    const statusHTML = `
+                        <div class="player-status">
+                            <div class="status-info">
+                                <span class="status-indicator status-${getPersonaStateClass(data.personaState)}"></span>
+                                <span class="status-text">${getPersonaStateText(data.personaState)}</span>
+                            </div>
+                        </div>
+                    `;
+                    headerElement.insertAdjacentHTML('afterend', statusHTML);
+                }
+            } else {
+                const statusIndicator = playerStatusDiv.querySelector('.status-indicator');
+                const statusText = playerStatusDiv.querySelector('.status-text');
+                if (statusIndicator) {
+                    statusIndicator.className = `status-indicator status-${getPersonaStateClass(data.personaState)}`;
+                }
+                if (statusText) {
+                    statusText.textContent = getPersonaStateText(data.personaState);
+                }
+                playerStatusDiv.style.display = 'block';
+            }
+        }
+
+        animateUpdate(section);
+    }
+
+    function getPersonaStateClass(state) {
+        switch (state) {
+            case 1: return 'online';
+            case 2: case 3: case 4: case 5: case 6: return 'loading';
+            default: return 'offline';
+        }
+    }
+
+    function getPersonaStateText(state) {
+        switch (state) {
+            case 0: return 'Offline';
+            case 1: return 'Online';
+            case 2: return 'Busy';
+            case 3: return 'Away';
+            case 4: return 'Snooze';
+            case 5: return 'Looking to trade';
+            case 6: return 'Looking to play';
+            default: return 'Unknown';
+        }
     }
 
     function updateWebring(data) {
@@ -491,7 +673,6 @@
     }
 
     function updateVisitors(data) {
-        // Enhanced visitor updates with immediate visual feedback
         let updated = false;
 
         if (data.total !== undefined) {
@@ -520,22 +701,87 @@
             });
         }
 
-        const visitorsInfo = document.querySelector('.visitors-info');
-        if (visitorsInfo && data.total && data.today) {
-            const newText = `Total visits: ${formatNumber(data.total)} • Today: ${formatNumber(data.today)}`;
-            if (visitorsInfo.textContent !== newText) {
-                visitorsInfo.textContent = newText;
-                updated = true;
-            }
-        }
-
-        // Animate the visitors section if updated
         if (updated) {
             const visitorsSection = document.querySelector('.visitors-section');
             if (visitorsSection) {
                 animateUpdate(visitorsSection);
             }
         }
+    }
+
+    function updateServicesStatus(data) {
+        const section = document.querySelector('.services-section');
+        if (!section) return;
+
+        const onlineCount = section.querySelector('.online-count');
+        const offlineCount = section.querySelector('.offline-count');
+        const totalCount = section.querySelector('.total-count');
+
+        if (onlineCount) onlineCount.textContent = data.online_count;
+        if (offlineCount) offlineCount.textContent = data.offline_count;
+        if (totalCount) totalCount.textContent = data.total_count;
+
+        if (data.services) {
+            Object.entries(data.services).forEach(([serviceName, serviceData]) => {
+                const serviceItems = section.querySelectorAll('.service-item');
+                serviceItems.forEach(item => {
+                    const itemName = item.querySelector('.service-link, .service-title')?.textContent;
+                    if (itemName === serviceName) {
+                        item.setAttribute('data-status', serviceData.status);
+
+                        const statusIndicator = item.querySelector('.status-indicator');
+                        if (statusIndicator) {
+                            statusIndicator.className = `status-indicator status-${serviceData.status}`;
+                        }
+
+                        const responseTime = item.querySelector('.service-response-time');
+                        if (responseTime && serviceData.response_time) {
+                            responseTime.textContent = `${serviceData.response_time}ms`;
+                        }
+
+                        const statusCode = item.querySelector('.service-status-code');
+                        if (statusCode && serviceData.status_code) {
+                            statusCode.textContent = serviceData.status_code;
+                            statusCode.setAttribute('data-code', serviceData.status_code);
+                        }
+                    }
+                });
+            });
+        }
+
+        animateUpdate(section);
+    }
+
+    function updateSingleServiceStatus(data) {
+        const section = document.querySelector('.services-section');
+        if (!section) return;
+
+        const serviceItems = section.querySelectorAll('.service-item');
+        serviceItems.forEach(item => {
+            const itemName = item.querySelector('.service-link, .service-title')?.textContent;
+            if (itemName === data.name) {
+                item.setAttribute('data-status', data.status);
+
+                const statusIndicator = item.querySelector('.status-indicator');
+                if (statusIndicator) {
+                    statusIndicator.className = `status-indicator status-${data.status}`;
+                    statusIndicator.title = `${data.status} (${data.response_time}ms)`;
+                }
+
+                const responseTime = item.querySelector('.service-response-time');
+                if (responseTime && data.response_time) {
+                    responseTime.textContent = `${data.response_time}ms`;
+                }
+
+                const statusCode = item.querySelector('.service-status-code');
+                if (statusCode && data.status_code) {
+                    statusCode.textContent = data.status_code;
+                    statusCode.setAttribute('data-code', data.status_code);
+                }
+
+                animateUpdate(item);
+            }
+        });
     }
 
     function updateMeme(data) {
@@ -569,7 +815,6 @@
     }
 
     function updateSystemInfo(data) {
-        // Update uptime displays
         if (data.uptime_text) {
             const uptimeElements = document.querySelectorAll('[data-uptime]:not([data-uptime="client"])');
             uptimeElements.forEach(el => {
@@ -580,7 +825,6 @@
             });
         }
 
-        // Update last updated time
         if (data.last_updated) {
             const lastUpdatedElements = document.querySelectorAll('#last-updated');
             lastUpdatedElements.forEach(el => {
@@ -590,7 +834,6 @@
             });
         }
 
-        // Update connected clients count
         if (data.connected_clients !== undefined) {
             updateClientCount({ count: data.connected_clients });
         }
@@ -634,12 +877,10 @@
     function animateCounterUpdate(element, oldValue, newValue) {
         if (!element) return;
 
-        // Animate the counter with a brief color change and scale effect
         element.style.transform = 'scale(1.1)';
         element.style.color = 'var(--accent)';
         element.style.transition = 'transform 0.2s ease, color 0.3s ease';
 
-        // Update the text content with formatted number
         element.textContent = formatNumber(newValue);
 
         setTimeout(() => {

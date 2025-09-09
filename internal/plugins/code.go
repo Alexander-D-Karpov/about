@@ -69,13 +69,8 @@ type WakatimeData struct {
 		Seconds float64 `json:"seconds"`
 		Text    string  `json:"text"`
 	} `json:"last_week"`
-	Languages []struct {
-		Name         string  `json:"name"`
-		TotalSeconds float64 `json:"total_seconds"`
-		Percent      float64 `json:"percent"`
-		Text         string  `json:"text"`
-	} `json:"languages"`
-	Editors []struct {
+	Languages []WakatimeLanguage `json:"languages"`
+	Editors   []struct {
 		Name         string  `json:"name"`
 		TotalSeconds float64 `json:"total_seconds"`
 		Percent      float64 `json:"percent"`
@@ -89,6 +84,14 @@ type WakatimeData struct {
 	} `json:"operating_systems"`
 }
 
+type WakatimeLanguage struct {
+	Name         string  `json:"name"`
+	TotalSeconds float64 `json:"total_seconds"`
+	Percent      float64 `json:"percent"`
+	Text         string  `json:"text"`
+	Color        string  `json:"color"`
+}
+
 func NewCodePlugin(storage *storage.Storage, hub *stream.Hub) *CodePlugin {
 	return &CodePlugin{
 		storage: storage,
@@ -98,6 +101,83 @@ func NewCodePlugin(storage *storage.Storage, hub *stream.Hub) *CodePlugin {
 
 func (p *CodePlugin) Name() string {
 	return "code"
+}
+
+func (p *CodePlugin) getLanguageColor(languageName string) string {
+	colors := map[string]string{
+		"Go":           "#00ADD8",
+		"Python":       "#3776ab",
+		"JavaScript":   "#f1e05a",
+		"TypeScript":   "#2b7489",
+		"Java":         "#b07219",
+		"C++":          "#f34b7d",
+		"C":            "#555555",
+		"C#":           "#239120",
+		"Rust":         "#dea584",
+		"HTML":         "#e34c26",
+		"CSS":          "#1572B6",
+		"Shell":        "#89e051",
+		"Bash":         "#89e051",
+		"PHP":          "#4F5D95",
+		"Ruby":         "#701516",
+		"Swift":        "#FA7343",
+		"Kotlin":       "#A97BFF",
+		"Dart":         "#00B4AB",
+		"Vue":          "#4FC08D",
+		"React":        "#61DAFB",
+		"JSON":         "#292929",
+		"XML":          "#0060ac",
+		"YAML":         "#cb171e",
+		"Markdown":     "#083fa1",
+		"SQL":          "#e38c00",
+		"Dockerfile":   "#384d54",
+		"Vim script":   "#199f4b",
+		"Lua":          "#000080",
+		"PowerShell":   "#012456",
+		"Assembly":     "#6E4C13",
+		"SCSS":         "#c6538c",
+		"Less":         "#1d365d",
+		"Sass":         "#a53b70",
+		"Makefile":     "#427819",
+		"CMake":        "#DA3434",
+		"Perl":         "#0298c3",
+		"R":            "#198CE7",
+		"MATLAB":       "#e16737",
+		"Scala":        "#c22d40",
+		"Clojure":      "#db5855",
+		"Elixir":       "#6e4a7e",
+		"Erlang":       "#B83998",
+		"Haskell":      "#5e5086",
+		"F#":           "#b845fc",
+		"OCaml":        "#3be133",
+		"Reason":       "#ff5847",
+		"Elm":          "#60B5CC",
+		"PureScript":   "#1D222D",
+		"CoffeeScript": "#244776",
+		"LiveScript":   "#499886",
+		"Nim":          "#ffc200",
+		"Crystal":      "#000100",
+		"D":            "#ba595e",
+		"Zig":          "#ec915c",
+		"V":            "#4f87c4",
+		"Odin":         "#60AFFE",
+		"Text":         "#383A42",
+		"Plain Text":   "#383A42",
+		"Other":        "#8b949e",
+	}
+
+	if color, exists := colors[languageName]; exists {
+		return color
+	}
+
+	lowerName := strings.ToLower(languageName)
+	for lang, color := range colors {
+		if strings.ToLower(lang) == lowerName {
+			return color
+		}
+	}
+
+	return "#8b949e"
 }
 
 func (p *CodePlugin) Render(ctx context.Context) (string, error) {
@@ -189,7 +269,7 @@ func (p *CodePlugin) Render(ctx context.Context) (string, error) {
 						<div class="waka-item">
 							<span class="waka-lang">{{.Name}}</span>
 							<div class="waka-bar">
-								<div class="waka-fill" style="width: {{.Percent}}%;"></div>
+								<div class="waka-fill" style="width: {{.Percent}}%; background-color: {{.Color}};"></div>
 							</div>
 							<span class="waka-time">{{.Text}}</span>
 						</div>
@@ -323,7 +403,6 @@ func (p *CodePlugin) UpdateData(ctx context.Context) error {
 func (p *CodePlugin) updateGitHubData(username string) error {
 	client := &http.Client{Timeout: 15 * time.Second}
 
-	// Get user data
 	userURL := fmt.Sprintf("https://api.github.com/users/%s", username)
 	req, err := http.NewRequest("GET", userURL, nil)
 	if err != nil {
@@ -343,7 +422,6 @@ func (p *CodePlugin) updateGitHubData(username string) error {
 		return err
 	}
 
-	// Get repositories for additional stats
 	reposURL := fmt.Sprintf("https://api.github.com/users/%s/repos?sort=updated&per_page=100", username)
 	req, err = http.NewRequest("GET", reposURL, nil)
 	if err != nil {
@@ -363,7 +441,6 @@ func (p *CodePlugin) updateGitHubData(username string) error {
 		return err
 	}
 
-	// Calculate stats
 	totalStars := 0
 	languageBytes := make(map[string]int)
 	languageColors := map[string]string{
@@ -384,11 +461,10 @@ func (p *CodePlugin) updateGitHubData(username string) error {
 	for _, repo := range repos {
 		totalStars += repo.Stars
 		if repo.Language != "" {
-			languageBytes[repo.Language] += 1000 // Simplified calculation
+			languageBytes[repo.Language] += 1000
 		}
 	}
 
-	// Convert to language stats
 	totalBytes := 0
 	for _, bytes := range languageBytes {
 		totalBytes += bytes
@@ -398,10 +474,10 @@ func (p *CodePlugin) updateGitHubData(username string) error {
 	for lang, bytes := range languageBytes {
 		if totalBytes > 0 {
 			percentage := float64(bytes) / float64(totalBytes) * 100
-			if percentage >= 1.0 { // Only show languages with >= 1%
+			if percentage >= 1.0 {
 				color := languageColors[lang]
 				if color == "" {
-					color = "#8b949e"
+					color = p.getLanguageColor(lang)
 				}
 				topLanguages = append(topLanguages, LanguageStat{
 					Name:       lang,
@@ -413,7 +489,6 @@ func (p *CodePlugin) updateGitHubData(username string) error {
 		}
 	}
 
-	// Sort by percentage
 	for i := 0; i < len(topLanguages); i++ {
 		for j := i + 1; j < len(topLanguages); j++ {
 			if topLanguages[i].Percentage < topLanguages[j].Percentage {
@@ -422,24 +497,21 @@ func (p *CodePlugin) updateGitHubData(username string) error {
 		}
 	}
 
-	// Keep only top 8
 	if len(topLanguages) > 8 {
 		topLanguages = topLanguages[:8]
 	}
 
-	// Recent repos (top 5)
 	recentRepos := repos
 	if len(recentRepos) > 5 {
 		recentRepos = recentRepos[:5]
 	}
 
-	// Generate mock weekly commit data (in a real implementation, you'd call GitHub's API)
 	weeklyCommits := []int{12, 8, 15, 22, 18, 7, 3}
 
 	userData.TotalStars = totalStars
 	userData.TopLanguages = topLanguages
 	userData.RecentRepos = recentRepos
-	userData.TotalCommits = 847 // Mock data - would come from contributions API
+	userData.TotalCommits = 847
 	userData.CommitStats = GitHubCommitStats{
 		TotalCommits:  847,
 		WeeklyCommits: weeklyCommits,
@@ -460,7 +532,6 @@ func (p *CodePlugin) updateGitHubData(username string) error {
 func (p *CodePlugin) updateWakatimeData(apiKey string) error {
 	client := &http.Client{Timeout: 30 * time.Second}
 
-	// Get last 7 days stats
 	weekURL := "https://wakatime.com/api/v1/users/current/stats/last_7_days"
 	req, err := http.NewRequest("GET", weekURL, nil)
 	if err != nil {
@@ -503,7 +574,6 @@ func (p *CodePlugin) updateWakatimeData(apiKey string) error {
 		return err
 	}
 
-	// Get all time stats
 	allTimeURL := "https://wakatime.com/api/v1/users/current/all_time_since_today"
 	req, err = http.NewRequest("GET", allTimeURL, nil)
 	if err != nil {
@@ -529,9 +599,19 @@ func (p *CodePlugin) updateWakatimeData(apiKey string) error {
 		return err
 	}
 
-	// Format time strings
 	weekHours := weekData.Data.TotalSeconds / 3600
 	weekTimeText := fmt.Sprintf("%.1f hrs", weekHours)
+
+	var languages []WakatimeLanguage
+	for _, lang := range weekData.Data.Languages {
+		languages = append(languages, WakatimeLanguage{
+			Name:         lang.Name,
+			TotalSeconds: lang.TotalSeconds,
+			Percent:      lang.Percent,
+			Text:         lang.Text,
+			Color:        p.getLanguageColor(lang.Name),
+		})
+	}
 
 	wakatimeData := &WakatimeData{
 		TotalTime: struct {
@@ -548,7 +628,7 @@ func (p *CodePlugin) updateWakatimeData(apiKey string) error {
 			Seconds: weekData.Data.TotalSeconds,
 			Text:    weekTimeText,
 		},
-		Languages:        weekData.Data.Languages,
+		Languages:        languages,
 		Editors:          weekData.Data.Editors,
 		OperatingSystems: weekData.Data.OperatingSystems,
 	}

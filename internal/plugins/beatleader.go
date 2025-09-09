@@ -7,6 +7,7 @@ import (
 	"html/template"
 	"io"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 
@@ -184,6 +185,20 @@ func (p *BeatLeaderPlugin) Name() string {
 	return "beatleader"
 }
 
+func (p *BeatLeaderPlugin) extractScoreID(replayURL string) string {
+	if replayURL == "" {
+		return ""
+	}
+
+	re := regexp.MustCompile(`/(\d+)-`)
+	matches := re.FindStringSubmatch(replayURL)
+	if len(matches) > 1 {
+		return matches[1]
+	}
+
+	return ""
+}
+
 func (p *BeatLeaderPlugin) Render(ctx context.Context) (string, error) {
 	config := p.storage.GetPluginConfig(p.Name())
 	settings := config.Settings
@@ -226,7 +241,7 @@ func (p *BeatLeaderPlugin) Render(ctx context.Context) (string, error) {
 		<h4>Recent Maps {{if .ShowPepeGif}} <img src="/static/images/pepe-dance.gif" alt="" class="pepe-gif" loading="lazy" style="width: 20px; height: 20px">{{end}}</h4>
 		<div class="maps-list">
 			{{range .RecentScores}}
-			<div class="map-item">
+			<div class="map-item" {{if .ReplayURL}}onclick="window.open('{{.ReplayURL}}', '_blank')" style="cursor: pointer;"{{end}}>
 				{{if .Leaderboard.Song.CoverImage}}
 				<img src="{{.Leaderboard.Song.CoverImage}}" alt="{{.Leaderboard.Song.Name}}" class="map-cover" loading="lazy">
 				{{end}}
@@ -238,6 +253,7 @@ func (p *BeatLeaderPlugin) Render(ctx context.Context) (string, error) {
 						<span>{{printf "%.1f" (mul .Accuracy 100)}}%</span>
 						{{if .PP}}<span>{{printf "%.0f" .PP}}pp</span>{{end}}
 						{{if .FullCombo}}<span>FC</span>{{end}}
+						{{if .ReplayURL}}<span class="replay-indicator">🎬</span>{{end}}
 					</div>
 				</div>
 			</div>
@@ -252,6 +268,11 @@ func (p *BeatLeaderPlugin) Render(ctx context.Context) (string, error) {
 			break
 		}
 
+		replayURL := ""
+		if scoreID := p.extractScoreID(score.Replay); scoreID != "" {
+			replayURL = fmt.Sprintf("https://replay.beatleader.com/?scoreId=%s", scoreID)
+		}
+
 		processedScore := map[string]interface{}{
 			"Leaderboard": score.Leaderboard,
 			"Accuracy":    score.Accuracy,
@@ -259,6 +280,7 @@ func (p *BeatLeaderPlugin) Render(ctx context.Context) (string, error) {
 			"Rank":        score.Rank,
 			"FullCombo":   score.FullCombo,
 			"Modifiers":   score.Modifiers,
+			"ReplayURL":   replayURL,
 		}
 		processedScores = append(processedScores, processedScore)
 	}
@@ -312,7 +334,6 @@ func (p *BeatLeaderPlugin) renderLoading(settings map[string]interface{}) string
 }
 
 func (p *BeatLeaderPlugin) UpdateData(ctx context.Context) error {
-	// Update every 30 minutes to avoid API rate limits
 	if time.Since(p.lastUpdate) < 30*time.Minute {
 		return nil
 	}
@@ -323,14 +344,11 @@ func (p *BeatLeaderPlugin) UpdateData(ctx context.Context) error {
 		return fmt.Errorf("username not configured")
 	}
 
-	// Update player data
 	if err := p.updatePlayerData(username); err != nil {
 		return fmt.Errorf("failed to update player data: %v", err)
 	}
 
-	// Update recent scores
 	if err := p.updateRecentScores(username); err != nil {
-		// Don't fail completely if recent scores fail
 		fmt.Printf("Warning: Failed to update recent scores: %v\n", err)
 	}
 
@@ -358,18 +376,11 @@ func (p *BeatLeaderPlugin) updatePlayerData(username string) error {
 		return fmt.Errorf("BeatLeader API returned status %d", resp.StatusCode)
 	}
 
-	// Read response body for debugging
 	bodyBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return fmt.Errorf("failed to read response body: %v", err)
 	}
 
-	// Check if response starts with valid JSON
-	if len(bodyBytes) == 0 {
-		return fmt.Errorf("BeatLeader API returned empty response")
-	}
-
-	// Skip any leading whitespace/control characters
 	start := 0
 	for start < len(bodyBytes) && bodyBytes[start] <= 32 {
 		start++
@@ -433,7 +444,6 @@ func (p *BeatLeaderPlugin) updateRecentScores(username string) error {
 		return fmt.Errorf("failed to read response body: %v", err)
 	}
 
-	// Skip any leading whitespace/control characters
 	start := 0
 	for start < len(bodyBytes) && bodyBytes[start] <= 32 {
 		start++
@@ -483,10 +493,8 @@ func (p *BeatLeaderPlugin) SetSettings(settings map[string]interface{}) error {
 		return err
 	}
 
-	// Reset last update to force refresh
 	p.lastUpdate = time.Time{}
 
-	// Broadcast update
 	p.hub.Broadcast("plugin_update", map[string]interface{}{
 		"plugin": p.Name(),
 		"action": "settings_changed",

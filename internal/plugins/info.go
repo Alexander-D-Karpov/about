@@ -21,11 +21,11 @@ type InfoPlugin struct {
 	gitCommit string
 }
 
-func NewInfoPlugin(storage *storage.Storage, hub *stream.Hub) *InfoPlugin {
+func NewInfoPlugin(storage *storage.Storage, hub *stream.Hub, startTime time.Time) *InfoPlugin {
 	return &InfoPlugin{
 		storage:   storage,
 		hub:       hub,
-		startTime: time.Now(),
+		startTime: startTime,
 		buildTime: "2025-01-15T10:30:00Z",
 		version:   "1.0.0",
 		gitCommit: "abc123f",
