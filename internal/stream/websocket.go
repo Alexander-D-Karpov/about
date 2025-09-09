@@ -55,22 +55,67 @@ func (h *Hub) Run() {
 			h.clients[client] = true
 			clientCount := len(h.clients)
 			h.mutex.Unlock()
+
 			log.Printf("Client connected. Total clients: %d", clientCount)
 
-			// Broadcast client count update
+			go func(c *Client, count int) {
+				time.Sleep(100 * time.Millisecond)
+
+				h.mutex.RLock()
+				_, stillConnected := h.clients[c]
+				currentCount := len(h.clients)
+				h.mutex.RUnlock()
+
+				if !stillConnected {
+					return
+				}
+
+				message := Message{
+					Type: "client_count_update",
+					Data: map[string]interface{}{
+						"count":     currentCount,
+						"timestamp": time.Now().Unix(),
+					},
+				}
+
+				jsonData, err := json.Marshal(message)
+				if err != nil {
+					return
+				}
+
+				func() {
+					defer func() {
+						if r := recover(); r != nil {
+							log.Printf("Recovered from panic sending to client: %v", r)
+						}
+					}()
+
+					select {
+					case c.send <- jsonData:
+					default:
+					}
+				}()
+			}(client, clientCount)
+
 			h.broadcastClientCount(clientCount)
 
 		case client := <-h.unregister:
 			h.mutex.Lock()
 			if _, ok := h.clients[client]; ok {
 				delete(h.clients, client)
-				close(client.send)
+				func() {
+					defer func() {
+						if r := recover(); r != nil {
+							log.Printf("Recovered from panic closing client channel: %v", r)
+						}
+					}()
+					close(client.send)
+				}()
 			}
 			clientCount := len(h.clients)
 			h.mutex.Unlock()
-			log.Printf("Client disconnected. Total clients: %d", clientCount)
 
-			// Broadcast client count update
+			log.Printf("Client disconnected. Total clients: %d", clientCount)
 			h.broadcastClientCount(clientCount)
 
 		case message := <-h.broadcast:
@@ -84,12 +129,27 @@ func (h *Hub) Run() {
 
 			h.mutex.Lock()
 			for client := range h.clients {
-				select {
-				case client.send <- message:
-				default:
-					delete(h.clients, client)
-					close(client.send)
-				}
+				func() {
+					defer func() {
+						if r := recover(); r != nil {
+							log.Printf("Recovered from panic broadcasting to client: %v", r)
+							delete(h.clients, client)
+						}
+					}()
+
+					select {
+					case client.send <- message:
+					default:
+						delete(h.clients, client)
+						func() {
+							defer func() {
+								if r := recover(); r != nil {
+								}
+							}()
+							close(client.send)
+						}()
+					}
+				}()
 			}
 			h.mutex.Unlock()
 		}
@@ -111,7 +171,6 @@ func (h *Hub) broadcastClientCount(count int) {
 		return
 	}
 
-	// Use non-blocking send
 	select {
 	case h.broadcast <- jsonData:
 	default:
@@ -131,23 +190,19 @@ func (h *Hub) Broadcast(msgType string, data interface{}) {
 		return
 	}
 
-	// Check if there are any clients before broadcasting
 	h.mutex.RLock()
 	clientCount := len(h.clients)
 	h.mutex.RUnlock()
 
 	if clientCount == 0 {
-		return // No clients, skip broadcast
+		return
 	}
 
 	select {
 	case h.broadcast <- jsonData:
-		// Message sent successfully
 	default:
-		// Channel full, try to drain some messages first
 		select {
 		case <-h.broadcast:
-			// Drained one message, try again
 			select {
 			case h.broadcast <- jsonData:
 			default:
@@ -220,8 +275,22 @@ func (c *Client) readPump() {
 					}
 				}
 			case "register":
-				// Handle client registration with additional metadata
 				log.Printf("Client registered with data: %v", msg.Data)
+			case "get_client_count":
+				count := c.hub.GetClientCount()
+				response := Message{
+					Type: "client_count_update",
+					Data: map[string]interface{}{
+						"count":     count,
+						"timestamp": time.Now().Unix(),
+					},
+				}
+				if data, err := json.Marshal(response); err == nil {
+					select {
+					case c.send <- data:
+					default:
+					}
+				}
 			}
 		}
 	}

@@ -152,7 +152,7 @@ func (p *CodePlugin) Render(ctx context.Context) (string, error) {
 
 			{{if and .ShowLanguages .GitHubData .GitHubData.TopLanguages}}
 			<div class="code-subsection">
-				<button class="section-toggle" data-target="languages" type="button">
+				<button class="section-toggle" data-target="languages" type="button" aria-expanded="false">
 					<span class="toggle-icon">▶</span>
 					<span>Languages</span>
 					<span class="section-count">({{len .GitHubData.TopLanguages}})</span>
@@ -177,7 +177,7 @@ func (p *CodePlugin) Render(ctx context.Context) (string, error) {
 
 			{{if and .ShowWakatime .WakatimeData .WakatimeData.Languages}}
 			<div class="code-subsection">
-				<button class="section-toggle" data-target="wakatime-langs" type="button">
+				<button class="section-toggle" data-target="wakatime-langs" type="button" aria-expanded="false">
 					<span class="toggle-icon">▶</span>
 					<span>This Week</span>
 					<span class="section-count">({{len .WakatimeData.Languages}} langs)</span>
@@ -212,7 +212,7 @@ func (p *CodePlugin) Render(ctx context.Context) (string, error) {
 
 			{{if and .ShowGitHub .GitHubData .GitHubData.RecentRepos}}
 			<div class="code-subsection">
-				<button class="section-toggle" data-target="repos" type="button">
+				<button class="section-toggle" data-target="repos" type="button" aria-expanded="false">
 					<span class="toggle-icon">▶</span>
 					<span>Recent Repos</span>
 					<span class="section-count">({{len .GitHubData.RecentRepos}})</span>
@@ -271,7 +271,6 @@ func (p *CodePlugin) Render(ctx context.Context) (string, error) {
 	}
 
 	funcMap := template.FuncMap{
-		// use built-in gt/lt/etc. so ints and floats both work
 		"printf": fmt.Sprintf,
 		"add":    func(a, b int) int { return a + b },
 		"div": func(a, b int) int {

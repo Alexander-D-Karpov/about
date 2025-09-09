@@ -27,15 +27,26 @@ type Handler struct {
 }
 
 type PluginData struct {
-	Name        string                 `json:"name"`
-	Enabled     bool                   `json:"enabled"`
-	Order       int                    `json:"order"`
-	Settings    map[string]interface{} `json:"settings"`
-	Description string                 `json:"description"`
+	Name         string                 `json:"name"`
+	Enabled      bool                   `json:"enabled"`
+	Order        int                    `json:"order"`
+	Settings     map[string]interface{} `json:"settings"`
+	SettingsJSON string                 `json:"settingsJSON"`
+	Description  string                 `json:"description"`
 }
 
 func NewHandler(storage *storage.Storage, pluginManager *plugins.Manager, config *config.Config, templates embed.FS, static embed.FS) *Handler {
-	adminTmpl, err := template.ParseFS(templates, "templates/admin.html")
+	funcMap := template.FuncMap{
+		"json": func(v interface{}) string {
+			jsonBytes, err := json.Marshal(v)
+			if err != nil {
+				return "{}"
+			}
+			return string(jsonBytes)
+		},
+	}
+
+	adminTmpl, err := template.New("admin.html").Funcs(funcMap).ParseFS(templates, "templates/admin.html")
 	if err != nil {
 		panic(fmt.Sprintf("Failed to parse admin template: %v", err))
 	}
@@ -115,20 +126,17 @@ func (h *Handler) dashboard(w http.ResponseWriter, r *http.Request) {
 	}
 
 	for name := range allPlugins {
-		config := h.storage.GetPluginConfig(name)
+		c := h.storage.GetPluginConfig(name)
 		description := descriptions[name]
 		if description == "" {
 			description = "Plugin configuration"
 		}
 
-		// Clean and prepare settings for JSON serialization
-		cleanSettings := h.cleanSettings(config.Settings)
-
 		pluginList = append(pluginList, PluginData{
 			Name:        name,
-			Enabled:     config.Enabled,
-			Order:       config.Order,
-			Settings:    cleanSettings,
+			Enabled:     c.Enabled,
+			Order:       c.Order,
+			Settings:    c.Settings,
 			Description: description,
 		})
 	}
@@ -143,8 +151,37 @@ func (h *Handler) dashboard(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "text/html")
 	if err := h.template.Execute(w, data); err != nil {
+		fmt.Printf("Template error: %v\\n", err)
 		http.Error(w, "Template error", http.StatusInternalServerError)
 	}
+}
+
+func (h *Handler) mergeSettings(defaults, current map[string]interface{}) map[string]interface{} {
+	result := make(map[string]interface{})
+
+	for key, defaultValue := range defaults {
+		if currentValue, exists := current[key]; exists {
+			if defaultMap, ok := defaultValue.(map[string]interface{}); ok {
+				if currentMap, ok := currentValue.(map[string]interface{}); ok {
+					result[key] = h.mergeSettings(defaultMap, currentMap)
+				} else {
+					result[key] = currentValue
+				}
+			} else {
+				result[key] = currentValue
+			}
+		} else {
+			result[key] = defaultValue
+		}
+	}
+
+	for key, value := range current {
+		if _, exists := result[key]; !exists {
+			result[key] = value
+		}
+	}
+
+	return result
 }
 
 func (h *Handler) cleanSettings(settings map[string]interface{}) map[string]interface{} {
@@ -180,11 +217,10 @@ func (h *Handler) cleanValue(value interface{}) interface{} {
 	case float64:
 		return v
 	case int:
-		return float64(v) // Convert ints to float64 for JSON consistency
+		return float64(v)
 	case int64:
 		return float64(v)
 	default:
-		// For any other type, convert to string
 		return fmt.Sprintf("%v", v)
 	}
 }
@@ -195,13 +231,12 @@ func (h *Handler) getPluginsAPI(w http.ResponseWriter, r *http.Request) {
 
 	for name := range allPlugins {
 		config := h.storage.GetPluginConfig(name)
-		cleanSettings := h.cleanSettings(config.Settings)
 
 		pluginList = append(pluginList, PluginData{
 			Name:     name,
 			Enabled:  config.Enabled,
 			Order:    config.Order,
-			Settings: cleanSettings,
+			Settings: h.cleanSettings(config.Settings),
 		})
 	}
 
@@ -233,7 +268,6 @@ func (h *Handler) updatePluginsAPI(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Broadcast update to all connected clients
 	h.pluginManager.BroadcastUpdate("plugins_updated", map[string]interface{}{
 		"action": "reorder_complete",
 	})
@@ -268,7 +302,6 @@ func (h *Handler) updatePluginAPI(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Process file uploads
 	if err := h.processFileUploads(r, pluginName, settings); err != nil {
 		http.Error(w, fmt.Sprintf("File upload error: %v", err), http.StatusInternalServerError)
 		return
@@ -292,7 +325,6 @@ func (h *Handler) updatePluginAPI(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Broadcast individual plugin update
 	h.pluginManager.BroadcastUpdate("plugin_update", map[string]interface{}{
 		"plugin": pluginName,
 		"action": "settings_changed",

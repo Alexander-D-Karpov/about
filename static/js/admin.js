@@ -1,13 +1,54 @@
 function initSettingsEditor(pluginName, settings) {
+    console.log(`Initializing settings editor for ${pluginName}:`, settings);
+
     const container = document.getElementById(`settings-${pluginName}`);
+    if (!container) {
+        console.error(`Container not found for plugin: ${pluginName}`);
+        return;
+    }
+
     container.innerHTML = '';
+
+    // Validate and sanitize settings
+    if (!settings || typeof settings !== 'object' || Array.isArray(settings)) {
+        console.warn(`Invalid settings for ${pluginName}, using empty object:`, settings);
+        settings = {};
+    }
+
+    // Check for corrupted settings (numeric string keys)
+    const keys = Object.keys(settings);
+    const hasNumericKeys = keys.some(key => !isNaN(key) && !isNaN(parseFloat(key)));
+
+    if (hasNumericKeys) {
+        console.warn(`Corrupted settings detected for ${pluginName}, clearing...`);
+        settings = {};
+    }
+
+    // If settings is empty, show a message and basic structure
+    if (Object.keys(settings).length === 0) {
+        const emptyMessage = document.createElement('div');
+        emptyMessage.className = 'empty-settings-message';
+        emptyMessage.innerHTML = `
+            <p>No settings configured for this plugin yet.</p>
+            <button type="button" class="btn btn-secondary" onclick="addBasicSetting('${pluginName}')">
+                Add Basic Setting
+            </button>
+        `;
+        container.appendChild(emptyMessage);
+        return;
+    }
 
     function createField(key, value, parent = container, path = '') {
         const field = document.createElement('div');
         field.className = 'settings-field';
 
         const currentPath = path ? `${path}.${key}` : key;
-        const fieldType = Array.isArray(value) ? 'array' : typeof value;
+        let fieldType = Array.isArray(value) ? 'array' : typeof value;
+
+        if (value === null || value === undefined) {
+            fieldType = 'string';
+            value = '';
+        }
 
         const header = document.createElement('div');
         header.className = 'field-header';
@@ -24,19 +65,23 @@ function initSettingsEditor(pluginName, settings) {
 
         field.appendChild(header);
 
-        if (typeof value === 'string') {
+        if (typeof value === 'string' || (value === null || value === undefined)) {
+            const stringValue = value || '';
             let input;
-            if (key.toLowerCase().includes('description') || key.toLowerCase().includes('bio') || value.length > 100) {
+            if (key.toLowerCase().includes('description') ||
+                key.toLowerCase().includes('bio') ||
+                stringValue.length > 100 ||
+                key === 'ascii') {
                 input = document.createElement('textarea');
                 input.className = 'field-input field-textarea';
-                input.rows = 3;
+                input.rows = Math.min(Math.max(3, Math.ceil(stringValue.length / 50)), 10);
             } else {
                 input = document.createElement('input');
                 input.className = 'field-input';
                 input.type = 'text';
             }
 
-            input.value = value;
+            input.value = stringValue;
             input.name = currentPath;
             input.placeholder = getPlaceholder(key);
             field.appendChild(input);
@@ -114,6 +159,28 @@ function initSettingsEditor(pluginName, settings) {
     });
 }
 
+function addBasicSetting(pluginName) {
+    const container = document.getElementById(`settings-${pluginName}`);
+    if (!container) return;
+
+    // Clear empty message
+    container.innerHTML = '';
+
+    // Add a basic setting field
+    const field = document.createElement('div');
+    field.className = 'settings-field';
+
+    field.innerHTML = `
+        <div class="field-header">
+            <div class="field-label">Setting Name</div>
+            <div class="field-type">string</div>
+        </div>
+        <input class="field-input" type="text" name="newSetting" placeholder="Enter setting name..." />
+    `;
+
+    container.appendChild(field);
+}
+
 function createArrayItem(container, item, path, index) {
     const itemDiv = document.createElement('div');
     itemDiv.className = 'array-item';
@@ -128,13 +195,13 @@ function createArrayItem(container, item, path, index) {
         input.name = `${path}[${index}]`;
         input.placeholder = 'Enter value...';
         itemContent.appendChild(input);
-    } else if (typeof item === 'object') {
+    } else if (typeof item === 'object' && item !== null) {
         const textarea = document.createElement('textarea');
         textarea.className = 'field-input field-textarea';
         textarea.value = JSON.stringify(item, null, 2);
         textarea.name = `${path}[${index}]`;
         textarea.placeholder = 'Enter JSON object...';
-        textarea.rows = 4;
+        textarea.rows = Math.min(Math.max(4, Object.keys(item).length + 1), 10);
         itemContent.appendChild(textarea);
     } else {
         const input = document.createElement('input');
@@ -155,6 +222,7 @@ function createArrayItem(container, item, path, index) {
     removeBtn.onclick = () => {
         itemDiv.remove();
         updateArrayTitle(container);
+        reindexArrayItems(container, path);
     };
 
     controls.appendChild(removeBtn);
@@ -162,6 +230,16 @@ function createArrayItem(container, item, path, index) {
     itemDiv.appendChild(controls);
 
     container.appendChild(itemDiv);
+}
+
+function reindexArrayItems(container, path) {
+    const items = container.querySelectorAll('.array-item');
+    items.forEach((item, newIndex) => {
+        const input = item.querySelector('.field-input');
+        if (input && input.name) {
+            input.name = `${path}[${newIndex}]`;
+        }
+    });
 }
 
 function addArrayItem(container, path) {
@@ -202,7 +280,10 @@ function getPlaceholder(key) {
         password: 'Enter password...',
         steamid: 'Enter Steam ID...',
         image: '/static/images/example.jpg',
-        icon: 'icon-name'
+        icon: 'icon-name',
+        sectiontitle: 'Section Title',
+        webring_url: 'https://webring.example.com',
+        sourcecodeur: 'https://github.com/user/repo'
     };
 
     const keyLower = key.toLowerCase();
@@ -211,6 +292,61 @@ function getPlaceholder(key) {
     }
 
     return 'Enter value...';
+}
+
+function collectSettings(form) {
+    const settings = {};
+    const inputs = form.querySelectorAll('.field-input, input[type="checkbox"]');
+
+    inputs.forEach(input => {
+        const name = input.name;
+        if (!name) return;
+
+        let value = input.type === 'checkbox' ? input.checked : input.value;
+
+        if (input.type === 'number') {
+            value = parseFloat(value) || 0;
+        } else if (input.tagName === 'TEXTAREA' && name.includes('[')) {
+            try {
+                const parsed = JSON.parse(value);
+                if (typeof parsed === 'object') {
+                    value = parsed;
+                }
+            } catch (e) {
+                // Keep as string if not valid JSON
+            }
+        }
+
+        setNestedValue(settings, name, value);
+    });
+
+    return settings;
+}
+
+function setNestedValue(obj, path, value) {
+    const keys = path.split(/[\.\[\]]+/).filter(k => k !== '');
+    let current = obj;
+
+    for (let i = 0; i < keys.length - 1; i++) {
+        const key = keys[i];
+        const nextKey = keys[i + 1];
+
+        if (!isNaN(nextKey)) {
+            if (!(key in current)) current[key] = [];
+            current = current[key];
+        } else {
+            if (!(key in current)) current[key] = {};
+            current = current[key];
+        }
+    }
+
+    const lastKey = keys[keys.length - 1];
+    if (Array.isArray(current)) {
+        const index = parseInt(lastKey);
+        current[index] = value;
+    } else {
+        current[lastKey] = value;
+    }
 }
 
 function initSortable() {
@@ -279,57 +415,6 @@ function updatePluginOrder() {
         });
 }
 
-function collectSettings(form) {
-    const settings = {};
-    const inputs = form.querySelectorAll('.field-input, input[type="checkbox"]');
-
-    inputs.forEach(input => {
-        const name = input.name;
-        if (!name) return;
-
-        let value = input.type === 'checkbox' ? input.checked : input.value;
-
-        if (input.type === 'number') {
-            value = parseFloat(value) || 0;
-        } else if (input.tagName === 'TEXTAREA' && name.includes('[')) {
-            try {
-                value = JSON.parse(value);
-            } catch (e) {
-                // Keep as string if not valid JSON
-            }
-        }
-
-        setNestedValue(settings, name, value);
-    });
-
-    return settings;
-}
-
-function setNestedValue(obj, path, value) {
-    const keys = path.split(/[\.\[\]]+/).filter(k => k !== '');
-    let current = obj;
-
-    for (let i = 0; i < keys.length - 1; i++) {
-        const key = keys[i];
-        const nextKey = keys[i + 1];
-
-        if (!isNaN(nextKey)) {
-            if (!(key in current)) current[key] = [];
-            current = current[key];
-        } else {
-            if (!(key in current)) current[key] = {};
-            current = current[key];
-        }
-    }
-
-    const lastKey = keys[keys.length - 1];
-    if (Array.isArray(current)) {
-        current[parseInt(lastKey)] = value;
-    } else {
-        current[lastKey] = value;
-    }
-}
-
 document.addEventListener('DOMContentLoaded', function() {
     document.querySelectorAll('.plugin-form').forEach(form => {
         form.addEventListener('submit', async function(e) {
@@ -392,6 +477,35 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         });
     });
+
+    document.querySelectorAll('.export-btn').forEach(btn => {
+        btn.addEventListener('click', function() {
+            const pluginName = this.dataset.plugin;
+            const form = document.querySelector(`.plugin-form[data-plugin="${pluginName}"]`);
+            const settings = collectSettings(form);
+
+            const dataStr = JSON.stringify(settings, null, 2);
+            const dataBlob = new Blob([dataStr], {type: 'application/json'});
+
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(dataBlob);
+            link.download = `${pluginName}-settings.json`;
+            link.click();
+
+            showNotification(`${pluginName} settings exported!`, 'success');
+        });
+    });
+
+    document.querySelectorAll('.reset-btn').forEach(btn => {
+        btn.addEventListener('click', function() {
+            const pluginName = this.dataset.plugin;
+            if (confirm(`Reset ${pluginName} plugin settings to defaults?`)) {
+                const form = document.querySelector(`.plugin-form[data-plugin="${pluginName}"]`);
+                form.reset();
+                showNotification(`${pluginName} settings reset!`, 'info');
+            }
+        });
+    });
 });
 
 function showNotification(message, type) {
@@ -417,15 +531,23 @@ function saveAllPlugins() {
     let saved = 0;
     const total = forms.length;
 
+    if (total === 0) {
+        showNotification('No plugins to save!', 'info');
+        return;
+    }
+
+    showNotification('Saving all plugins...', 'info');
+
     forms.forEach(form => {
-        form.addEventListener('submit', function handler() {
+        const handler = function() {
             saved++;
             if (saved === total) {
                 showNotification('All plugins saved successfully!', 'success');
             }
             form.removeEventListener('submit', handler);
-        }, { once: true });
+        };
 
+        form.addEventListener('submit', handler, { once: true });
         form.dispatchEvent(new Event('submit', { bubbles: true }));
     });
 }

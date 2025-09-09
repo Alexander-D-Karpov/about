@@ -339,7 +339,7 @@ func (p *BeatLeaderPlugin) UpdateData(ctx context.Context) error {
 }
 
 func (p *BeatLeaderPlugin) updatePlayerData(username string) error {
-	url := fmt.Sprintf("https://api.beatleader.xyz/player/%s?stats=true&keepOriginalId=false&leaderboardContext=none", username)
+	url := fmt.Sprintf("https://api.beatleader.com/player/%s?stats=true&keepOriginalId=false&leaderboardContext=none", username)
 
 	client := &http.Client{Timeout: 15 * time.Second}
 	req, err := http.NewRequest("GET", url, nil)

@@ -53,7 +53,7 @@ func (h *MainHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := context.Background()
-	renderedPlugins := h.pluginManager.GetRenderedPlugins(ctx)
+	renderedPlugins := h.pluginManager.GetRenderedPluginsFresh(ctx)
 
 	data := TemplateData{
 		Title:   "sanspie - Web Developer & DevSecOps",
@@ -61,7 +61,9 @@ func (h *MainHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Header().Set("Cache-Control", "public, max-age=300")
+	w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+	w.Header().Set("Pragma", "no-cache")
+	w.Header().Set("Expires", "0")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 
 	if err := h.template.Execute(w, data); err != nil {

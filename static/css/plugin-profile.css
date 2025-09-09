@@ -1,0 +1,7 @@
+.profile-content{display:flex;gap:14px;align-items:center}
+.profile-text{flex:1;min-width:0}
+.profile-bio{color:var(--ink-2)}
+@media (max-width:600px){
+    .profile-content{flex-direction:column;text-align:center}
+    .profile-image{order:-1}
+}

@@ -10,6 +10,8 @@
     let heartbeatInterval = null;
     let reconnectTimeout = null;
     let connectionRetryCount = 0;
+    let lastFMCheckInterval = null;
+    let clientCountRequestTimeout = null;
 
     function connect() {
         if (ws && (ws.readyState === WebSocket.CONNECTING || ws.readyState === WebSocket.OPEN)) {
@@ -56,6 +58,7 @@
                 shouldReconnect = true;
                 updateConnectionStatus('connected');
                 startHeartbeat();
+                startLastFMCheck();
 
                 if (reconnectTimeout) {
                     clearTimeout(reconnectTimeout);
@@ -63,6 +66,13 @@
                 }
 
                 sendMessage({ type: 'register', data: { page: window.location.pathname } });
+
+                if (clientCountRequestTimeout) {
+                    clearTimeout(clientCountRequestTimeout);
+                }
+                clientCountRequestTimeout = setTimeout(() => {
+                    sendMessage({ type: 'get_client_count' });
+                }, 100);
             };
 
             ws.onmessage = function(event) {
@@ -95,6 +105,12 @@
                 console.log('WebSocket disconnected, code:', event.code, 'reason:', event.reason || 'none', 'clean:', event.wasClean);
                 isConnected = false;
                 stopHeartbeat();
+                stopLastFMCheck();
+
+                if (clientCountRequestTimeout) {
+                    clearTimeout(clientCountRequestTimeout);
+                    clientCountRequestTimeout = null;
+                }
 
                 if (event.code === 1000 || event.code === 1001) {
                     shouldReconnect = false;
@@ -181,10 +197,41 @@
         }
     }
 
+    function startLastFMCheck() {
+        stopLastFMCheck();
+        lastFMCheckInterval = setInterval(() => {
+            if (ws && ws.readyState === WebSocket.OPEN && getClientCount() > 0) {
+                try {
+                    sendMessage({ type: 'check_lastfm' });
+                } catch (e) {
+                    console.error('Failed to send LastFM check:', e);
+                }
+            }
+        }, 30000);
+    }
+
+    function stopLastFMCheck() {
+        if (lastFMCheckInterval) {
+            clearInterval(lastFMCheckInterval);
+            lastFMCheckInterval = null;
+        }
+    }
+
+    function getClientCount() {
+        const clientsEl = document.getElementById('connected-clients');
+        if (clientsEl) {
+            return parseInt(clientsEl.textContent) || 0;
+        }
+        return 0;
+    }
+
     function handleMessage(message) {
         try {
             switch (message.type) {
                 case 'pong':
+                    break;
+                case 'client_count_update':
+                    updateClientCount(message.data);
                     break;
                 case 'lastfm_update':
                     updateLastFM(message.data);
@@ -219,12 +266,41 @@
                         }
                     }, 1000);
                     break;
+                case 'meme_update':
+                    updateMeme(message.data);
+                    break;
+                case 'system_update':
+                    updateSystemInfo(message.data);
+                    break;
                 default:
                     console.debug('Unknown message type:', message.type);
             }
         } catch (e) {
             console.error('Error handling message:', message, e);
         }
+    }
+
+    function updateClientCount(data) {
+        const clientsEl = document.getElementById('connected-clients');
+        if (clientsEl && data && typeof data.count === 'number') {
+            // Animate the number change
+            const oldCount = parseInt(clientsEl.textContent) || 0;
+            const newCount = data.count;
+
+            if (oldCount !== newCount) {
+                animateNumber(clientsEl, oldCount, newCount);
+            }
+        }
+
+        const allClientEls = document.querySelectorAll('[data-client-count], .client-count');
+        allClientEls.forEach(el => {
+            if (data && typeof data.count === 'number') {
+                const oldCount = parseInt(el.textContent) || 0;
+                if (oldCount !== data.count) {
+                    animateNumber(el, oldCount, data.count);
+                }
+            }
+        });
     }
 
     function updateConnectionStatus(status) {
@@ -415,10 +491,108 @@
     }
 
     function updateVisitors(data) {
+        // Enhanced visitor updates with immediate visual feedback
+        let updated = false;
+
+        if (data.total !== undefined) {
+            const totalElements = document.querySelectorAll('.total-visits, [data-stat="total"]');
+            totalElements.forEach(el => {
+                const currentValue = parseInt(el.textContent.replace(/[^\d]/g, '')) || 0;
+                const newValue = data.total;
+
+                if (currentValue !== newValue) {
+                    animateCounterUpdate(el, currentValue, newValue);
+                    updated = true;
+                }
+            });
+        }
+
+        if (data.today !== undefined) {
+            const todayElements = document.querySelectorAll('.today-visits, [data-stat="today"]');
+            todayElements.forEach(el => {
+                const currentValue = parseInt(el.textContent.replace(/[^\d]/g, '')) || 0;
+                const newValue = data.today;
+
+                if (currentValue !== newValue) {
+                    animateCounterUpdate(el, currentValue, newValue);
+                    updated = true;
+                }
+            });
+        }
+
         const visitorsInfo = document.querySelector('.visitors-info');
         if (visitorsInfo && data.total && data.today) {
             const newText = `Total visits: ${formatNumber(data.total)} • Today: ${formatNumber(data.today)}`;
-            visitorsInfo.textContent = newText;
+            if (visitorsInfo.textContent !== newText) {
+                visitorsInfo.textContent = newText;
+                updated = true;
+            }
+        }
+
+        // Animate the visitors section if updated
+        if (updated) {
+            const visitorsSection = document.querySelector('.visitors-section');
+            if (visitorsSection) {
+                animateUpdate(visitorsSection);
+            }
+        }
+    }
+
+    function updateMeme(data) {
+        const section = document.querySelector('.meme-section');
+        if (!section || !data.meme) return;
+
+        const memeContent = section.querySelector('.meme-content');
+        if (!memeContent) return;
+
+        const meme = data.meme;
+        let newContent = '';
+
+        if (meme.type === 'image' || meme.type === 'gif') {
+            newContent = `
+                <div class="meme-${meme.type}">
+                    <img src="${meme.image}" alt="${meme.text}" loading="lazy">
+                    ${meme.text ? `<p class="meme-caption">${meme.text}</p>` : ''}
+                </div>
+            `;
+        } else {
+            newContent = `
+                <div class="meme-text">
+                    <p class="meme-quote">${meme.text}</p>
+                    ${meme.source ? `<p class="meme-source">— ${meme.source}</p>` : ''}
+                </div>
+            `;
+        }
+
+        memeContent.innerHTML = newContent;
+        animateUpdate(section);
+    }
+
+    function updateSystemInfo(data) {
+        // Update uptime displays
+        if (data.uptime_text) {
+            const uptimeElements = document.querySelectorAll('[data-uptime]:not([data-uptime="client"])');
+            uptimeElements.forEach(el => {
+                if (el.textContent !== data.uptime_text) {
+                    el.textContent = data.uptime_text;
+                    animateUpdate(el);
+                }
+            });
+        }
+
+        // Update last updated time
+        if (data.last_updated) {
+            const lastUpdatedElements = document.querySelectorAll('#last-updated');
+            lastUpdatedElements.forEach(el => {
+                if (el.textContent !== data.last_updated) {
+                    el.textContent = data.last_updated;
+                }
+            });
+        }
+
+        // Update connected clients count
+        if (data.connected_clients !== undefined) {
+            updateClientCount({ count: data.connected_clients });
         }
     }
 
@@ -445,6 +619,35 @@
         }, 150);
     }
 
+    function animateNumber(element, oldValue, newValue) {
+        if (!element) return;
+
+        element.style.color = 'var(--accent)';
+        element.style.transition = 'color 0.3s ease';
+        element.textContent = newValue;
+
+        setTimeout(() => {
+            element.style.color = '';
+        }, 300);
+    }
+
+    function animateCounterUpdate(element, oldValue, newValue) {
+        if (!element) return;
+
+        // Animate the counter with a brief color change and scale effect
+        element.style.transform = 'scale(1.1)';
+        element.style.color = 'var(--accent)';
+        element.style.transition = 'transform 0.2s ease, color 0.3s ease';
+
+        // Update the text content with formatted number
+        element.textContent = formatNumber(newValue);
+
+        setTimeout(() => {
+            element.style.transform = '';
+            element.style.color = '';
+        }, 200);
+    }
+
     function formatNumber(n) {
         if (n < 1000) {
             return n.toString();
@@ -458,10 +661,16 @@
     function disconnect() {
         shouldReconnect = false;
         stopHeartbeat();
+        stopLastFMCheck();
 
         if (reconnectTimeout) {
             clearTimeout(reconnectTimeout);
             reconnectTimeout = null;
+        }
+
+        if (clientCountRequestTimeout) {
+            clearTimeout(clientCountRequestTimeout);
+            clientCountRequestTimeout = null;
         }
 
         if (ws) {
@@ -481,9 +690,18 @@
     document.addEventListener('visibilitychange', function() {
         if (document.hidden) {
             stopHeartbeat();
+            stopLastFMCheck();
         } else {
             if (isConnected) {
                 startHeartbeat();
+                startLastFMCheck();
+
+                if (clientCountRequestTimeout) {
+                    clearTimeout(clientCountRequestTimeout);
+                }
+                clientCountRequestTimeout = setTimeout(() => {
+                    sendMessage({ type: 'get_client_count' });
+                }, 100);
             } else if (shouldReconnect) {
                 connect();
             }
@@ -495,7 +713,6 @@
     window.wsStatus = () => isConnected;
     window.wsSend = sendMessage;
 
-    // Client-side webring updater (independent of WebSocket)
     function initWebringUpdater() {
         const webringSection = document.querySelector('.webring-section');
         if (!webringSection) return;
@@ -511,7 +728,6 @@
         function updateWebringFromAPI() {
             const now = Date.now();
 
-            // Prevent multiple simultaneous updates
             if (isUpdating || (now - lastUpdateTime) < 5000) return;
 
             isUpdating = true;
@@ -522,7 +738,6 @@
                     return response.json();
                 })
                 .then(data => {
-                    // Only update if we have valid data
                     if (!data.prev || !data.next) return;
 
                     const prevLink = webringSection.querySelector('.webring-prev');
@@ -531,7 +746,6 @@
                     let updated = false;
 
                     if (prevLink && data.prev) {
-                        // Only update if the content actually changed
                         const currentHref = prevLink.href;
                         const newHref = data.prev.url;
 
@@ -561,7 +775,6 @@
                     }
 
                     if (nextLink && data.next) {
-                        // Only update if the content actually changed
                         const currentHref = nextLink.href;
                         const newHref = data.next.url;
 
@@ -592,11 +805,7 @@
 
                     if (updated) {
                         console.debug('Webring updated from API');
-                        // Add a subtle visual feedback
-                        webringSection.style.opacity = '0.8';
-                        setTimeout(() => {
-                            webringSection.style.opacity = '';
-                        }, 200);
+                        animateUpdate(webringSection);
                     }
 
                     lastUpdateTime = now;
@@ -609,13 +818,9 @@
                 });
         }
 
-        // Update after a delay to avoid conflicts with initial render
         setTimeout(updateWebringFromAPI, 2000);
-
-        // Update every hour
         setInterval(updateWebringFromAPI, 60 * 60 * 1000);
 
-        // Also update when the page becomes visible again
         document.addEventListener('visibilitychange', () => {
             if (!document.hidden) {
                 setTimeout(updateWebringFromAPI, 1000);
@@ -623,7 +828,6 @@
         });
     }
 
-    // Initialize webring updater when DOM is ready
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', initWebringUpdater);
     } else {

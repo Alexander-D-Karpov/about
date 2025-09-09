@@ -4,6 +4,7 @@ import (
 	"embed"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -70,6 +71,9 @@ func main() {
 		w.Write([]byte(`{"status":"ok"}`))
 	}).Methods("GET")
 
+	r.HandleFunc("/favicon.ico", faviconHandler("favicon.ico")).Methods("GET")
+	r.HandleFunc("/favicon.png", faviconHandler("favicon.png")).Methods("GET")
+
 	adminHandler := admin.NewHandler(store, pluginManager, cfg, templateFiles, staticFiles)
 	r.PathPrefix("/admin").Handler(adminHandler)
 
@@ -89,7 +93,14 @@ func main() {
 
 func addCacheHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Cache-Control", "public, max-age=3600")
+		// Disable caching for main page and dynamic content to ensure visitor counts update
+		if strings.Contains(r.URL.Path, ".css") || strings.Contains(r.URL.Path, ".js") || strings.Contains(r.URL.Path, ".png") || strings.Contains(r.URL.Path, ".jpg") || strings.Contains(r.URL.Path, ".svg") {
+			w.Header().Set("Cache-Control", "public, max-age=3600")
+		} else {
+			w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+			w.Header().Set("Pragma", "no-cache")
+			w.Header().Set("Expires", "0")
+		}
 		next.ServeHTTP(w, r)
 	})
 }
@@ -112,8 +123,10 @@ func startBackgroundTasks(store *storage.Storage, pm *plugins.Manager) {
 	go func() {
 		lastFMTicker := time.NewTicker(10 * time.Minute)
 		generalTicker := time.NewTicker(1 * time.Hour)
+		systemTicker := time.NewTicker(30 * time.Second)
 		defer lastFMTicker.Stop()
 		defer generalTicker.Stop()
+		defer systemTicker.Stop()
 
 		for {
 			select {
@@ -121,12 +134,16 @@ func startBackgroundTasks(store *storage.Storage, pm *plugins.Manager) {
 				pm.UpdatePlugin("lastfm")
 			case <-generalTicker.C:
 				pm.UpdateExternalData()
+			case <-systemTicker.C:
+				if infoPlugin, exists := pm.GetPlugin("info"); exists {
+					infoPlugin.UpdateData(nil)
+				}
 			}
 		}
 	}()
 
 	go func() {
-		ticker := time.NewTicker(30 * time.Minute)
+		ticker := time.NewTicker(5 * time.Minute)
 		defer ticker.Stop()
 
 		for range ticker.C {
@@ -135,4 +152,26 @@ func startBackgroundTasks(store *storage.Storage, pm *plugins.Manager) {
 			}
 		}
 	}()
+}
+
+func faviconHandler(path string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		data, err := staticFiles.ReadFile("static/favicon/" + path)
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+
+		switch {
+		case strings.HasSuffix(path, ".ico"):
+			w.Header().Set("Content-Type", "image/x-icon")
+		case strings.HasSuffix(path, ".png"):
+			w.Header().Set("Content-Type", "image/png")
+		default:
+			w.Header().Set("Content-Type", "application/octet-stream")
+		}
+
+		w.WriteHeader(http.StatusOK)
+		w.Write(data)
+	}
 }

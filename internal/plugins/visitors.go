@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"html/template"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"strings"
@@ -17,20 +16,24 @@ import (
 )
 
 type VisitorsPlugin struct {
-	storage      *storage.Storage
-	hub          *stream.Hub
-	visitCount   int64
-	todayCount   int64
-	uniqueToday  map[string]bool
-	dataPath     string
-	mutex        sync.RWMutex
-	lastSaveTime time.Time
-	startTime    time.Time
+	storage       *storage.Storage
+	hub           *stream.Hub
+	visitCount    int64
+	todayCount    int64
+	currentDay    string
+	dataPath      string
+	mutex         sync.RWMutex
+	lastSaveTime  time.Time
+	startTime     time.Time
+	lastDayCheck  time.Time
+	dailyStats    map[string]int64
+	lastBroadcast time.Time
 }
 
 type VisitorsData struct {
 	TotalVisits  int64            `json:"total_visits"`
 	TodayVisits  int64            `json:"today_visits"`
+	CurrentDay   string           `json:"current_day"`
 	LastUpdate   time.Time        `json:"last_update"`
 	DailyStats   map[string]int64 `json:"daily_stats"`
 	MonthlyStats map[string]int64 `json:"monthly_stats"`
@@ -38,19 +41,51 @@ type VisitorsData struct {
 
 func NewVisitorsPlugin(storage *storage.Storage, hub *stream.Hub, dataPath string) *VisitorsPlugin {
 	plugin := &VisitorsPlugin{
-		storage:     storage,
-		hub:         hub,
-		dataPath:    dataPath,
-		uniqueToday: make(map[string]bool),
-		startTime:   time.Now(),
+		storage:    storage,
+		hub:        hub,
+		dataPath:   dataPath,
+		dailyStats: make(map[string]int64),
+		currentDay: time.Now().Format("29.02.2006"),
+		startTime:  time.Now(),
 	}
 
 	plugin.loadVisitorsData()
+	plugin.checkDayTransition()
+
+	go plugin.startDayChecker()
+
 	return plugin
 }
 
 func (p *VisitorsPlugin) Name() string {
 	return "visitors"
+}
+
+func (p *VisitorsPlugin) startDayChecker() {
+	ticker := time.NewTicker(time.Minute)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		p.checkDayTransition()
+	}
+}
+
+func (p *VisitorsPlugin) checkDayTransition() {
+	p.mutex.Lock()
+	defer p.mutex.Unlock()
+
+	today := time.Now().Format("29.02.2006")
+	if today != p.currentDay {
+		if p.currentDay != "" && p.todayCount > 0 {
+			p.dailyStats[p.currentDay] = p.todayCount
+		}
+
+		p.currentDay = today
+		p.todayCount = 0
+
+		p.saveVisitorsDataUnsafe()
+		p.broadcastUpdate()
+	}
 }
 
 func (p *VisitorsPlugin) Render(ctx context.Context) (string, error) {
@@ -73,40 +108,51 @@ func (p *VisitorsPlugin) Render(ctx context.Context) (string, error) {
 	showToday := p.getConfigBool(settings, "ui.showToday", true)
 	showUptime := p.getConfigBool(settings, "ui.showUptime", true)
 
-	var parts []string
-
-	if showTotal {
-		parts = append(parts, "Total visits: "+formatNumber(totalVisits))
-	}
-
-	if showToday {
-		parts = append(parts, "Today: "+formatNumber(todayVisits))
-	}
-
-	if showUptime {
-		parts = append(parts, "Uptime: "+formatDuration(uptime))
-	}
-
-	if len(parts) == 0 {
-		return "", nil
-	}
-
 	tmpl := `
-	<div class="visitors-section">
-		{{if .SectionTitle}}
-		<h3>{{.SectionTitle}}</h3>
-		{{end}}
-		<div class="visitors-stats">
-			<p class="visitors-info">{{.StatsText}}</p>
+	<div class="visitors-section section">
+		<div class="plugin-header">
+			<h3 class="plugin-title">{{.SectionTitle}}</h3>
+		</div>
+		<div class="plugin__inner">
+			<div class="visitors-stats">
+				{{if .ShowTotal}}
+				<div class="visitor-stat">
+					<div class="visitor-number" data-stat="total">{{.TotalVisits}}</div>
+					<div class="visitor-label">Total</div>
+				</div>
+				{{end}}
+				{{if .ShowToday}}
+				<div class="visitor-stat">
+					<div class="visitor-number" data-stat="today">{{.TodayVisits}}</div>
+					<div class="visitor-label">Today</div>
+				</div>
+				{{end}}
+				{{if .ShowUptime}}
+				<div class="visitor-stat">
+					<div class="visitor-uptime" data-uptime>{{.Uptime}}</div>
+					<div class="visitor-label">Uptime</div>
+				</div>
+				{{end}}
+			</div>
 		</div>
 	</div>`
 
 	data := struct {
 		SectionTitle string
-		StatsText    string
+		ShowTotal    bool
+		ShowToday    bool
+		ShowUptime   bool
+		TotalVisits  string
+		TodayVisits  string
+		Uptime       string
 	}{
 		SectionTitle: sectionTitle,
-		StatsText:    strings.Join(parts, " • "),
+		ShowTotal:    showTotal,
+		ShowToday:    showToday,
+		ShowUptime:   showUptime,
+		TotalVisits:  formatNumber(totalVisits),
+		TodayVisits:  formatNumber(todayVisits),
+		Uptime:       formatDuration(uptime),
 	}
 
 	t, err := template.New("visitors").Parse(tmpl)
@@ -123,51 +169,68 @@ func (p *VisitorsPlugin) Render(ctx context.Context) (string, error) {
 	return buf.String(), nil
 }
 
-func (p *VisitorsPlugin) UpdateData(ctx context.Context) error {
-	p.mutex.Lock()
-	defer p.mutex.Unlock()
-
-	now := time.Now()
-	if now.Sub(p.lastSaveTime) < 29*time.Minute {
-		return nil
-	}
-
-	return p.saveVisitorsData()
-}
-
 func (p *VisitorsPlugin) RecordVisit(userAgent, ip string) {
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
 
-	today := time.Now().Format("2006-01-02")
-	uniqueKey := today + ":" + ip
+	p.checkDayTransitionUnsafe()
 
-	if !p.uniqueToday[uniqueKey] {
-		p.uniqueToday[uniqueKey] = true
-		p.todayCount++
-		p.visitCount++
+	// Always increment both counters on every visit
+	p.visitCount++
+	p.todayCount++
 
-		p.hub.Broadcast("visitors_update", map[string]interface{}{
-			"total": p.visitCount,
-			"today": p.todayCount,
-		})
-	}
+	// Always broadcast immediately for real-time updates
+	go p.broadcastUpdate()
 
-	currentDay := time.Now().Format("2006-01-02")
-	for key := range p.uniqueToday {
-		if !strings.HasPrefix(key, currentDay+":") {
-			delete(p.uniqueToday, key)
+	// Save immediately to ensure persistence
+	go func() {
+		p.mutex.Lock()
+		defer p.mutex.Unlock()
+		p.saveVisitorsDataUnsafe()
+	}()
+}
+
+func (p *VisitorsPlugin) checkDayTransitionUnsafe() {
+	today := time.Now().Format("29.02.2006")
+	if today != p.currentDay {
+		if p.currentDay != "" && p.todayCount > 0 {
+			p.dailyStats[p.currentDay] = p.todayCount
 		}
+
+		p.currentDay = today
+		p.todayCount = 0
 	}
+}
+
+func (p *VisitorsPlugin) broadcastUpdate() {
+	p.mutex.RLock()
+	total := p.visitCount
+	today := p.todayCount
+	p.mutex.RUnlock()
+
+	p.hub.Broadcast("visitors_update", map[string]interface{}{
+		"total":     total,
+		"today":     today,
+		"timestamp": time.Now().Unix(),
+	})
+}
+
+func (p *VisitorsPlugin) UpdateData(ctx context.Context) error {
+	p.mutex.Lock()
+	defer p.mutex.Unlock()
+
+	// Always save when requested to ensure data persistence
+	return p.saveVisitorsDataUnsafe()
 }
 
 func (p *VisitorsPlugin) loadVisitorsData() {
 	dataFile := filepath.Join(p.dataPath, "visitors.json")
 
-	data, err := ioutil.ReadFile(dataFile)
+	data, err := os.ReadFile(dataFile)
 	if err != nil {
 		p.visitCount = 0
 		p.todayCount = 0
+		p.dailyStats = make(map[string]int64)
 		return
 	}
 
@@ -175,22 +238,31 @@ func (p *VisitorsPlugin) loadVisitorsData() {
 	if err := json.Unmarshal(data, &visitorsData); err != nil {
 		p.visitCount = 0
 		p.todayCount = 0
+		p.dailyStats = make(map[string]int64)
 		return
 	}
 
 	p.visitCount = visitorsData.TotalVisits
+	if visitorsData.DailyStats != nil {
+		p.dailyStats = visitorsData.DailyStats
+	} else {
+		p.dailyStats = make(map[string]int64)
+	}
 
-	today := time.Now().Format("2006-01-02")
-	lastUpdate := visitorsData.LastUpdate.Format("2006-01-02")
-
-	if today == lastUpdate {
+	today := time.Now().Format("29.02.2006")
+	if visitorsData.CurrentDay == today {
 		p.todayCount = visitorsData.TodayVisits
 	} else {
+		if visitorsData.CurrentDay != "" && visitorsData.TodayVisits > 0 {
+			p.dailyStats[visitorsData.CurrentDay] = visitorsData.TodayVisits
+		}
 		p.todayCount = 0
 	}
+
+	p.currentDay = today
 }
 
-func (p *VisitorsPlugin) saveVisitorsData() error {
+func (p *VisitorsPlugin) saveVisitorsDataUnsafe() error {
 	dataFile := filepath.Join(p.dataPath, "visitors.json")
 
 	if err := os.MkdirAll(filepath.Dir(dataFile), 0755); err != nil {
@@ -200,15 +272,13 @@ func (p *VisitorsPlugin) saveVisitorsData() error {
 	visitorsData := VisitorsData{
 		TotalVisits:  p.visitCount,
 		TodayVisits:  p.todayCount,
+		CurrentDay:   p.currentDay,
 		LastUpdate:   time.Now(),
-		DailyStats:   make(map[string]int64),
+		DailyStats:   p.dailyStats,
 		MonthlyStats: make(map[string]int64),
 	}
 
-	today := time.Now().Format("2006-01-02")
 	month := time.Now().Format("2006-01")
-
-	visitorsData.DailyStats[today] = p.todayCount
 	visitorsData.MonthlyStats[month] = p.visitCount
 
 	data, err := json.MarshalIndent(visitorsData, "", "  ")
@@ -217,7 +287,7 @@ func (p *VisitorsPlugin) saveVisitorsData() error {
 	}
 
 	p.lastSaveTime = time.Now()
-	return ioutil.WriteFile(dataFile, data, 0644)
+	return os.WriteFile(dataFile, data, 0644)
 }
 
 func (p *VisitorsPlugin) GetSettings() map[string]interface{} {

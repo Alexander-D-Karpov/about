@@ -66,24 +66,29 @@
 <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
 <script src="/static/js/admin.js"></script>
 <script>
-  const pluginsData = {
+  // Debug: Log the raw plugin data
+  console.log('Raw plugins data from server:', {
   {{range .Plugins}}
-  "{{.Name}}": {{printf "%s" (printf "%v" .Settings | printf "%q")}},
+  "{{.Name}}": {{.Settings | json}},
   {{end}}
-  };
-
-  Object.keys(pluginsData).forEach(key => {
-    try {
-      pluginsData[key] = JSON.parse(pluginsData[key]);
-    } catch (e) {
-      console.error('Error parsing plugin data for', key, e);
-      pluginsData[key] = {};
-    }
   });
+
+  const pluginsData = {};
+
+  {{range .Plugins}}
+  try {
+    pluginsData["{{.Name}}"] = {{.Settings | json}};
+    console.log('Parsed settings for {{.Name}}:', pluginsData["{{.Name}}"]);
+  } catch (e) {
+    console.error('Failed to parse settings for {{.Name}}:', e);
+    pluginsData["{{.Name}}"] = {};
+  }
+  {{end}}
 
   document.addEventListener('DOMContentLoaded', function() {
     {{range .Plugins}}
-    initSettingsEditor('{{.Name}}', pluginsData['{{.Name}}']);
+    console.log('Initializing settings editor for {{.Name}} with:', pluginsData['{{.Name}}']);
+    initSettingsEditor('{{.Name}}', pluginsData['{{.Name}}'] || {});
     {{end}}
 
     initSortable();

@@ -135,12 +135,12 @@ func NewLastFMPlugin(storage *storage.Storage, hub *stream.Hub, apiKey string) *
 func (p *LastFMPlugin) Name() string { return "lastfm" }
 
 func (p *LastFMPlugin) startWebSocketUpdates() {
-	ticker := time.NewTicker(15 * time.Second)
+	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
 
 	for range ticker.C {
 		if p.hub.GetClientCount() > 0 && p.apiKey != "" {
-			if time.Since(p.lastWebsocketUpdate) >= 15*time.Second {
+			if time.Since(p.lastWebsocketUpdate) >= 30*time.Second {
 				config := p.storage.GetPluginConfig(p.Name())
 				username, ok := config.Settings["username"].(string)
 				if ok && strings.TrimSpace(username) != "" {
@@ -159,7 +159,7 @@ func (p *LastFMPlugin) Render(ctx context.Context) (string, error) {
 	config := p.storage.GetPluginConfig(p.Name())
 	settings := config.Settings
 
-	sectionTitle := p.getConfigValue(settings, "ui.sectionTitle", "🎵 Music")
+	sectionTitle := p.getConfigValue(settings, "ui.sectionTitle", "Music")
 	showScrobbles := p.getConfigBool(settings, "ui.showScrobbles", true)
 	showPlayButton := p.getConfigBool(settings, "ui.showPlayButton", true)
 	showRecentTracks := p.getConfigBool(settings, "ui.showRecentTracks", true)
@@ -188,23 +188,33 @@ func (p *LastFMPlugin) Render(ctx context.Context) (string, error) {
 
 	searchQuery := fmt.Sprintf("%s %s", p.currentTrack.Artist.Text, p.currentTrack.Name)
 
+	// Filter recent tracks to avoid showing current track twice
 	var recentTracksToShow []LastFMTrack
 	if showRecentTracks && len(p.recentTracks) > 0 {
-		startIdx := 0
-		if nowPlaying && len(p.recentTracks) > 1 {
-			startIdx = 1
-		}
-		endIdx := startIdx + 2
-		if endIdx > len(p.recentTracks) {
-			endIdx = len(p.recentTracks)
-		}
-		if startIdx < endIdx {
-			recentTracksToShow = p.recentTracks[startIdx:endIdx]
+		for i, track := range p.recentTracks {
+			// Skip the first track if it's currently playing (to avoid duplication)
+			if i == 0 && nowPlaying {
+				continue
+			}
+
+			// Skip tracks that are identical to current track
+			if track.Name == p.currentTrack.Name &&
+				track.Artist.Text == p.currentTrack.Artist.Text &&
+				track.Album.Text == p.currentTrack.Album.Text {
+				continue
+			}
+
+			recentTracksToShow = append(recentTracksToShow, track)
+
+			// Limit to 3 recent tracks
+			if len(recentTracksToShow) >= 3 {
+				break
+			}
 		}
 	}
 
 	tmpl := `
-	<div class="lastfm-section section">
+	<div class="lastfm-section section" data-w="2">
 		<div class="plugin-header">
 			<h3 class="plugin-title">{{.SectionTitle}}</h3>
 		</div>
@@ -268,8 +278,8 @@ func (p *LastFMPlugin) Render(ctx context.Context) (string, error) {
 						<div class="recent-track-info">
 							<div class="recent-track-name">{{.Name}}</div>
 							<div class="recent-track-artist">{{.Artist}}</div>
-							<div class="recent-track-time">{{.RelativeTime}}</div>
 						</div>
+						<div class="recent-track-time">{{.RelativeTime}}</div>
 					</div>
 					{{end}}
 				</div>
@@ -426,19 +436,28 @@ func (p *LastFMPlugin) updateRecentTracksWebSocket(username string) error {
 				}
 			}
 
+			// Filter recent tracks to avoid duplication with current track
 			var recentTracksData []map[string]interface{}
+			nowPlaying := newCurrentTrack.Attr.NowPlaying == "true"
+
 			for i, track := range p.recentTracks {
-				if track.Attr.NowPlaying == "true" {
-					if i == 0 {
-						continue // Skip the current track if it's now playing
-					}
-				} else if i == 0 {
-					// If the first track is not playing, we only want to show it once
+				// Skip the first track if it's currently playing
+				if i == 0 && nowPlaying {
 					continue
 				}
-				if i >= 3 {
-					break // Limit to 5 recent tracks
+
+				// Skip tracks identical to current track
+				if track.Name == newCurrentTrack.Name &&
+					track.Artist.Text == newCurrentTrack.Artist.Text &&
+					track.Album.Text == newCurrentTrack.Album.Text {
+					continue
 				}
+
+				// Limit to 3 recent tracks
+				if len(recentTracksData) >= 3 {
+					break
+				}
+
 				recentTracksData = append(recentTracksData, map[string]interface{}{
 					"name":         track.Name,
 					"artist":       track.Artist.Text,
@@ -454,7 +473,7 @@ func (p *LastFMPlugin) updateRecentTracksWebSocket(username string) error {
 				"name":         newCurrentTrack.Name,
 				"artist":       newCurrentTrack.Artist.Text,
 				"album":        newCurrentTrack.Album.Text,
-				"isPlaying":    newCurrentTrack.Attr.NowPlaying == "true",
+				"isPlaying":    nowPlaying,
 				"url":          newCurrentTrack.URL,
 				"image":        p.pickBestImage(newCurrentTrack),
 				"recentTracks": recentTracksData,
@@ -495,13 +514,47 @@ func (p *LastFMPlugin) updateRecentTracks(username string) (bool, error) {
 		}
 
 		if trackChanged {
+			// Filter recent tracks for WebSocket broadcast
+			var recentTracksData []map[string]interface{}
+			nowPlaying := newCurrentTrack.Attr.NowPlaying == "true"
+
+			for i, track := range p.recentTracks {
+				// Skip the first track if it's currently playing
+				if i == 0 && nowPlaying {
+					continue
+				}
+
+				// Skip tracks identical to current track
+				if track.Name == newCurrentTrack.Name &&
+					track.Artist.Text == newCurrentTrack.Artist.Text &&
+					track.Album.Text == newCurrentTrack.Album.Text {
+					continue
+				}
+
+				// Limit to 3 recent tracks
+				if len(recentTracksData) >= 3 {
+					break
+				}
+
+				recentTracksData = append(recentTracksData, map[string]interface{}{
+					"name":         track.Name,
+					"artist":       track.Artist.Text,
+					"album":        track.Album.Text,
+					"image":        p.pickBestImage(&track),
+					"url":          track.URL,
+					"isPlaying":    track.Attr.NowPlaying == "true",
+					"relativeTime": p.getRelativeTimeForTrack(&track),
+				})
+			}
+
 			p.hub.Broadcast("lastfm_update", map[string]interface{}{
-				"name":      newCurrentTrack.Name,
-				"artist":    newCurrentTrack.Artist.Text,
-				"album":     newCurrentTrack.Album.Text,
-				"isPlaying": newCurrentTrack.Attr.NowPlaying == "true",
-				"url":       newCurrentTrack.URL,
-				"image":     p.pickBestImage(newCurrentTrack),
+				"name":         newCurrentTrack.Name,
+				"artist":       newCurrentTrack.Artist.Text,
+				"album":        newCurrentTrack.Album.Text,
+				"isPlaying":    nowPlaying,
+				"url":          newCurrentTrack.URL,
+				"image":        p.pickBestImage(newCurrentTrack),
+				"recentTracks": recentTracksData,
 			})
 			return true, nil
 		}

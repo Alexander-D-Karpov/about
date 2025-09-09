@@ -43,7 +43,6 @@ func NewManager(storage *storage.Storage, hub *stream.Hub, config *config.Config
 }
 
 func (m *Manager) LoadAll() error {
-	// Register all plugins
 	plugins := []Plugin{
 		NewProfilePlugin(m.storage, m.hub),
 		NewSocialPlugin(m.storage, m.hub),
@@ -128,6 +127,10 @@ func (m *Manager) preRenderPlugins(ctx context.Context) {
 	m.renderedCache = make(map[string]template.HTML)
 
 	for _, plugin := range enabledPlugins {
+		if plugin.Name() == "meme" || plugin.Name() == "info" || plugin.Name() == "visitors" {
+			continue
+		}
+
 		func() {
 			defer func() {
 				if r := recover(); r != nil {
@@ -162,12 +165,52 @@ func (m *Manager) GetRenderedPlugins(ctx context.Context) []template.HTML {
 	var renderedPlugins []template.HTML
 
 	for _, plugin := range enabledPlugins {
-		if rendered, exists := m.renderedCache[plugin.Name()]; exists {
+		if plugin.Name() == "meme" || plugin.Name() == "info" || plugin.Name() == "visitors" {
+			m.mutex.RUnlock()
+			rendered, err := plugin.Render(ctx)
+			m.mutex.RLock()
+			if err != nil {
+				fmt.Printf("Error rendering %s plugin: %v\n", plugin.Name(), err)
+				continue
+			}
+			if rendered != "" {
+				renderedPlugins = append(renderedPlugins, template.HTML(rendered))
+			}
+		} else if rendered, exists := m.renderedCache[plugin.Name()]; exists {
 			renderedPlugins = append(renderedPlugins, rendered)
 		}
 	}
 
 	m.mutex.RUnlock()
+	return renderedPlugins
+}
+
+func (m *Manager) GetRenderedPluginsFresh(ctx context.Context) []template.HTML {
+	m.mutex.RLock()
+	enabledPlugins := m.getEnabledPluginsLocked()
+	m.mutex.RUnlock()
+
+	var renderedPlugins []template.HTML
+
+	for _, plugin := range enabledPlugins {
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					fmt.Printf("Error rendering plugin %s: panic: %v\n", plugin.Name(), r)
+				}
+			}()
+
+			rendered, err := plugin.Render(ctx)
+			if err != nil {
+				fmt.Printf("Error rendering plugin %s: %v\n", plugin.Name(), err)
+				return
+			}
+			if rendered != "" {
+				renderedPlugins = append(renderedPlugins, template.HTML(rendered))
+			}
+		}()
+	}
+
 	return renderedPlugins
 }
 
@@ -181,7 +224,6 @@ func (m *Manager) getEnabledPluginsLocked() []Plugin {
 		}
 	}
 
-	// Sort by order
 	sort.Slice(enabled, func(i, j int) bool {
 		configI := m.storage.GetPluginConfig(enabled[i].Name())
 		configJ := m.storage.GetPluginConfig(enabled[j].Name())
@@ -242,12 +284,10 @@ func (m *Manager) UpdateExternalData() {
 
 	wg.Wait()
 
-	// Invalidate cache to trigger re-render
 	m.mutex.Lock()
 	m.cacheTimestamp = time.Time{}
 	m.mutex.Unlock()
 
-	// Broadcast update
 	m.hub.Broadcast("plugins_updated", map[string]interface{}{
 		"timestamp": time.Now().Unix(),
 	})
@@ -260,12 +300,10 @@ func (m *Manager) UpdatePlugin(pluginName string) {
 			fmt.Printf("Error updating plugin %s: %v\n", pluginName, err)
 		}
 
-		// Invalidate cache for this plugin
 		m.mutex.Lock()
 		delete(m.renderedCache, pluginName)
 		m.mutex.Unlock()
 
-		// Re-render this plugin
 		go func() {
 			rendered, err := plugin.Render(ctx)
 			if err != nil {
@@ -277,7 +315,6 @@ func (m *Manager) UpdatePlugin(pluginName string) {
 			m.renderedCache[pluginName] = template.HTML(rendered)
 			m.mutex.Unlock()
 
-			// Broadcast individual plugin update
 			m.hub.Broadcast("plugin_rendered", map[string]interface{}{
 				"plugin":    pluginName,
 				"rendered":  rendered,
@@ -317,7 +354,6 @@ func (m *Manager) GetSystemStats() map[string]interface{} {
 		"last_update":     m.lastUpdate.Unix(),
 	}
 
-	// Get visitor stats
 	if visitorsPlugin, exists := m.GetPlugin("visitors"); exists {
 		if visitors, ok := visitorsPlugin.(*VisitorsPlugin); ok {
 			visitors.mutex.RLock()

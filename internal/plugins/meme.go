@@ -2,7 +2,6 @@ package plugins
 
 import (
 	"context"
-	"fmt"
 	"html/template"
 	"math/rand"
 	"strings"
@@ -17,28 +16,36 @@ type MemePlugin struct {
 	hub         *stream.Hub
 	currentMeme *Meme
 	lastUpdate  time.Time
+	rng         *rand.Rand
 }
 
 type Meme struct {
 	Text     string `json:"text"`
 	Image    string `json:"image"`
-	Type     string `json:"type"` // "text", "image", "gif"
+	Type     string `json:"type"`
 	Source   string `json:"source"`
 	Category string `json:"category"`
 }
 
 func NewMemePlugin(storage *storage.Storage, hub *stream.Hub) *MemePlugin {
+	source := rand.NewSource(time.Now().UnixNano())
 	plugin := &MemePlugin{
 		storage: storage,
 		hub:     hub,
+		rng:     rand.New(source),
 	}
+
 	plugin.selectRandomMeme()
+	plugin.lastUpdate = time.Now()
+
 	return plugin
 }
 
 func (p *MemePlugin) Name() string { return "meme" }
 
 func (p *MemePlugin) Render(ctx context.Context) (string, error) {
+	p.selectRandomMeme()
+
 	config := p.storage.GetPluginConfig(p.Name())
 	settings := config.Settings
 
@@ -48,8 +55,6 @@ func (p *MemePlugin) Render(ctx context.Context) (string, error) {
 	}
 
 	sectionTitle := p.getConfigValue(settings, "ui.sectionTitle", "Random Meme")
-	autoRefresh := p.getConfigBool(settings, "ui.autoRefresh", false)
-	refreshInterval := p.getConfigInt(settings, "ui.refreshInterval", 300)
 
 	tmpl := `
 	<div class="meme-section section" id="meme-section">
@@ -75,28 +80,14 @@ func (p *MemePlugin) Render(ctx context.Context) (string, error) {
 			</div>
 			{{end}}
 		</div>
-
-		{{if .AutoRefresh}}
-		<div class="meme-auto-refresh" data-interval="{{.RefreshInterval}}">
-			<small class="text-muted">Auto-refreshes every {{.RefreshIntervalText}}</small>
-		</div>
-		{{end}}
 	</div>`
 
-	refreshIntervalText := p.formatInterval(refreshInterval)
-
 	data := struct {
-		SectionTitle        string
-		AutoRefresh         bool
-		RefreshInterval     int
-		RefreshIntervalText string
-		Meme                *Meme
+		SectionTitle string
+		Meme         *Meme
 	}{
-		SectionTitle:        sectionTitle,
-		AutoRefresh:         autoRefresh,
-		RefreshInterval:     refreshInterval,
-		RefreshIntervalText: refreshIntervalText,
-		Meme:                p.currentMeme,
+		SectionTitle: sectionTitle,
+		Meme:         p.currentMeme,
 	}
 
 	t, err := template.New("meme").Parse(tmpl)
@@ -138,8 +129,7 @@ func (p *MemePlugin) selectRandomMeme() {
 		return
 	}
 
-	rand.Seed(time.Now().UnixNano())
-	memeIndex := rand.Intn(len(memes))
+	memeIndex := p.rng.Intn(len(memes))
 	memeData := memes[memeIndex]
 
 	memeMap, ok := memeData.(map[string]interface{})
@@ -172,21 +162,10 @@ func (p *MemePlugin) RefreshMeme() {
 }
 
 func (p *MemePlugin) getDefaultMemes() []interface{} {
-	// Prefer local images/GIFs served from /static/memes
 	return []interface{}{
-		map[string]interface{}{"type": "image", "image": "/static/memes/test.webp", "text": "test", "category": "test"},
+		map[string]interface{}{"type": "image", "image": "/static/memes/test.webp", "text": "really cool", "category": "test"},
+		map[string]interface{}{"type": "image", "image": "/static/memes/test2.jpg", "text": "that says a lot about our society", "category": "test"},
 	}
-}
-
-func (p *MemePlugin) formatInterval(seconds int) string {
-	if seconds < 60 {
-		return fmt.Sprintf("%d seconds", seconds)
-	} else if seconds < 3600 {
-		minutes := seconds / 60
-		return fmt.Sprintf("%d minutes", minutes)
-	}
-	hours := seconds / 3600
-	return fmt.Sprintf("%d hours", hours)
 }
 
 func (p *MemePlugin) GetSettings() map[string]interface{} {
@@ -202,7 +181,6 @@ func (p *MemePlugin) SetSettings(settings map[string]interface{}) error {
 		return err
 	}
 
-	// Refresh meme when settings change
 	p.selectRandomMeme()
 
 	p.hub.Broadcast("plugin_update", map[string]interface{}{
