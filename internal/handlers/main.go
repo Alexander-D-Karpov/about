@@ -1,11 +1,14 @@
 package handlers
 
 import (
+	"bytes"
 	"context"
 	"embed"
+	"fmt"
 	"html/template"
 	"log"
 	"net/http"
+	"strings"
 
 	"github.com/Alexander-D-Karpov/about/internal/config"
 	"github.com/Alexander-D-Karpov/about/internal/plugins"
@@ -18,12 +21,23 @@ type MainHandler struct {
 }
 
 type TemplateData struct {
-	Title   string
-	Plugins []template.HTML
+	Title         string
+	Description   string
+	Canonical     string
+	OGTitle       string
+	OGDescription string
+	OGImage       string
+	Plugins       []template.HTML
 }
 
 func NewMainHandler(pluginManager *plugins.Manager, config *config.Config, templateFiles embed.FS) *MainHandler {
-	tmpl, err := template.ParseFS(templateFiles, "templates/main.html")
+	funcs := template.FuncMap{
+		"default": defaultFunc, // {{ .Field | default "fallback" }}
+	}
+
+	tmpl, err := template.New("main.html").
+		Funcs(funcs).
+		ParseFS(templateFiles, "templates/main.html")
 	if err != nil {
 		log.Fatalf("Error loading template: %v", err)
 	}
@@ -35,12 +49,30 @@ func NewMainHandler(pluginManager *plugins.Manager, config *config.Config, templ
 	}
 }
 
+func defaultFunc(v any, def string) string {
+	if s, ok := v.(string); ok && strings.TrimSpace(s) != "" {
+		return s
+	}
+	if v != nil {
+		switch x := v.(type) {
+		case bool:
+			if x {
+				return "true"
+			}
+		case int, int64, float64:
+			if fmt.Sprint(x) != "0" {
+				return fmt.Sprint(x)
+			}
+		}
+	}
+	return def
+}
+
 func (h *MainHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-
 	if r.URL.Path != "/" {
 		http.NotFound(w, r)
 		return
@@ -56,33 +88,40 @@ func (h *MainHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	renderedPlugins := h.pluginManager.GetRenderedPluginsFresh(ctx)
 
 	data := TemplateData{
-		Title:   "sanspie - Web Developer & DevSecOps",
-		Plugins: renderedPlugins,
+		Title:         "sanspie",
+		Description:   "WebDev & DevSecOps", // h.config.Description
+		Canonical:     "",                   // h.config.Canonical
+		OGTitle:       "sanspie",            // h.config.OGTitle
+		OGDescription: "",                   // h.config.OGDescription
+		OGImage:       "",                   // h.config.OGImage
+		Plugins:       renderedPlugins,
 	}
 
+	// Buffer the render to avoid partial writes + superfluous WriteHeader logs.
+	var buf bytes.Buffer
+	if err := h.template.Execute(&buf, data); err != nil {
+		log.Printf("Error executing template: %v", err)
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+
+	// Only write headers/body after successful render
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
 	w.Header().Set("Pragma", "no-cache")
 	w.Header().Set("Expires", "0")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 
-	if err := h.template.Execute(w, data); err != nil {
-		log.Printf("Error executing template: %v", err)
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-		return
-	}
+	w.WriteHeader(http.StatusOK)
+	_, _ = buf.WriteTo(w)
 }
 
 func getClientIP(r *http.Request) string {
-	forwarded := r.Header.Get("X-Forwarded-For")
-	if forwarded != "" {
+	if forwarded := r.Header.Get("X-Forwarded-For"); forwarded != "" {
 		return forwarded
 	}
-
-	realIP := r.Header.Get("X-Real-IP")
-	if realIP != "" {
+	if realIP := r.Header.Get("X-Real-IP"); realIP != "" {
 		return realIP
 	}
-
 	return r.RemoteAddr
 }

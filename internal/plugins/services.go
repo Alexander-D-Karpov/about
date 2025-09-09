@@ -57,7 +57,7 @@ func (p *ServicesPlugin) Render(ctx context.Context) (string, error) {
 		return p.renderNoServices(), nil
 	}
 
-	sectionTitle := p.getConfigValue(settings, "ui.sectionTitle", "🛠️ Local Services")
+	sectionTitle := p.getConfigValue(settings, "ui.sectionTitle", "Local Services")
 	showStatus := p.getConfigBool(settings, "ui.showStatus", true)
 	showResponseTime := p.getConfigBool(settings, "ui.showResponseTime", true)
 

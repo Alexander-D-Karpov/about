@@ -78,9 +78,9 @@
 
     const defaultWidths = {
         'projects-section': 3, 'beatleader-section': 2, 'steam-section': 2,
-        'neofetch-section': 2, 'tech-section': 2, 'social-section': 1,
+        'neofetch-section': 2, 'tech-section': 2,
         'code-section': 2, 'meme-section': 1, 'lastfm-section': 2,
-        'webring-section': 2, 'visitors-section': 1, 'info-section': 2,
+        'webring-section': 2, 'social-section': 1, 'visitors-section': 1, 'info-section': 2,
         'services-section': 2,
     };
 

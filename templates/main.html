@@ -1,16 +1,49 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{{.Title}}</title>
-    <meta name="description" content="This site is literally about me">
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <title>{{ .Title }}</title>
+    <meta name="description" content="{{ .Description | default "This site is literally about me" }}">
     <meta name="author" content="sanspie">
-    <meta name="theme-color" content="#0d1117">
+    <link rel="canonical" href="{{ .Canonical | default "https://about.akarpov.ru" }}">
 
-    <link rel="icon" type="image/svg+xml" href="favicon.ico">
-    <link rel="icon" type="image/png" href="favicon.png">
-    <!-- keep your favicon/meta as-is -->
+    <meta name="robots" content="index,follow,max-snippet:-1,max-image-preview:large,max-video-preview:-1">
+    <meta name="google" content="notranslate">
+    <meta name="robots" content="noai, noimageai">
+
+    <meta name="referrer" content="strict-origin-when-cross-origin">
+
+    <meta name="color-scheme" content="dark light">
+    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#ffffff">
+    <meta name="theme-color" media="(prefers-color-scheme: dark)"  content="#0d1117">
+
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="sanspie">
+    <meta property="og:title" content="{{ .OGTitle | default .Title }}">
+    <meta property="og:description" content="{{ .OGDescription | default .Description }}">
+    <meta property="og:url" content="{{ .Canonical | default "https://about.akarpov.ru" }}">
+    <meta property="og:image" content="{{ .OGImage | default "https://akarpov.ru/media/logo.png" }}">
+    <meta property="og:image:width" content="1200">
+    <meta property="og:image:height" content="630">
+    <meta property="og:locale" content="en_US">
+
+    <meta name="application-name" content="sanspie">
+    <meta name="apple-mobile-web-app-title" content="sanspie">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="format-detection" content="telephone=no, email=no, address=no">
+
+    <link rel="icon" type="image/x-icon" href="/favicon.ico">
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon.png">
+    <link rel="icon" type="image/png" sizes="192x192" href="/favicon.png">
+    <link rel="apple-touch-icon" sizes="180x180" href="/favicon.png">
+    <link rel="mask-icon" href="/favicon.png" color="#0d1117">
+
+    <meta http-equiv="Content-Security-Policy"
+          content="default-src 'self'; img-src 'self' https: data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self' wss: https:; base-uri 'self'; form-action 'self'">
+
     <link rel="stylesheet" href="/static/css/main.css">
 
     <link rel="stylesheet" href="/static/css/plugin-profile.css">
@@ -27,6 +60,20 @@
     <link rel="stylesheet" href="/static/css/plugin-projects.css">
     <link rel="stylesheet" href="/static/css/plugin-info.css">
 
+    <script type="application/ld+json">
+        {
+            "@context": "https://schema.org",
+            "@type": "Person",
+            "name": "sanspie",
+            "url": "https://about.akarpov.ru",
+            "image": "https://akarpov.ru/media/logo.png",
+            "sameAs": [
+                "https://github.com/Alexander-D-Karpov",
+                "https://t.me/sanspie"
+            ],
+            "description": "This site is literally about me"
+        }
+    </script>
 </head>
 <body>
 <div class="container">
