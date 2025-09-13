@@ -9,6 +9,7 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/Alexander-D-Karpov/about/internal/config"
 	"github.com/Alexander-D-Karpov/about/internal/plugins"
@@ -78,6 +79,9 @@ func (h *MainHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+
 	userAgent := r.Header.Get("User-Agent")
 	isCurl := strings.Contains(strings.ToLower(userAgent), "curl")
 
@@ -92,8 +96,7 @@ func (h *MainHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx := context.Background()
-	renderedPlugins := h.pluginManager.GetRenderedPluginsFresh(ctx)
+	renderedPlugins := h.pluginManager.GetRenderedPlugins(ctx)
 
 	data := TemplateData{
 		Title:         "sanspie",

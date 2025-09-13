@@ -49,6 +49,12 @@ func (p *ServicesPlugin) Name() string {
 }
 
 func (p *ServicesPlugin) Render(ctx context.Context) (string, error) {
+	select {
+	case <-ctx.Done():
+		return "", ctx.Err()
+	default:
+	}
+
 	config := p.storage.GetPluginConfig(p.Name())
 	settings := config.Settings
 
@@ -141,6 +147,9 @@ func (p *ServicesPlugin) Render(ctx context.Context) (string, error) {
 	onlineCount := 0
 	offlineCount := 0
 
+	p.mutex.RLock()
+	defer p.mutex.RUnlock()
+
 	for _, service := range services {
 		serviceMap, ok := service.(map[string]interface{})
 		if !ok {
@@ -152,9 +161,7 @@ func (p *ServicesPlugin) Render(ctx context.Context) (string, error) {
 		icon := p.getStringFromMap(serviceMap, "icon", "")
 		description := p.getStringFromMap(serviceMap, "description", "")
 
-		p.mutex.RLock()
 		status := p.serviceStatuses[name]
-		p.mutex.RUnlock()
 
 		statusText := "Unknown"
 		switch status.Status {

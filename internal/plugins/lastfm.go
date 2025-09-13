@@ -273,6 +273,12 @@ func (p *LastFMPlugin) processTrackUpdate(tracks []LastFMTrack) error {
 }
 
 func (p *LastFMPlugin) Render(ctx context.Context) (string, error) {
+	select {
+	case <-ctx.Done():
+		return "", ctx.Err()
+	default:
+	}
+
 	config := p.storage.GetPluginConfig(p.Name())
 	settings := config.Settings
 
@@ -305,16 +311,13 @@ func (p *LastFMPlugin) Render(ctx context.Context) (string, error) {
 
 	searchQuery := fmt.Sprintf("%s %s", p.currentTrack.Artist.Text, p.currentTrack.Name)
 
-	// Filter recent tracks to avoid showing current track twice
 	var recentTracksToShow []LastFMTrack
 	if showRecentTracks && len(p.recentTracks) > 0 {
 		for i, track := range p.recentTracks {
-			// Skip the first track if it's currently playing (to avoid duplication)
 			if i == 0 && nowPlaying {
 				continue
 			}
 
-			// Skip tracks that are identical to current track
 			if track.Name == p.currentTrack.Name &&
 				track.Artist.Text == p.currentTrack.Artist.Text &&
 				track.Album.Text == p.currentTrack.Album.Text {
@@ -323,7 +326,6 @@ func (p *LastFMPlugin) Render(ctx context.Context) (string, error) {
 
 			recentTracksToShow = append(recentTracksToShow, track)
 
-			// Limit to 3 recent tracks
 			if len(recentTracksToShow) >= 3 {
 				break
 			}

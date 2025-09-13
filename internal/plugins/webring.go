@@ -58,6 +58,12 @@ func NewWebringPlugin(storage *storage.Storage, hub *stream.Hub) *WebringPlugin 
 func (p *WebringPlugin) Name() string { return "webring" }
 
 func (p *WebringPlugin) Render(ctx context.Context) (string, error) {
+	select {
+	case <-ctx.Done():
+		return "", ctx.Err()
+	default:
+	}
+
 	cfg := p.storage.GetPluginConfig(p.Name())
 	settings := cfg.Settings
 

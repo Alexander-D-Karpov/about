@@ -128,9 +128,19 @@ func (m *Manager) preRenderPlugins(ctx context.Context) {
 	enabledPlugins := m.getEnabledPluginsLocked()
 	m.renderedCache = make(map[string]template.HTML)
 
+	renderCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
 	for _, plugin := range enabledPlugins {
 		if plugin.Name() == "meme" || plugin.Name() == "info" || plugin.Name() == "visitors" || plugin.Name() == "services" {
 			continue
+		}
+
+		select {
+		case <-renderCtx.Done():
+			fmt.Printf("Pre-rendering timeout for remaining plugins\n")
+			break
+		default:
 		}
 
 		func() {
@@ -140,7 +150,10 @@ func (m *Manager) preRenderPlugins(ctx context.Context) {
 				}
 			}()
 
-			rendered, err := plugin.Render(ctx)
+			pluginCtx, pluginCancel := context.WithTimeout(renderCtx, 5*time.Second)
+			defer pluginCancel()
+
+			rendered, err := plugin.Render(pluginCtx)
 			if err != nil {
 				fmt.Printf("Error pre-rendering plugin %s: %v\n", plugin.Name(), err)
 				return
@@ -157,9 +170,9 @@ func (m *Manager) preRenderPlugins(ctx context.Context) {
 func (m *Manager) GetRenderedPlugins(ctx context.Context) []template.HTML {
 	m.mutex.RLock()
 
-	if time.Since(m.cacheTimestamp) > time.Minute {
+	if time.Since(m.cacheTimestamp) > 30*time.Second {
 		m.mutex.RUnlock()
-		go m.preRenderPlugins(ctx)
+		go m.preRenderPlugins(context.Background())
 		m.mutex.RLock()
 	}
 
@@ -167,9 +180,20 @@ func (m *Manager) GetRenderedPlugins(ctx context.Context) []template.HTML {
 	var renderedPlugins []template.HTML
 
 	for _, plugin := range enabledPlugins {
+		select {
+		case <-ctx.Done():
+			m.mutex.RUnlock()
+			return renderedPlugins
+		default:
+		}
+
 		if plugin.Name() == "meme" || plugin.Name() == "info" || plugin.Name() == "visitors" || plugin.Name() == "services" {
 			m.mutex.RUnlock()
-			rendered, err := plugin.Render(ctx)
+
+			renderCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+			rendered, err := plugin.Render(renderCtx)
+			cancel()
+
 			m.mutex.RLock()
 			if err != nil {
 				fmt.Printf("Error rendering %s plugin: %v\n", plugin.Name(), err)
@@ -193,8 +217,17 @@ func (m *Manager) GetRenderedPluginsFresh(ctx context.Context) []template.HTML {
 	m.mutex.RUnlock()
 
 	var renderedPlugins []template.HTML
+	renderCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
 
 	for _, plugin := range enabledPlugins {
+		select {
+		case <-renderCtx.Done():
+			fmt.Printf("Fresh rendering timeout, returning partial results\n")
+			return renderedPlugins
+		default:
+		}
+
 		func() {
 			defer func() {
 				if r := recover(); r != nil {
@@ -202,7 +235,10 @@ func (m *Manager) GetRenderedPluginsFresh(ctx context.Context) []template.HTML {
 				}
 			}()
 
-			rendered, err := plugin.Render(ctx)
+			pluginCtx, pluginCancel := context.WithTimeout(renderCtx, 3*time.Second)
+			defer pluginCancel()
+
+			rendered, err := plugin.Render(pluginCtx)
 			if err != nil {
 				fmt.Printf("Error rendering plugin %s: %v\n", plugin.Name(), err)
 				return
