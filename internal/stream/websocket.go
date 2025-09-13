@@ -48,69 +48,41 @@ func New() *Hub {
 }
 
 func (h *Hub) Run() {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("Hub.Run panic recovered: %v", r)
+			go h.Run()
+		}
+	}()
+
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+
 	for {
 		select {
 		case client := <-h.register:
 			h.mutex.Lock()
+			if len(h.clients) >= 1000 {
+				h.mutex.Unlock()
+				client.conn.Close()
+				continue
+			}
 			h.clients[client] = true
 			clientCount := len(h.clients)
 			h.mutex.Unlock()
 
 			log.Printf("Client connected. Total clients: %d", clientCount)
-
-			go func(c *Client, count int) {
-				time.Sleep(100 * time.Millisecond)
-
-				h.mutex.RLock()
-				_, stillConnected := h.clients[c]
-				currentCount := len(h.clients)
-				h.mutex.RUnlock()
-
-				if !stillConnected {
-					return
-				}
-
-				message := Message{
-					Type: "client_count_update",
-					Data: map[string]interface{}{
-						"count":     currentCount,
-						"timestamp": time.Now().Unix(),
-					},
-				}
-
-				jsonData, err := json.Marshal(message)
-				if err != nil {
-					return
-				}
-
-				func() {
-					defer func() {
-						if r := recover(); r != nil {
-							log.Printf("Recovered from panic sending to client: %v", r)
-						}
-					}()
-
-					select {
-					case c.send <- jsonData:
-					default:
-					}
-				}()
-			}(client, clientCount)
-
 			h.broadcastClientCount(clientCount)
 
 		case client := <-h.unregister:
 			h.mutex.Lock()
 			if _, ok := h.clients[client]; ok {
 				delete(h.clients, client)
-				func() {
-					defer func() {
-						if r := recover(); r != nil {
-							log.Printf("Recovered from panic closing client channel: %v", r)
-						}
-					}()
-					close(client.send)
-				}()
+				select {
+				case <-client.send:
+				default:
+				}
+				close(client.send)
 			}
 			clientCount := len(h.clients)
 			h.mutex.Unlock()
@@ -121,38 +93,75 @@ func (h *Hub) Run() {
 		case message := <-h.broadcast:
 			h.mutex.RLock()
 			clientCount := len(h.clients)
-			h.mutex.RUnlock()
-
 			if clientCount == 0 {
+				h.mutex.RUnlock()
 				continue
 			}
 
-			h.mutex.Lock()
+			clients := make([]*Client, 0, clientCount)
 			for client := range h.clients {
-				func() {
-					defer func() {
-						if r := recover(); r != nil {
-							log.Printf("Recovered from panic broadcasting to client: %v", r)
-							delete(h.clients, client)
-						}
-					}()
-
-					select {
-					case client.send <- message:
-					default:
-						delete(h.clients, client)
-						func() {
-							defer func() {
-								if r := recover(); r != nil {
-								}
-							}()
-							close(client.send)
-						}()
-					}
-				}()
+				clients = append(clients, client)
 			}
-			h.mutex.Unlock()
+			h.mutex.RUnlock()
+
+			deadClients := make([]*Client, 0)
+			for _, client := range clients {
+				select {
+				case client.send <- message:
+				default:
+					deadClients = append(deadClients, client)
+				}
+			}
+
+			if len(deadClients) > 0 {
+				h.mutex.Lock()
+				for _, client := range deadClients {
+					if _, ok := h.clients[client]; ok {
+						delete(h.clients, client)
+						select {
+						case <-client.send:
+						default:
+						}
+						close(client.send)
+					}
+				}
+				h.mutex.Unlock()
+			}
+
+		case <-ticker.C:
+			h.cleanupStaleConnections()
 		}
+	}
+}
+
+func (h *Hub) cleanupStaleConnections() {
+	h.mutex.Lock()
+	defer h.mutex.Unlock()
+
+	deadClients := make([]*Client, 0)
+	for client := range h.clients {
+		if client.conn != nil {
+			client.conn.SetReadDeadline(time.Now().Add(time.Second))
+			if _, _, err := client.conn.NextReader(); err != nil {
+				deadClients = append(deadClients, client)
+			}
+		}
+	}
+
+	for _, client := range deadClients {
+		delete(h.clients, client)
+		if client.conn != nil {
+			client.conn.Close()
+		}
+		select {
+		case <-client.send:
+		default:
+		}
+		close(client.send)
+	}
+
+	if len(deadClients) > 0 {
+		log.Printf("Cleaned up %d stale connections", len(deadClients))
 	}
 }
 
@@ -241,6 +250,9 @@ func (h *Hub) ServeWS(w http.ResponseWriter, r *http.Request) {
 
 func (c *Client) readPump() {
 	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("readPump panic recovered: %v", r)
+		}
 		c.hub.unregister <- c
 		c.conn.Close()
 	}()
@@ -257,41 +269,19 @@ func (c *Client) readPump() {
 		_, message, err := c.conn.ReadMessage()
 		if err != nil {
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure, websocket.CloseNormalClosure) {
-				log.Printf("WebSocket error: %v", err)
+				log.Printf("WebSocket read error: %v", err)
 			}
+			break
+		}
+
+		if len(message) > 1024 {
+			log.Printf("Message too large: %d bytes", len(message))
 			break
 		}
 
 		var msg Message
 		if err := json.Unmarshal(message, &msg); err == nil {
-			switch msg.Type {
-			case "ping":
-				response := Message{Type: "pong", Data: nil}
-				if data, err := json.Marshal(response); err == nil {
-					select {
-					case c.send <- data:
-					default:
-						return
-					}
-				}
-			case "register":
-				log.Printf("Client registered with data: %v", msg.Data)
-			case "get_client_count":
-				count := c.hub.GetClientCount()
-				response := Message{
-					Type: "client_count_update",
-					Data: map[string]interface{}{
-						"count":     count,
-						"timestamp": time.Now().Unix(),
-					},
-				}
-				if data, err := json.Marshal(response); err == nil {
-					select {
-					case c.send <- data:
-					default:
-					}
-				}
-			}
+			c.handleMessage(msg)
 		}
 	}
 }
@@ -299,6 +289,9 @@ func (c *Client) readPump() {
 func (c *Client) writePump() {
 	ticker := time.NewTicker(54 * time.Second)
 	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("writePump panic recovered: %v", r)
+		}
 		ticker.Stop()
 		c.conn.Close()
 	}()
@@ -316,12 +309,21 @@ func (c *Client) writePump() {
 			if err != nil {
 				return
 			}
-			w.Write(message)
+
+			if _, err := w.Write(message); err != nil {
+				w.Close()
+				return
+			}
 
 			n := len(c.send)
-			for i := 0; i < n; i++ {
-				w.Write([]byte{'\n'})
-				w.Write(<-c.send)
+			for i := 0; i < n && i < 10; i++ {
+				select {
+				case msg := <-c.send:
+					w.Write([]byte{'\n'})
+					w.Write(msg)
+				default:
+					break
+				}
 			}
 
 			if err := w.Close(); err != nil {
@@ -332,6 +334,36 @@ func (c *Client) writePump() {
 			c.conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
 			if err := c.conn.WriteMessage(websocket.PingMessage, nil); err != nil {
 				return
+			}
+		}
+	}
+}
+
+func (c *Client) handleMessage(msg Message) {
+	switch msg.Type {
+	case "ping":
+		response := Message{Type: "pong", Data: nil}
+		if data, err := json.Marshal(response); err == nil {
+			select {
+			case c.send <- data:
+			default:
+			}
+		}
+	case "register":
+		log.Printf("Client registered with data: %v", msg.Data)
+	case "get_client_count":
+		count := c.hub.GetClientCount()
+		response := Message{
+			Type: "client_count_update",
+			Data: map[string]interface{}{
+				"count":     count,
+				"timestamp": time.Now().Unix(),
+			},
+		}
+		if data, err := json.Marshal(response); err == nil {
+			select {
+			case c.send <- data:
+			default:
 			}
 		}
 	}

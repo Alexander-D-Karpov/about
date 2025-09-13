@@ -78,10 +78,18 @@ func (h *MainHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	userAgent := r.Header.Get("User-Agent")
+	isCurl := strings.Contains(strings.ToLower(userAgent), "curl")
+
 	if visitorsPlugin, exists := h.pluginManager.GetPlugin("visitors"); exists {
 		if visitors, ok := visitorsPlugin.(*plugins.VisitorsPlugin); ok {
 			visitors.RecordVisit(r.UserAgent(), getClientIP(r))
 		}
+	}
+
+	if isCurl {
+		h.renderTextResponse(w, r)
+		return
 	}
 
 	ctx := context.Background()
@@ -89,15 +97,14 @@ func (h *MainHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	data := TemplateData{
 		Title:         "sanspie",
-		Description:   "WebDev & DevSecOps", // h.config.Description
-		Canonical:     "",                   // h.config.Canonical
-		OGTitle:       "sanspie",            // h.config.OGTitle
-		OGDescription: "",                   // h.config.OGDescription
-		OGImage:       "",                   // h.config.OGImage
+		Description:   "WebDev & DevSecOps",
+		Canonical:     "",
+		OGTitle:       "sanspie",
+		OGDescription: "",
+		OGImage:       "",
 		Plugins:       renderedPlugins,
 	}
 
-	// Buffer the render to avoid partial writes + superfluous WriteHeader logs.
 	var buf bytes.Buffer
 	if err := h.template.Execute(&buf, data); err != nil {
 		log.Printf("Error executing template: %v", err)
@@ -105,7 +112,6 @@ func (h *MainHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Only write headers/body after successful render
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
 	w.Header().Set("Pragma", "no-cache")
@@ -114,6 +120,28 @@ func (h *MainHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	w.WriteHeader(http.StatusOK)
 	_, _ = buf.WriteTo(w)
+}
+
+func (h *MainHandler) renderTextResponse(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+
+	fmt.Fprintln(w, "┌─────────────────────────────────────────────────┐")
+	fmt.Fprintln(w, "│                    sanspie                      │")
+	fmt.Fprintln(w, "│                 About Page                      │")
+	fmt.Fprintln(w, "├─────────────────────────────────────────────────┤")
+	fmt.Fprintln(w, "│ WebDev & DevSecOps                              │")
+	fmt.Fprintln(w, "├─────────────────────────────────────────────────┤")
+	fmt.Fprintln(w, "│ Available endpoints:                            │")
+	fmt.Fprintln(w, "│   /              - Main site (pritty curl soon) │")
+	fmt.Fprintln(w, "│   /health        - Health check (JSON)          │")
+	fmt.Fprintln(w, "│   /status        - System status                │")
+	fmt.Fprintln(w, "├─────────────────────────────────────────────────┤")
+	fmt.Fprintln(w, "│ Usage:                                          │")
+	fmt.Fprintln(w, "│   View in browser: https://about.akarpov.ru     │")
+	fmt.Fprintln(w, "│   Health check:    curl /health                 │")
+	fmt.Fprintln(w, "│   Status:          curl /status                 │")
+	fmt.Fprintln(w, "└─────────────────────────────────────────────────┘")
 }
 
 func getClientIP(r *http.Request) string {

@@ -1,10 +1,16 @@
 package main
 
 import (
+	"context"
 	"embed"
+	"fmt"
 	"log"
 	"net/http"
+	"os"
+	"os/signal"
+	"runtime"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -71,9 +77,18 @@ func main() {
 
 	r.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Cache-Control", "no-cache")
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"status":"ok"}`))
+
+		response := fmt.Sprintf(`{"status":"ok","timestamp":%d,"version":"1.0.0","uptime":%d}`,
+			time.Now().Unix(),
+			int64(time.Since(appStartTime).Seconds()))
+
+		w.Write([]byte(response))
 	}).Methods("GET")
+
+	statusHandler := handlers.NewStatusHandler(pluginManager, cfg, hub, appStartTime)
+	r.HandleFunc("/status", statusHandler.ServeHTTP).Methods("GET")
 
 	r.HandleFunc("/favicon.ico", faviconHandler("favicon.ico")).Methods("GET")
 	r.HandleFunc("/favicon.png", faviconHandler("favicon.png")).Methods("GET")
@@ -92,11 +107,33 @@ func main() {
 		IdleTimeout:  60 * time.Second,
 	}
 
-	log.Fatal(server.ListenAndServe())
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
+
+	go func() {
+		log.Printf("Server listening on :%s", cfg.Port)
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("Server failed to start: %v", err)
+		}
+	}()
+
+	<-stop
+	log.Println("Shutting down server...")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	if err := server.Shutdown(ctx); err != nil {
+		log.Printf("Server forced to shutdown: %v", err)
+	} else {
+		log.Println("Server shutdown completed")
+	}
 }
 
 func addCacheHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Server", "about-server/1.0")
+
 		if strings.Contains(r.URL.Path, ".css") || strings.Contains(r.URL.Path, ".js") || strings.Contains(r.URL.Path, ".png") || strings.Contains(r.URL.Path, ".jpg") || strings.Contains(r.URL.Path, ".svg") {
 			w.Header().Set("Cache-Control", "public, max-age=3600")
 		} else {
@@ -110,48 +147,138 @@ func addCacheHeaders(next http.Handler) http.Handler {
 
 func startBackgroundTasks(store *storage.Storage, pm *plugins.Manager) {
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("Daily backup task panic recovered: %v", r)
+				go startBackgroundTasks(store, pm)
+			}
+		}()
+
 		for {
 			now := time.Now()
 			next := time.Date(now.Year(), now.Month(), now.Day()+1, 3, 0, 0, 0, now.Location())
-			time.Sleep(time.Until(next))
 
-			if err := store.CreateBackup(); err != nil {
-				log.Printf("Backup failed: %v", err)
-			} else {
-				log.Println("Daily backup completed successfully")
-			}
-		}
-	}()
-
-	go func() {
-		lastFMTicker := time.NewTicker(10 * time.Minute)
-		generalTicker := time.NewTicker(1 * time.Hour)
-		systemTicker := time.NewTicker(30 * time.Second)
-		defer lastFMTicker.Stop()
-		defer generalTicker.Stop()
-		defer systemTicker.Stop()
-
-		for {
 			select {
-			case <-lastFMTicker.C:
-				pm.UpdatePlugin("lastfm")
-			case <-generalTicker.C:
-				pm.UpdateExternalData()
-			case <-systemTicker.C:
-				if infoPlugin, exists := pm.GetPlugin("info"); exists {
-					infoPlugin.UpdateData(nil)
+			case <-time.After(time.Until(next)):
+				if err := store.CreateBackup(); err != nil {
+					log.Printf("Backup failed: %v", err)
+				} else {
+					log.Println("Daily backup completed successfully")
 				}
 			}
 		}
 	}()
 
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("Plugin update task panic recovered: %v", r)
+				time.Sleep(5 * time.Second)
+				go startBackgroundTasks(store, pm)
+			}
+		}()
+
+		lastFMTicker := time.NewTicker(10 * time.Minute)
+		generalTicker := time.NewTicker(1 * time.Hour)
+		systemTicker := time.NewTicker(30 * time.Second)
+
+		defer func() {
+			lastFMTicker.Stop()
+			generalTicker.Stop()
+			systemTicker.Stop()
+		}()
+
+		for {
+			select {
+			case <-lastFMTicker.C:
+				func() {
+					defer func() {
+						if r := recover(); r != nil {
+							log.Printf("LastFM update panic recovered: %v", r)
+						}
+					}()
+					pm.UpdatePlugin("lastfm")
+				}()
+
+			case <-generalTicker.C:
+				func() {
+					defer func() {
+						if r := recover(); r != nil {
+							log.Printf("General plugin update panic recovered: %v", r)
+						}
+					}()
+					pm.UpdateExternalData()
+				}()
+
+			case <-systemTicker.C:
+				func() {
+					defer func() {
+						if r := recover(); r != nil {
+							log.Printf("System info update panic recovered: %v", r)
+						}
+					}()
+					if infoPlugin, exists := pm.GetPlugin("info"); exists {
+						infoPlugin.UpdateData(context.Background())
+					}
+				}()
+			}
+		}
+	}()
+
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("Visitors update task panic recovered: %v", r)
+				time.Sleep(5 * time.Second)
+				go startBackgroundTasks(store, pm)
+			}
+		}()
+
 		ticker := time.NewTicker(5 * time.Minute)
 		defer ticker.Stop()
 
-		for range ticker.C {
-			if visitors, exists := pm.GetPlugin("visitors"); exists {
-				visitors.UpdateData(nil)
+		for {
+			select {
+			case <-ticker.C:
+				func() {
+					defer func() {
+						if r := recover(); r != nil {
+							log.Printf("Visitors plugin update panic recovered: %v", r)
+						}
+					}()
+					if visitors, exists := pm.GetPlugin("visitors"); exists {
+						visitors.UpdateData(context.Background())
+					}
+				}()
+			}
+		}
+	}()
+
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("Resource monitor panic recovered: %v", r)
+			}
+		}()
+
+		ticker := time.NewTicker(10 * time.Minute)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ticker.C:
+				var m runtime.MemStats
+				runtime.ReadMemStats(&m)
+				numGoroutines := runtime.NumGoroutine()
+
+				if numGoroutines > 1000 {
+					log.Printf("WARNING: High goroutine count: %d", numGoroutines)
+				}
+
+				if m.Alloc > 100*1024*1024 {
+					log.Printf("WARNING: High memory usage: %d MB", m.Alloc/1024/1024)
+					runtime.GC()
+				}
 			}
 		}
 	}()
