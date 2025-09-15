@@ -2,6 +2,7 @@ package stream
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"sync"
@@ -51,6 +52,7 @@ func (h *Hub) Run() {
 	defer func() {
 		if r := recover(); r != nil {
 			log.Printf("Hub.Run panic recovered: %v", r)
+			time.Sleep(5 * time.Second)
 			go h.Run()
 		}
 	}()
@@ -58,13 +60,18 @@ func (h *Hub) Run() {
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
 
+	cleanupTicker := time.NewTicker(2 * time.Minute)
+	defer cleanupTicker.Stop()
+
 	for {
 		select {
 		case client := <-h.register:
 			h.mutex.Lock()
 			if len(h.clients) >= 1000 {
 				h.mutex.Unlock()
-				client.conn.Close()
+				if client.conn != nil {
+					client.conn.Close()
+				}
 				continue
 			}
 			h.clients[client] = true
@@ -78,11 +85,13 @@ func (h *Hub) Run() {
 			h.mutex.Lock()
 			if _, ok := h.clients[client]; ok {
 				delete(h.clients, client)
-				select {
-				case <-client.send:
-				default:
+				if client.send != nil {
+					select {
+					case <-client.send:
+					default:
+					}
+					close(client.send)
 				}
-				close(client.send)
 			}
 			clientCount := len(h.clients)
 			h.mutex.Unlock()
@@ -105,11 +114,23 @@ func (h *Hub) Run() {
 			h.mutex.RUnlock()
 
 			deadClients := make([]*Client, 0)
+			sent := 0
+
 			for _, client := range clients {
+				if client.send == nil {
+					deadClients = append(deadClients, client)
+					continue
+				}
+
 				select {
 				case client.send <- message:
+					sent++
 				default:
 					deadClients = append(deadClients, client)
+				}
+
+				if sent > 500 {
+					break
 				}
 			}
 
@@ -118,18 +139,76 @@ func (h *Hub) Run() {
 				for _, client := range deadClients {
 					if _, ok := h.clients[client]; ok {
 						delete(h.clients, client)
-						select {
-						case <-client.send:
-						default:
+						if client.send != nil {
+							select {
+							case <-client.send:
+							default:
+							}
+							close(client.send)
 						}
-						close(client.send)
+						if client.conn != nil {
+							client.conn.Close()
+						}
 					}
 				}
 				h.mutex.Unlock()
 			}
 
 		case <-ticker.C:
-			h.cleanupStaleConnections()
+			h.broadcastHeartbeat()
+
+		case <-cleanupTicker.C:
+			h.forceCleanupStaleConnections()
+		}
+	}
+}
+
+func (h *Hub) forceCleanupStaleConnections() {
+	h.mutex.Lock()
+	defer h.mutex.Unlock()
+
+	deadClients := make([]*Client, 0)
+	for client := range h.clients {
+		if client.conn == nil {
+			deadClients = append(deadClients, client)
+			continue
+		}
+
+		client.conn.SetReadDeadline(time.Now().Add(time.Second))
+		if _, _, err := client.conn.NextReader(); err != nil {
+			deadClients = append(deadClients, client)
+		}
+	}
+
+	for _, client := range deadClients {
+		delete(h.clients, client)
+		if client.conn != nil {
+			client.conn.Close()
+		}
+		if client.send != nil {
+			select {
+			case <-client.send:
+			default:
+			}
+			close(client.send)
+		}
+	}
+
+	if len(deadClients) > 0 {
+		log.Printf("Force cleaned up %d stale connections", len(deadClients))
+	}
+}
+
+func (h *Hub) broadcastHeartbeat() {
+	h.mutex.RLock()
+	clientCount := len(h.clients)
+	h.mutex.RUnlock()
+
+	if clientCount > 0 {
+		heartbeat := []byte(`{"type":"heartbeat","timestamp":` + fmt.Sprintf("%d", time.Now().Unix()) + `}`)
+		select {
+		case h.broadcast <- heartbeat:
+		default:
 		}
 	}
 }

@@ -146,20 +146,27 @@ func addCacheHeaders(next http.Handler) http.Handler {
 }
 
 func startBackgroundTasks(store *storage.Storage, pm *plugins.Manager) {
+	quit := make(chan struct{})
+
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
 				log.Printf("Daily backup task panic recovered: %v", r)
-				go startBackgroundTasks(store, pm)
+				time.Sleep(30 * time.Second)
+				if pm != nil {
+					go startBackgroundTasks(store, pm)
+				}
 			}
 		}()
 
-		for {
-			now := time.Now()
-			next := time.Date(now.Year(), now.Month(), now.Day()+1, 3, 0, 0, 0, now.Location())
+		ticker := time.NewTicker(24 * time.Hour)
+		defer ticker.Stop()
 
+		for {
 			select {
-			case <-time.After(time.Until(next)):
+			case <-quit:
+				return
+			case <-ticker.C:
 				if err := store.CreateBackup(); err != nil {
 					log.Printf("Backup failed: %v", err)
 				} else {
@@ -173,8 +180,10 @@ func startBackgroundTasks(store *storage.Storage, pm *plugins.Manager) {
 		defer func() {
 			if r := recover(); r != nil {
 				log.Printf("Plugin update task panic recovered: %v", r)
-				time.Sleep(5 * time.Second)
-				go startBackgroundTasks(store, pm)
+				time.Sleep(30 * time.Second)
+				if pm != nil {
+					go startBackgroundTasks(store, pm)
+				}
 			}
 		}()
 
@@ -190,6 +199,8 @@ func startBackgroundTasks(store *storage.Storage, pm *plugins.Manager) {
 
 		for {
 			select {
+			case <-quit:
+				return
 			case <-lastFMTicker.C:
 				func() {
 					defer func() {
@@ -197,7 +208,10 @@ func startBackgroundTasks(store *storage.Storage, pm *plugins.Manager) {
 							log.Printf("LastFM update panic recovered: %v", r)
 						}
 					}()
+					ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+					defer cancel()
 					pm.UpdatePlugin("lastfm")
+					<-ctx.Done()
 				}()
 
 			case <-generalTicker.C:
@@ -207,7 +221,10 @@ func startBackgroundTasks(store *storage.Storage, pm *plugins.Manager) {
 							log.Printf("General plugin update panic recovered: %v", r)
 						}
 					}()
+					ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+					defer cancel()
 					pm.UpdateExternalData()
+					<-ctx.Done()
 				}()
 
 			case <-systemTicker.C:
@@ -218,7 +235,9 @@ func startBackgroundTasks(store *storage.Storage, pm *plugins.Manager) {
 						}
 					}()
 					if infoPlugin, exists := pm.GetPlugin("info"); exists {
-						infoPlugin.UpdateData(context.Background())
+						ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+						infoPlugin.UpdateData(ctx)
+						cancel()
 					}
 				}()
 			}
@@ -229,8 +248,10 @@ func startBackgroundTasks(store *storage.Storage, pm *plugins.Manager) {
 		defer func() {
 			if r := recover(); r != nil {
 				log.Printf("Visitors update task panic recovered: %v", r)
-				time.Sleep(5 * time.Second)
-				go startBackgroundTasks(store, pm)
+				time.Sleep(30 * time.Second)
+				if pm != nil {
+					go startBackgroundTasks(store, pm)
+				}
 			}
 		}()
 
@@ -239,6 +260,8 @@ func startBackgroundTasks(store *storage.Storage, pm *plugins.Manager) {
 
 		for {
 			select {
+			case <-quit:
+				return
 			case <-ticker.C:
 				func() {
 					defer func() {
@@ -247,7 +270,9 @@ func startBackgroundTasks(store *storage.Storage, pm *plugins.Manager) {
 						}
 					}()
 					if visitors, exists := pm.GetPlugin("visitors"); exists {
-						visitors.UpdateData(context.Background())
+						ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+						visitors.UpdateData(ctx)
+						cancel()
 					}
 				}()
 			}
@@ -258,6 +283,10 @@ func startBackgroundTasks(store *storage.Storage, pm *plugins.Manager) {
 		defer func() {
 			if r := recover(); r != nil {
 				log.Printf("Resource monitor panic recovered: %v", r)
+				time.Sleep(30 * time.Second)
+				if pm != nil {
+					go startBackgroundTasks(store, pm)
+				}
 			}
 		}()
 
@@ -266,6 +295,8 @@ func startBackgroundTasks(store *storage.Storage, pm *plugins.Manager) {
 
 		for {
 			select {
+			case <-quit:
+				return
 			case <-ticker.C:
 				var m runtime.MemStats
 				runtime.ReadMemStats(&m)

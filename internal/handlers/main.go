@@ -79,7 +79,7 @@ func (h *MainHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
 	defer cancel()
 
 	userAgent := r.Header.Get("User-Agent")
@@ -96,7 +96,34 @@ func (h *MainHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	renderedPlugins := h.pluginManager.GetRenderedPlugins(ctx)
+	done := make(chan []template.HTML, 1)
+	errChan := make(chan error, 1)
+
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("Plugin rendering panic: %v", r)
+				errChan <- fmt.Errorf("rendering failed: %v", r)
+			}
+		}()
+
+		renderedPlugins := h.pluginManager.GetRenderedPlugins(ctx)
+		done <- renderedPlugins
+	}()
+
+	var renderedPlugins []template.HTML
+
+	select {
+	case renderedPlugins = <-done:
+	case err := <-errChan:
+		log.Printf("Plugin rendering error: %v", err)
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	case <-ctx.Done():
+		log.Printf("Plugin rendering timeout")
+		http.Error(w, "Request timeout", http.StatusRequestTimeout)
+		return
+	}
 
 	data := TemplateData{
 		Title:         "sanspie",

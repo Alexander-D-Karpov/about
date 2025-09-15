@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"html/template"
+	"log"
 	"sort"
 	"sync"
 	"time"
@@ -168,16 +169,31 @@ func (m *Manager) preRenderPlugins(ctx context.Context) {
 }
 
 func (m *Manager) GetRenderedPlugins(ctx context.Context) []template.HTML {
+	select {
+	case <-ctx.Done():
+		return []template.HTML{}
+	default:
+	}
+
 	m.mutex.RLock()
 
 	if time.Since(m.cacheTimestamp) > 30*time.Second {
 		m.mutex.RUnlock()
-		go m.preRenderPlugins(context.Background())
+		go func() {
+			bgCtx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
+			defer cancel()
+			m.preRenderPlugins(bgCtx)
+		}()
 		m.mutex.RLock()
 	}
 
 	enabledPlugins := m.getEnabledPluginsLocked()
 	var renderedPlugins []template.HTML
+
+	type pluginResult struct {
+		html template.HTML
+		err  error
+	}
 
 	for _, plugin := range enabledPlugins {
 		select {
@@ -190,18 +206,38 @@ func (m *Manager) GetRenderedPlugins(ctx context.Context) []template.HTML {
 		if plugin.Name() == "meme" || plugin.Name() == "info" || plugin.Name() == "visitors" || plugin.Name() == "services" {
 			m.mutex.RUnlock()
 
-			renderCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
-			rendered, err := plugin.Render(renderCtx)
-			cancel()
+			resultChan := make(chan pluginResult, 1)
+
+			go func(p Plugin) {
+				defer func() {
+					if r := recover(); r != nil {
+						resultChan <- pluginResult{err: fmt.Errorf("plugin %s panic: %v", p.Name(), r)}
+					}
+				}()
+
+				renderCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+				defer cancel()
+
+				rendered, err := p.Render(renderCtx)
+				if err != nil {
+					resultChan <- pluginResult{err: err}
+				} else {
+					resultChan <- pluginResult{html: template.HTML(rendered)}
+				}
+			}(plugin)
+
+			select {
+			case result := <-resultChan:
+				if result.err != nil {
+					fmt.Printf("Error rendering %s plugin: %v\n", plugin.Name(), result.err)
+				} else if result.html != "" {
+					renderedPlugins = append(renderedPlugins, result.html)
+				}
+			case <-ctx.Done():
+				fmt.Printf("Timeout rendering %s plugin\n", plugin.Name())
+			}
 
 			m.mutex.RLock()
-			if err != nil {
-				fmt.Printf("Error rendering %s plugin: %v\n", plugin.Name(), err)
-				continue
-			}
-			if rendered != "" {
-				renderedPlugins = append(renderedPlugins, template.HTML(rendered))
-			}
 		} else if rendered, exists := m.renderedCache[plugin.Name()]; exists {
 			renderedPlugins = append(renderedPlugins, rendered)
 		}
@@ -297,6 +333,9 @@ func (m *Manager) GetAllPlugins() map[string]Plugin {
 }
 
 func (m *Manager) UpdateExternalData() {
+	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
+	defer cancel()
+
 	m.mutex.RLock()
 	plugins := make([]Plugin, 0, len(m.plugins))
 	for _, plugin := range m.plugins {
@@ -304,31 +343,85 @@ func (m *Manager) UpdateExternalData() {
 	}
 	m.mutex.RUnlock()
 
-	ctx := context.Background()
-	var wg sync.WaitGroup
+	type pluginUpdate struct {
+		plugin Plugin
+		err    error
+	}
+
+	updateChan := make(chan pluginUpdate, len(plugins))
+	activeUpdates := 0
 
 	for _, plugin := range plugins {
 		config := m.storage.GetPluginConfig(plugin.Name())
-		if config.Enabled {
-			wg.Add(1)
-			go func(p Plugin) {
-				defer wg.Done()
-				if err := p.UpdateData(ctx); err != nil {
-					fmt.Printf("Error updating plugin %s: %v\n", p.Name(), err)
+		if !config.Enabled {
+			continue
+		}
+
+		activeUpdates++
+		go func(p Plugin) {
+			defer func() {
+				if r := recover(); r != nil {
+					log.Printf("Plugin %s update panic: %v", p.Name(), r)
+					updateChan <- pluginUpdate{p, fmt.Errorf("panic: %v", r)}
 				}
-			}(plugin)
+			}()
+
+			pluginCtx, pluginCancel := context.WithTimeout(ctx, 30*time.Second)
+			defer pluginCancel()
+
+			err := p.UpdateData(pluginCtx)
+			updateChan <- pluginUpdate{p, err}
+		}(plugin)
+	}
+
+	completed := 0
+	timeout := time.NewTimer(3 * time.Minute)
+	defer timeout.Stop()
+
+	for completed < activeUpdates {
+		select {
+		case update := <-updateChan:
+			completed++
+			if update.err != nil {
+				log.Printf("Error updating plugin %s: %v", update.plugin.Name(), update.err)
+			}
+
+		case <-timeout.C:
+			log.Printf("Plugin updates timed out, %d/%d completed", completed, activeUpdates)
+			cancel()
+			goto cleanup
+
+		case <-ctx.Done():
+			log.Printf("Plugin updates cancelled, %d/%d completed", completed, activeUpdates)
+			goto cleanup
 		}
 	}
 
-	wg.Wait()
+cleanup:
+	for completed < activeUpdates {
+		select {
+		case update := <-updateChan:
+			completed++
+			if update.err != nil {
+				log.Printf("Plugin %s update after timeout: %v", update.plugin.Name(), update.err)
+			}
+		case <-time.After(100 * time.Millisecond):
+			break
+		}
+	}
 
 	m.mutex.Lock()
 	m.cacheTimestamp = time.Time{}
 	m.mutex.Unlock()
 
-	m.hub.Broadcast("plugins_updated", map[string]interface{}{
-		"timestamp": time.Now().Unix(),
-	})
+	select {
+	case <-ctx.Done():
+		log.Printf("Skipping WebSocket broadcast due to context cancellation")
+	default:
+		m.hub.Broadcast("plugins_updated", map[string]interface{}{
+			"timestamp": time.Now().Unix(),
+		})
+	}
 }
 
 func (m *Manager) UpdatePlugin(pluginName string) {
