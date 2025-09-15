@@ -2,9 +2,9 @@ name: Lint
 
 on:
   push:
-    branches: [ main, develop ]
+    branches: [ master, dev ]
   pull_request:
-    branches: [ main, develop ]
+    branches: [ master, dev ]
 
 jobs:
   golangci:
@@ -82,7 +82,7 @@ jobs:
         test -d static/images || echo "Warning: static/images directory not found"
         
         # Check for common files
-        test -f static/css/main.css || echo "Warning: main.css not found"
+        test -f static/css/master.css || echo "Warning: main.css not found"
         
         echo "Static asset structure check completed"
 
