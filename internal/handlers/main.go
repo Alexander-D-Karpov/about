@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/Alexander-D-Karpov/about/internal/config"
 	"github.com/Alexander-D-Karpov/about/internal/plugins"
@@ -79,7 +80,7 @@ func (h *MainHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
+	mainCtx, cancel := context.WithTimeout(r.Context(), 6*time.Second)
 	defer cancel()
 
 	userAgent := r.Header.Get("User-Agent")
@@ -96,32 +97,59 @@ func (h *MainHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	done := make(chan []template.HTML, 1)
-	errChan := make(chan error, 1)
+	type renderResult struct {
+		plugins []template.HTML
+		err     error
+	}
+
+	done := make(chan renderResult, 1)
 
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
 				log.Printf("Plugin rendering panic: %v", r)
-				errChan <- fmt.Errorf("rendering failed: %v", r)
+				done <- renderResult{nil, fmt.Errorf("rendering failed: %v", r)}
 			}
 		}()
 
-		renderedPlugins := h.pluginManager.GetRenderedPlugins(ctx)
-		done <- renderedPlugins
+		renderedPlugins := h.pluginManager.GetRenderedPlugins(mainCtx)
+		done <- renderResult{renderedPlugins, nil}
 	}()
 
 	var renderedPlugins []template.HTML
 
 	select {
-	case renderedPlugins = <-done:
-	case err := <-errChan:
-		log.Printf("Plugin rendering error: %v", err)
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+	case result := <-done:
+		if result.err != nil {
+			log.Printf("Plugin rendering error: %v", result.err)
+			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+			return
+		}
+		renderedPlugins = result.plugins
+
+	case <-mainCtx.Done():
+		log.Printf("Main handler timeout - rendering taking too long")
+
+		// Try to serve a minimal page
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+		w.WriteHeader(http.StatusServiceUnavailable)
+
+		minimalHTML := `<!DOCTYPE html>
+<html><head><title>Loading...</title></head>
+<body>
+<div style="text-align:center;padding:50px;">
+<h1>Site Loading</h1>
+<p>The page is currently loading. Please refresh in a moment.</p>
+<script>setTimeout(() => location.reload(), 3000);</script>
+</div>
+</body></html>`
+
+		w.Write([]byte(minimalHTML))
 		return
-	case <-ctx.Done():
-		log.Printf("Plugin rendering timeout")
-		http.Error(w, "Request timeout", http.StatusRequestTimeout)
+
+	case <-r.Context().Done():
+		log.Printf("Client disconnected during rendering")
 		return
 	}
 
@@ -136,9 +164,24 @@ func (h *MainHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var buf bytes.Buffer
-	if err := h.template.Execute(&buf, data); err != nil {
-		log.Printf("Error executing template: %v", err)
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+	templateCtx, templateCancel := context.WithTimeout(mainCtx, 1*time.Second)
+	defer templateCancel()
+
+	templateDone := make(chan error, 1)
+	go func() {
+		templateDone <- h.template.Execute(&buf, data)
+	}()
+
+	select {
+	case err := <-templateDone:
+		if err != nil {
+			log.Printf("Error executing template: %v", err)
+			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+			return
+		}
+	case <-templateCtx.Done():
+		log.Printf("Template execution timeout")
+		http.Error(w, "Request timeout", http.StatusRequestTimeout)
 		return
 	}
 
@@ -156,22 +199,111 @@ func (h *MainHandler) renderTextResponse(w http.ResponseWriter, r *http.Request)
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
 
-	fmt.Fprintln(w, "┌─────────────────────────────────────────────────┐")
-	fmt.Fprintln(w, "│                    sanspie                      │")
-	fmt.Fprintln(w, "│                 About Page                      │")
-	fmt.Fprintln(w, "├─────────────────────────────────────────────────┤")
-	fmt.Fprintln(w, "│ WebDev & DevSecOps                              │")
-	fmt.Fprintln(w, "├─────────────────────────────────────────────────┤")
-	fmt.Fprintln(w, "│ Available endpoints:                            │")
-	fmt.Fprintln(w, "│   /              - Main site (pritty curl soon) │")
-	fmt.Fprintln(w, "│   /health        - Health check (JSON)          │")
-	fmt.Fprintln(w, "│   /status        - System status                │")
-	fmt.Fprintln(w, "├─────────────────────────────────────────────────┤")
-	fmt.Fprintln(w, "│ Usage:                                          │")
-	fmt.Fprintln(w, "│   View in browser: https://about.akarpov.ru     │")
-	fmt.Fprintln(w, "│   Health check:    curl /health                 │")
-	fmt.Fprintln(w, "│   Status:          curl /status                 │")
-	fmt.Fprintln(w, "└─────────────────────────────────────────────────┘")
+	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+	defer cancel()
+
+	if visitorsPlugin, exists := h.pluginManager.GetPlugin("visitors"); exists {
+		if visitors, ok := visitorsPlugin.(*plugins.VisitorsPlugin); ok {
+			visitors.RecordVisit(r.UserAgent(), getClientIP(r))
+		}
+	}
+
+	textPlugins := h.pluginManager.GetTextRenderedPlugins(ctx)
+	systemSummary := h.pluginManager.GetSystemTextSummary()
+
+	width := 63
+	innerWidth := width - 4 // Account for "│ " and " │"
+	headerText := "sanspie - About Page"
+	centeredHeader := centerText(headerText, innerWidth)
+
+	fmt.Fprintf(w, "┌%s┐\n", strings.Repeat("─", width-2))
+	fmt.Fprintf(w, "│ %s │\n", centeredHeader)
+	fmt.Fprintf(w, "├%s┤\n", strings.Repeat("─", width-2))
+
+	for _, pluginText := range textPlugins {
+		if pluginText != "" {
+			lines := wrapText(pluginText, innerWidth)
+			for _, line := range lines {
+				paddedLine := padTextToWidth(line, innerWidth)
+				fmt.Fprintf(w, "│ %s │\n", paddedLine)
+			}
+		}
+	}
+
+	if systemSummary != "" {
+		fmt.Fprintf(w, "├%s┤\n", strings.Repeat("─", width-2))
+		paddedSummary := padTextToWidth(systemSummary, innerWidth)
+		fmt.Fprintf(w, "│ %s │\n", paddedSummary)
+	}
+
+	fmt.Fprintf(w, "├%s┤\n", strings.Repeat("─", width-2))
+	fmt.Fprintf(w, "│ %s │\n", padTextToWidth("Access:", innerWidth))
+	fmt.Fprintf(w, "│ %s │\n", padTextToWidth("  Web: https://about.akarpov.ru", innerWidth))
+	fmt.Fprintf(w, "│ %s │\n", padTextToWidth("  API: curl /health, /status", innerWidth))
+	fmt.Fprintf(w, "└%s┘\n", strings.Repeat("─", width-2))
+}
+
+func centerText(text string, width int) string {
+	textLen := utf8.RuneCountInString(text)
+	if textLen >= width {
+		runes := []rune(text)
+		return string(runes[:width])
+	}
+
+	padding := width - textLen
+	leftPad := padding / 2
+	rightPad := padding - leftPad
+
+	return strings.Repeat(" ", leftPad) + text + strings.Repeat(" ", rightPad)
+}
+
+func padTextToWidth(text string, width int) string {
+	textLen := utf8.RuneCountInString(text)
+	if textLen >= width {
+		runes := []rune(text)
+		return string(runes[:width])
+	}
+	return text + strings.Repeat(" ", width-textLen)
+}
+
+func wrapText(text string, width int) []string {
+	textLen := utf8.RuneCountInString(text)
+	if textLen <= width {
+		return []string{text}
+	}
+
+	var lines []string
+	words := strings.Fields(text)
+	var currentLine string
+
+	for _, word := range words {
+		testLine := currentLine
+		if testLine != "" {
+			testLine += " "
+		}
+		testLine += word
+
+		if utf8.RuneCountInString(testLine) <= width {
+			currentLine = testLine
+		} else {
+			if currentLine != "" {
+				lines = append(lines, currentLine)
+			}
+			currentLine = word
+			// Handle case where single word is longer than width
+			if utf8.RuneCountInString(currentLine) > width {
+				runes := []rune(currentLine)
+				lines = append(lines, string(runes[:width-3])+"...")
+				currentLine = ""
+			}
+		}
+	}
+
+	if currentLine != "" {
+		lines = append(lines, currentLine)
+	}
+
+	return lines
 }
 
 func getClientIP(r *http.Request) string {

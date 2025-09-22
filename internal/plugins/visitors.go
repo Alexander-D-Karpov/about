@@ -199,10 +199,53 @@ func (p *VisitorsPlugin) broadcastUpdate() {
 }
 
 func (p *VisitorsPlugin) UpdateData(ctx context.Context) error {
-	p.mutex.Lock()
-	defer p.mutex.Unlock()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
 
-	return p.saveVisitorsDataUnsafe()
+	// Use a channel-based approach to avoid blocking
+	resultChan := make(chan error, 1)
+
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				resultChan <- fmt.Errorf("panic in UpdateData: %v", r)
+			}
+		}()
+
+		// Try to acquire mutex with a very short timeout
+		acquired := make(chan bool, 1)
+		go func() {
+			p.mutex.Lock()
+			acquired <- true
+		}()
+
+		select {
+		case <-acquired:
+			defer p.mutex.Unlock()
+			err := p.saveVisitorsDataUnsafe()
+			resultChan <- err
+		case <-time.After(50 * time.Millisecond):
+			// If we can't get the mutex quickly, skip this update
+			resultChan <- nil
+		}
+	}()
+
+	// Wait for result with context timeout
+	select {
+	case err := <-resultChan:
+		if err != nil && !strings.Contains(err.Error(), "mutex timeout") {
+			fmt.Printf("Warning: visitors UpdateData error: %v\n", err)
+		}
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-time.After(500 * time.Millisecond):
+		// Don't treat timeout as fatal error for visitors
+		return nil
+	}
 }
 
 func (p *VisitorsPlugin) loadVisitorsData() {
@@ -346,4 +389,14 @@ func formatNumber(n int64) string {
 	} else {
 		return fmt.Sprintf("%.1fM", float64(n)/1000000)
 	}
+}
+
+func (p *VisitorsPlugin) RenderText(ctx context.Context) (string, error) {
+	p.mutex.RLock()
+	total := p.visitCount
+	today := p.todayCount
+	p.mutex.RUnlock()
+
+	return fmt.Sprintf("Visitors: %s total, %s today",
+		formatNumber(total), formatNumber(today)), nil
 }

@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/url"
+	"os"
 	"time"
 )
 
@@ -20,6 +22,16 @@ func NewHTTPClient() *http.Client {
 		TLSHandshakeTimeout:   10 * time.Second,
 		ExpectContinueTimeout: 1 * time.Second,
 		ResponseHeaderTimeout: 15 * time.Second,
+	}
+
+	if proxyURL := os.Getenv("HTTP_PROXY"); proxyURL != "" {
+		if parsed, err := url.Parse(proxyURL); err == nil {
+			transport.Proxy = http.ProxyURL(parsed)
+		}
+	} else if proxyURL := os.Getenv("HTTPS_PROXY"); proxyURL != "" {
+		if parsed, err := url.Parse(proxyURL); err == nil {
+			transport.Proxy = http.ProxyURL(parsed)
+		}
 	}
 
 	return &http.Client{
@@ -42,6 +54,16 @@ func NewHTTPClientWithTimeout(timeout time.Duration) *http.Client {
 		ResponseHeaderTimeout: 10 * time.Second,
 		DisableKeepAlives:     false,
 		ForceAttemptHTTP2:     true,
+	}
+
+	if proxyURL := os.Getenv("HTTP_PROXY"); proxyURL != "" {
+		if parsed, err := url.Parse(proxyURL); err == nil {
+			transport.Proxy = http.ProxyURL(parsed)
+		}
+	} else if proxyURL := os.Getenv("HTTPS_PROXY"); proxyURL != "" {
+		if parsed, err := url.Parse(proxyURL); err == nil {
+			transport.Proxy = http.ProxyURL(parsed)
+		}
 	}
 
 	return &http.Client{

@@ -2,6 +2,7 @@ package plugins
 
 import (
 	"context"
+	"fmt"
 	"html/template"
 	"math/rand"
 	"strings"
@@ -255,4 +256,21 @@ func (p *MemePlugin) getStringFromMap(m map[string]interface{}, key string, defa
 		return v
 	}
 	return defaultValue
+}
+
+func (p *MemePlugin) RenderText(ctx context.Context) (string, error) {
+	if p.currentMeme == nil {
+		return "Meme: No meme available", nil
+	}
+
+	memeText := p.currentMeme.Text
+	if memeText == "" {
+		memeText = "Image meme"
+	}
+
+	if len(memeText) > 50 {
+		memeText = memeText[:47] + "..."
+	}
+
+	return fmt.Sprintf("Meme: %s", memeText), nil
 }

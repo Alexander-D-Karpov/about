@@ -2,6 +2,7 @@ package storage
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
@@ -63,6 +64,30 @@ func (s *Storage) Save() error {
 	return s.saveToFile()
 }
 
+func (s *Storage) SetPluginConfig(pluginName string, config *PluginConfig) error {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
+	plugins, ok := s.data["plugins"].(map[string]interface{})
+	if !ok {
+		plugins = make(map[string]interface{})
+		s.data["plugins"] = plugins
+	}
+
+	plugins[pluginName] = map[string]interface{}{
+		"enabled":  config.Enabled,
+		"order":    config.Order,
+		"settings": config.Settings,
+	}
+
+	// Immediately persist to file
+	if err := s.saveToFile(); err != nil {
+		return fmt.Errorf("failed to save plugin config to file: %w", err)
+	}
+
+	return nil
+}
+
 func (s *Storage) saveToFile() error {
 	configFile := filepath.Join(s.dataPath, "config.json")
 	data, err := json.MarshalIndent(s.data, "", "  ")
@@ -105,25 +130,6 @@ func (s *Storage) GetPluginConfig(pluginName string) *PluginConfig {
 	}
 
 	return config
-}
-
-func (s *Storage) SetPluginConfig(pluginName string, config *PluginConfig) error {
-	s.mutex.Lock()
-	defer s.mutex.Unlock()
-
-	plugins, ok := s.data["plugins"].(map[string]interface{})
-	if !ok {
-		plugins = make(map[string]interface{})
-		s.data["plugins"] = plugins
-	}
-
-	plugins[pluginName] = map[string]interface{}{
-		"enabled":  config.Enabled,
-		"order":    config.Order,
-		"settings": config.Settings,
-	}
-
-	return s.saveToFile()
 }
 
 func (s *Storage) CreateBackup() error {
@@ -388,7 +394,7 @@ func (s *Storage) getDefaultConfig() map[string]interface{} {
 				"order":   12,
 				"settings": map[string]interface{}{
 					"ui": map[string]interface{}{
-						"sectionTitle":     "🛠️ Local Services",
+						"sectionTitle":     "Local Services",
 						"showStatus":       true,
 						"showResponseTime": true,
 					},

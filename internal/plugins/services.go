@@ -229,7 +229,7 @@ func (p *ServicesPlugin) Render(ctx context.Context) (string, error) {
 func (p *ServicesPlugin) renderNoServices() string {
 	return `<div class="services-section section">
 		<div class="plugin-header">
-			<h3 class="plugin-title">🛠️ Services</h3>
+			<h3 class="plugin-title">Services</h3>
 		</div>
 		<div class="plugin__inner">
 			<div class="no-services">
@@ -463,4 +463,26 @@ func (p *ServicesPlugin) getStringFromMap(m map[string]interface{}, key string, 
 		return value
 	}
 	return defaultValue
+}
+
+func (p *ServicesPlugin) RenderText(ctx context.Context) (string, error) {
+	p.mutex.RLock()
+	onlineCount := 0
+	offlineCount := 0
+	totalCount := len(p.serviceStatuses)
+
+	for _, status := range p.serviceStatuses {
+		if status.Status == "online" {
+			onlineCount++
+		} else if status.Status == "offline" {
+			offlineCount++
+		}
+	}
+	p.mutex.RUnlock()
+
+	if totalCount == 0 {
+		return "Services: No services configured", nil
+	}
+
+	return fmt.Sprintf("Services: %d online, %d offline (%d total)", onlineCount, offlineCount, totalCount), nil
 }

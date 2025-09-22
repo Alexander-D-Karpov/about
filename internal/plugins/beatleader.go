@@ -212,6 +212,9 @@ func (p *BeatLeaderPlugin) Render(ctx context.Context) (string, error) {
 	showRecentMaps := p.getConfigBool(settings, "ui.showRecentMaps", true)
 	showMainStats := p.getConfigBool(settings, "ui.showMainStats", true)
 
+	cubesSliced := p.calculateCubesSliced()
+	cubesFormatted := formatNumber(cubesSliced)
+
 	tmpl := `
 	<div class="beatleader-section section">
 		<h3>{{.SectionTitle}}</h3>
@@ -231,8 +234,8 @@ func (p *BeatLeaderPlugin) Render(ctx context.Context) (string, error) {
 				<div class="stat-value">{{printf "%.0f" .PlayerData.PP}}pp</div>
 			</div>
 			<div class="stat-item">
-				<div class="stat-label">Average Accuracy</div>
-				<div class="stat-value">{{printf "%.1f" (mul .PlayerData.ScoreStats.AverageRankedAccuracy 100)}}%</div>
+				<div class="stat-label">Cubes Sliced</div>
+				<div class="stat-value">{{.CubesFormatted}}</div>
 			</div>
 		</div>
 		{{end}}
@@ -297,6 +300,7 @@ func (p *BeatLeaderPlugin) Render(ctx context.Context) (string, error) {
 		ShowMainStats  bool
 		PlayerData     *BeatLeaderPlayer
 		RecentScores   []map[string]interface{}
+		CubesFormatted string
 	}{
 		SectionTitle:   sectionTitle,
 		ShowPepeGif:    showPepeGif,
@@ -304,6 +308,7 @@ func (p *BeatLeaderPlugin) Render(ctx context.Context) (string, error) {
 		ShowMainStats:  showMainStats,
 		PlayerData:     p.playerData,
 		RecentScores:   processedScores,
+		CubesFormatted: cubesFormatted,
 	}
 
 	t, err := template.New("beatleader").Funcs(funcMap).Parse(tmpl)
@@ -319,7 +324,6 @@ func (p *BeatLeaderPlugin) Render(ctx context.Context) (string, error) {
 
 	return buf.String(), nil
 }
-
 func (p *BeatLeaderPlugin) renderLoading(settings map[string]interface{}) string {
 	sectionTitle := p.getConfigValue(settings, "ui.sectionTitle", "BeatLeader Stats")
 	loadingText := p.getConfigValue(settings, "ui.loadingText", "Loading BeatLeader data...")
@@ -545,4 +549,35 @@ func (p *BeatLeaderPlugin) getConfigBool(settings map[string]interface{}, key st
 	}
 
 	return defaultValue
+}
+
+func (p *BeatLeaderPlugin) calculateCubesSliced() int64 {
+	if p.playerData == nil || p.playerData.ScoreStats.AverageAccuracy <= 0 {
+		return 0
+	}
+
+	totalScore := float64(p.playerData.ScoreStats.TotalScore)
+	averageAccuracy := p.playerData.ScoreStats.AverageAccuracy
+
+	// Normalize to 100% accuracy and divide by points per cube
+	perfectScore := totalScore / averageAccuracy
+	cubesSliced := perfectScore / (115.0 * 8.0)
+
+	return int64(cubesSliced)
+}
+
+func (p *BeatLeaderPlugin) RenderText(ctx context.Context) (string, error) {
+	if p.playerData == nil {
+		return "BeatSaber: No player data available", nil
+	}
+
+	cubesSliced := p.calculateCubesSliced()
+	cubesFormatted := formatNumber(cubesSliced)
+
+	return fmt.Sprintf("BeatSaber: Rank #%d (%s #%d), %.0fpp, %s cubes sliced",
+		p.playerData.Rank,
+		p.playerData.Country,
+		p.playerData.CountryRank,
+		p.playerData.PP,
+		cubesFormatted), nil
 }

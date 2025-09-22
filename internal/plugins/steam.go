@@ -408,3 +408,38 @@ func (p *SteamPlugin) SetSettings(settings map[string]interface{}) error {
 	config.Settings = settings
 	return p.storage.SetPluginConfig(p.Name(), config)
 }
+
+func (p *SteamPlugin) RenderText(ctx context.Context) (string, error) {
+	if p.apiKey == "" {
+		return "Gaming: Steam API key not configured", nil
+	}
+
+	if p.playerSummary == nil {
+		return "Gaming: No Steam data available", nil
+	}
+
+	status := "Offline"
+	currentGame := ""
+
+	if p.playerSummary.GameExtraInfo != "" {
+		status = "Playing"
+		currentGame = fmt.Sprintf(" - %s", p.playerSummary.GameExtraInfo)
+	} else {
+		switch p.playerSummary.PersonaState {
+		case 1:
+			status = "Online"
+		case 2:
+			status = "Busy"
+		case 3:
+			status = "Away"
+		}
+	}
+
+	recentGamesCount := len(p.recentGames)
+	gamesInfo := ""
+	if recentGamesCount > 0 {
+		gamesInfo = fmt.Sprintf(", %d recent games", recentGamesCount)
+	}
+
+	return fmt.Sprintf("Gaming: %s%s%s", status, currentGame, gamesInfo), nil
+}

@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -59,8 +60,57 @@ func (h *StatusHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	enabledPlugins := len(h.pluginManager.GetEnabledPlugins())
 	clientCount := h.hub.GetClientCount()
 
+	// Test main functionality
+	testCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	mainStatus := "healthy"
+	var pluginTestCount int
+	var pluginTestErrors []string
+
+	pluginTestResult := make(chan struct {
+		count  int
+		errors []string
+	}, 1)
+
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				pluginTestResult <- struct {
+					count  int
+					errors []string
+				}{0, []string{"main handler panic"}}
+			}
+		}()
+
+		plugins := h.pluginManager.GetRenderedPlugins(testCtx)
+		var errors []string
+
+		// Check if we got expected plugins
+		if len(plugins) == 0 && enabledPlugins > 0 {
+			errors = append(errors, "no plugins rendered despite having enabled plugins")
+		}
+
+		pluginTestResult <- struct {
+			count  int
+			errors []string
+		}{len(plugins), errors}
+	}()
+
+	select {
+	case result := <-pluginTestResult:
+		pluginTestCount = result.count
+		pluginTestErrors = result.errors
+		if len(result.errors) > 0 {
+			mainStatus = "degraded"
+		}
+	case <-testCtx.Done():
+		mainStatus = "unhealthy"
+		pluginTestErrors = []string{"main functionality test timeout"}
+	}
+
 	status := StatusResponse{
-		Status:        "healthy",
+		Status:        mainStatus,
 		Version:       "1.0.0",
 		Uptime:        formatDuration(uptime),
 		UptimeSeconds: int64(uptime.Seconds()),
@@ -75,16 +125,30 @@ func (h *StatusHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		ServerTime: time.Now().Format("2006-01-02 15:04:05 MST"),
 	}
 
+	// Add diagnostic details if there are issues
+	if len(pluginTestErrors) > 0 || mainStatus != "healthy" {
+		status.Details = map[string]string{
+			"main_functional":    fmt.Sprintf("%t", len(pluginTestErrors) == 0),
+			"plugins_rendered":   fmt.Sprintf("%d", pluginTestCount),
+			"plugin_test_errors": strings.Join(pluginTestErrors, "; "),
+		}
+	}
+
 	if isCurl {
-		h.renderTextStatus(w, status)
+		h.renderTextStatus(w, status, mainStatus != "healthy")
 	} else {
-		h.renderJSONStatus(w, status)
+		h.renderJSONStatus(w, status, mainStatus != "healthy")
 	}
 }
 
-func (h *StatusHandler) renderTextStatus(w http.ResponseWriter, status StatusResponse) {
+func (h *StatusHandler) renderTextStatus(w http.ResponseWriter, status StatusResponse, hasIssues bool) {
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	w.WriteHeader(http.StatusOK)
+
+	if hasIssues {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	} else {
+		w.WriteHeader(http.StatusOK)
+	}
 
 	fmt.Fprintf(w, "┌─────────────────────────────────────────────────┐\n")
 	fmt.Fprintf(w, "│                 sanspie - About                 │\n")
@@ -99,16 +163,23 @@ func (h *StatusHandler) renderTextStatus(w http.ResponseWriter, status StatusRes
 	fmt.Fprintf(w, "│ Server Time: %-33s │\n", status.ServerTime)
 	fmt.Fprintf(w, "├─────────────────────────────────────────────────┤\n")
 
-	if status.Goroutines > 500 {
-		fmt.Fprintf(w, "│ ⚠️  High goroutine count detected!             │\n")
-	}
-	if parseBytes(status.Memory.Allocated) > 100*1024*1024 {
-		fmt.Fprintf(w, "│ ⚠️  High memory usage detected!                │\n")
-	}
-	if status.Clients > 50 {
-		fmt.Fprintf(w, "│ ⚠️  High client count detected!                │\n")
+	if hasIssues {
+		fmt.Fprintf(w, "│ ⚠️  Main functionality issues detected!        │\n")
+		if status.Details != nil {
+			if errors, ok := status.Details["plugin_test_errors"]; ok && errors != "" {
+				fmt.Fprintf(w, "│ ⚠️  Plugin errors: %-29s │\n", errors[:min(29, len(errors))])
+			}
+		}
 	} else {
-		fmt.Fprintf(w, "│ ✅ All systems operational                     │\n")
+		if status.Goroutines > 500 {
+			fmt.Fprintf(w, "│ ⚠️  High goroutine count detected!             │\n")
+		} else if parseBytes(status.Memory.Allocated) > 100*1024*1024 {
+			fmt.Fprintf(w, "│ ⚠️  High memory usage detected!                │\n")
+		} else if status.Clients > 50 {
+			fmt.Fprintf(w, "│ ⚠️  High client count detected!                │\n")
+		} else {
+			fmt.Fprintf(w, "│ ✅ All systems operational                     │\n")
+		}
 	}
 
 	fmt.Fprintf(w, "├─────────────────────────────────────────────────┤\n")
@@ -120,9 +191,15 @@ func (h *StatusHandler) renderTextStatus(w http.ResponseWriter, status StatusRes
 	fmt.Fprintf(w, "└─────────────────────────────────────────────────┘\n")
 }
 
-func (h *StatusHandler) renderJSONStatus(w http.ResponseWriter, status StatusResponse) {
+func (h *StatusHandler) renderJSONStatus(w http.ResponseWriter, status StatusResponse, hasIssues bool) {
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
+
+	if hasIssues {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	} else {
+		w.WriteHeader(http.StatusOK)
+	}
+
 	json.NewEncoder(w).Encode(status)
 }
 

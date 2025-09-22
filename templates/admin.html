@@ -9,7 +9,6 @@
 <body>
 <div class="header">
   <h1>Plugin Admin Dashboard</h1>
-  <div class="header-subtitle">Manage your about page plugins</div>
 </div>
 
 <div class="container">
@@ -66,33 +65,58 @@
 <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
 <script src="/static/js/admin.js"></script>
 <script>
-  // Debug: Log the raw plugin data
-  console.log('Raw plugins data from server:', {
-  {{range .Plugins}}
-  "{{.Name}}": {{.Settings | json}},
-  {{end}}
-  });
+  console.log('Initializing admin dashboard...');
 
   const pluginsData = {};
 
-  {{range .Plugins}}
+  {{range $plugin := .Plugins}}
   try {
-    pluginsData["{{.Name}}"] = {{.Settings | json}};
-    console.log('Parsed settings for {{.Name}}:', pluginsData["{{.Name}}"]);
+    // Use the entire settings object directly without manual field assignment
+    const settingsData = {{$plugin.Settings | json}};
+    console.log('Raw settings for {{$plugin.Name}}:', settingsData);
+
+    if (settingsData && typeof settingsData === 'object') {
+      pluginsData["{{$plugin.Name}}"] = settingsData;
+    } else {
+      console.warn('No valid settings for {{$plugin.Name}}, using empty object');
+      pluginsData["{{$plugin.Name}}"] = {};
+    }
   } catch (e) {
-    console.error('Failed to parse settings for {{.Name}}:', e);
-    pluginsData["{{.Name}}"] = {};
+    console.error('Failed to parse settings for {{$plugin.Name}}:', e);
+    pluginsData["{{$plugin.Name}}"] = {};
   }
   {{end}}
 
+  console.log('All plugins data:', pluginsData);
+
   document.addEventListener('DOMContentLoaded', function() {
-    {{range .Plugins}}
-    console.log('Initializing settings editor for {{.Name}} with:', pluginsData['{{.Name}}']);
-    initSettingsEditor('{{.Name}}', pluginsData['{{.Name}}'] || {});
+    console.log('DOM loaded, initializing plugins...');
+
+    {{range $plugin := .Plugins}}
+    try {
+      console.log('Initializing settings editor for {{$plugin.Name}} with:', pluginsData['{{$plugin.Name}}']);
+      initSettingsEditor('{{$plugin.Name}}', pluginsData['{{$plugin.Name}}'] || {});
+    } catch (e) {
+      console.error('Error initializing {{$plugin.Name}}:', e);
+      initSettingsEditor('{{$plugin.Name}}', {});
+    }
     {{end}}
 
-    initSortable();
-    initSearch();
+    try {
+      initSortable();
+      console.log('Sortable initialized');
+    } catch (e) {
+      console.error('Error initializing sortable:', e);
+    }
+
+    try {
+      initSearch();
+      console.log('Search initialized');
+    } catch (e) {
+      console.error('Error initializing search:', e);
+    }
+
+    console.log('Admin dashboard initialization complete');
   });
 </script>
 </body>

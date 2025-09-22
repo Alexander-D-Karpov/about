@@ -265,3 +265,24 @@ func getString(m map[string]interface{}, key, def string) string {
 	}
 	return def
 }
+
+func (p *WebringPlugin) RenderText(ctx context.Context) (string, error) {
+	if p.webringData == nil {
+		return "Webring: No data available", nil
+	}
+
+	return fmt.Sprintf("Webring: %s ← current → %s",
+		p.webringData.Prev.Name, p.webringData.Next.Name), nil
+}
+
+func (p *PersonalPlugin) RenderText(ctx context.Context) (string, error) {
+	config := p.storage.GetPluginConfig(p.Name())
+	settings := config.Settings
+
+	personalInfo, ok := settings["info"].([]interface{})
+	if !ok || len(personalInfo) == 0 {
+		return "Personal: No information available", nil
+	}
+
+	return fmt.Sprintf("Personal: %d info items available", len(personalInfo)), nil
+}

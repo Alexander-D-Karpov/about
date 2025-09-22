@@ -225,3 +225,11 @@ func (p *InfoPlugin) getConfigBool(settings map[string]interface{}, key string, 
 
 	return defaultValue
 }
+
+func (p *InfoPlugin) RenderText(ctx context.Context) (string, error) {
+	uptime := time.Since(p.startTime)
+	clientCount := p.hub.GetClientCount()
+	uptimeStr := p.formatDuration(uptime)
+
+	return fmt.Sprintf("System: Online %s, %d clients connected", uptimeStr, clientCount), nil
+}

@@ -258,3 +258,26 @@ func (p *NeofetchPlugin) SetSettings(settings map[string]interface{}) error {
 	config.Settings = settings
 	return p.storage.SetPluginConfig(p.Name(), config)
 }
+
+func (p *NeofetchPlugin) RenderText(ctx context.Context) (string, error) {
+	config := p.storage.GetPluginConfig(p.Name())
+	machinesData, ok := config.Settings["machines"].([]interface{})
+	if !ok || len(machinesData) == 0 {
+		return "System: No machines configured", nil
+	}
+
+	var machineNames []string
+	for _, machineData := range machinesData {
+		if machineMap, ok := machineData.(map[string]interface{}); ok {
+			if name, ok := machineMap["name"].(string); ok {
+				machineNames = append(machineNames, name)
+			}
+		}
+	}
+
+	if len(machineNames) == 0 {
+		return "System: No valid machines", nil
+	}
+
+	return fmt.Sprintf("System: %s (%d machines)", strings.Join(machineNames, ", "), len(machineNames)), nil
+}

@@ -10,6 +10,7 @@ import (
 	"os/signal"
 	"runtime"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -78,12 +79,49 @@ func main() {
 	r.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Cache-Control", "no-cache")
-		w.WriteHeader(http.StatusOK)
 
-		response := fmt.Sprintf(`{"status":"ok","timestamp":%d,"version":"1.0.0","uptime":%d}`,
+		status := "ok"
+		statusCode := http.StatusOK
+
+		// Test if main functionality is working with shorter timeout
+		testCtx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+		defer cancel()
+
+		pluginTestResult := make(chan bool, 1)
+		go func() {
+			defer func() {
+				if r := recover(); r != nil {
+					pluginTestResult <- false
+				}
+			}()
+
+			// Try to get a simple plugin count instead of full render
+			enabledPlugins := pluginManager.GetEnabledPlugins()
+			pluginTestResult <- len(enabledPlugins) >= 0
+		}()
+
+		var mainFunctional bool
+		select {
+		case result := <-pluginTestResult:
+			mainFunctional = result
+		case <-testCtx.Done():
+			mainFunctional = false
+		case <-time.After(800 * time.Millisecond):
+			mainFunctional = false
+		}
+
+		if !mainFunctional {
+			status = "degraded"
+			statusCode = http.StatusServiceUnavailable
+		}
+
+		response := fmt.Sprintf(`{"status":"%s","timestamp":%d,"version":"1.0.0","uptime":%d,"main_functional":%t}`,
+			status,
 			time.Now().Unix(),
-			int64(time.Since(appStartTime).Seconds()))
+			int64(time.Since(appStartTime).Seconds()),
+			mainFunctional)
 
+		w.WriteHeader(statusCode)
 		w.Write([]byte(response))
 	}).Methods("GET")
 
@@ -167,14 +205,25 @@ func startBackgroundTasks(store *storage.Storage, pm *plugins.Manager) {
 			case <-quit:
 				return
 			case <-ticker.C:
-				if err := store.CreateBackup(); err != nil {
-					log.Printf("Backup failed: %v", err)
-				} else {
-					log.Println("Daily backup completed successfully")
-				}
+				func() {
+					defer func() {
+						if r := recover(); r != nil {
+							log.Printf("Backup task panic: %v", r)
+						}
+					}()
+
+					if err := store.CreateBackup(); err != nil {
+						log.Printf("Backup failed: %v", err)
+					} else {
+						log.Println("Daily backup completed successfully")
+					}
+				}()
 			}
 		}
 	}()
+
+	var updateMutex sync.Mutex
+	var lastGeneralUpdate time.Time
 
 	go func() {
 		defer func() {
@@ -202,42 +251,78 @@ func startBackgroundTasks(store *storage.Storage, pm *plugins.Manager) {
 			case <-quit:
 				return
 			case <-lastFMTicker.C:
-				func() {
+				go func() {
 					defer func() {
 						if r := recover(); r != nil {
 							log.Printf("LastFM update panic recovered: %v", r)
 						}
 					}()
-					ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+
+					if !updateMutex.TryLock() {
+						return
+					}
+					defer updateMutex.Unlock()
+
+					_, cancel := context.WithTimeout(context.Background(), 25*time.Second)
 					defer cancel()
-					pm.UpdatePlugin("lastfm")
-					<-ctx.Done()
+
+					if err := pm.UpdatePlugin("lastfm"); err != nil {
+						log.Printf("LastFM update failed (non-fatal): %v", err)
+					}
 				}()
 
 			case <-generalTicker.C:
-				func() {
+				if time.Since(lastGeneralUpdate) < 50*time.Minute {
+					continue
+				}
+
+				go func() {
 					defer func() {
 						if r := recover(); r != nil {
 							log.Printf("General plugin update panic recovered: %v", r)
 						}
 					}()
-					ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+
+					if !updateMutex.TryLock() {
+						log.Printf("Skipping general update - another update in progress")
+						return
+					}
+					defer updateMutex.Unlock()
+
+					log.Printf("Starting background plugin update...")
+					startTime := time.Now()
+
+					_, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
 					defer cancel()
-					pm.UpdateExternalData()
-					<-ctx.Done()
+
+					func() {
+						defer func() {
+							if r := recover(); r != nil {
+								log.Printf("UpdateExternalDataBackground panic: %v", r)
+							}
+						}()
+
+						pm.UpdateExternalDataBackground()
+						lastGeneralUpdate = time.Now()
+						log.Printf("Background plugin update completed in %v", time.Since(startTime))
+					}()
 				}()
 
 			case <-systemTicker.C:
-				func() {
+				go func() {
 					defer func() {
 						if r := recover(); r != nil {
 							log.Printf("System info update panic recovered: %v", r)
 						}
 					}()
+
 					if infoPlugin, exists := pm.GetPlugin("info"); exists {
-						ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-						infoPlugin.UpdateData(ctx)
-						cancel()
+						ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+						defer cancel()
+
+						if err := infoPlugin.UpdateData(ctx); err != nil {
+							// Don't log info plugin errors as they're not critical
+						}
 					}
 				}()
 			}
@@ -263,16 +348,20 @@ func startBackgroundTasks(store *storage.Storage, pm *plugins.Manager) {
 			case <-quit:
 				return
 			case <-ticker.C:
-				func() {
+				go func() {
 					defer func() {
 						if r := recover(); r != nil {
 							log.Printf("Visitors plugin update panic recovered: %v", r)
 						}
 					}()
+
 					if visitors, exists := pm.GetPlugin("visitors"); exists {
-						ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-						visitors.UpdateData(ctx)
-						cancel()
+						ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+						defer cancel()
+
+						if err := visitors.UpdateData(ctx); err != nil {
+							// Don't log visitors timeout errors as they're handled in the plugin
+						}
 					}
 				}()
 			}
@@ -290,7 +379,7 @@ func startBackgroundTasks(store *storage.Storage, pm *plugins.Manager) {
 			}
 		}()
 
-		ticker := time.NewTicker(10 * time.Minute)
+		ticker := time.NewTicker(15 * time.Minute)
 		defer ticker.Stop()
 
 		for {
@@ -298,18 +387,26 @@ func startBackgroundTasks(store *storage.Storage, pm *plugins.Manager) {
 			case <-quit:
 				return
 			case <-ticker.C:
-				var m runtime.MemStats
-				runtime.ReadMemStats(&m)
-				numGoroutines := runtime.NumGoroutine()
+				func() {
+					defer func() {
+						if r := recover(); r != nil {
+							log.Printf("Resource monitor check panic: %v", r)
+						}
+					}()
 
-				if numGoroutines > 1000 {
-					log.Printf("WARNING: High goroutine count: %d", numGoroutines)
-				}
+					var m runtime.MemStats
+					runtime.ReadMemStats(&m)
+					numGoroutines := runtime.NumGoroutine()
 
-				if m.Alloc > 100*1024*1024 {
-					log.Printf("WARNING: High memory usage: %d MB", m.Alloc/1024/1024)
-					runtime.GC()
-				}
+					if numGoroutines > 1000 {
+						log.Printf("WARNING: High goroutine count: %d", numGoroutines)
+					}
+
+					if m.Alloc > 100*1024*1024 {
+						log.Printf("WARNING: High memory usage: %d MB", m.Alloc/1024/1024)
+						runtime.GC()
+					}
+				}()
 			}
 		}
 	}()

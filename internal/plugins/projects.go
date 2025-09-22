@@ -2,6 +2,7 @@ package plugins
 
 import (
 	"context"
+	"fmt"
 	"html/template"
 	"strings"
 
@@ -141,4 +142,29 @@ func (p *ProjectsPlugin) SetSettings(settings map[string]interface{}) error {
 	config := p.storage.GetPluginConfig(p.Name())
 	config.Settings = settings
 	return p.storage.SetPluginConfig(p.Name(), config)
+}
+
+func (p *ProjectsPlugin) RenderText(ctx context.Context) (string, error) {
+	config := p.storage.GetPluginConfig(p.Name())
+	projects, ok := config.Settings["projects"].([]interface{})
+	if !ok || len(projects) == 0 {
+		return "Projects: No projects configured", nil
+	}
+
+	var projectNames []string
+	for _, proj := range projects {
+		projMap, ok := proj.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		if name, ok := projMap["name"].(string); ok {
+			projectNames = append(projectNames, name)
+		}
+	}
+
+	if len(projectNames) == 0 {
+		return "Projects: No valid projects", nil
+	}
+
+	return fmt.Sprintf("Projects: %s (%d total)", strings.Join(projectNames, ", "), len(projectNames)), nil
 }

@@ -951,3 +951,32 @@ func (p *LastFMPlugin) relativePlayedAt() string {
 	}
 	return fmt.Sprintf("%d days ago", int(d.Hours()/24))
 }
+
+func (p *LastFMPlugin) RenderText(ctx context.Context) (string, error) {
+	if p.apiKey == "" {
+		return "Music: API key not configured", nil
+	}
+
+	if p.currentTrack == nil {
+		return "Music: No recent tracks", nil
+	}
+
+	status := "Last played"
+	if p.currentTrack.Attr.NowPlaying == "true" {
+		status = "Now playing"
+	}
+
+	artist := p.currentTrack.Artist.Text
+	if artist == "" {
+		artist = "Unknown Artist"
+	}
+
+	scrobbles := ""
+	if p.userInfo != nil && p.userInfo.PlayCount != "" {
+		count := formatScrobbles(p.userInfo.PlayCount)
+		scrobbles = fmt.Sprintf(" (%s scrobbles)", count)
+	}
+
+	return fmt.Sprintf("Music: %s - %s by %s%s",
+		status, p.currentTrack.Name, artist, scrobbles), nil
+}

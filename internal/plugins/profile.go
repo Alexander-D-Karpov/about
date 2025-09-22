@@ -141,3 +141,23 @@ func (p *ProfilePlugin) getConfigValue(settings map[string]interface{}, key stri
 
 	return defaultValue
 }
+
+func (p *ProfilePlugin) RenderText(ctx context.Context) (string, error) {
+	config := p.storage.GetPluginConfig(p.Name())
+	settings := config.Settings
+
+	name := p.getConfigValue(settings, "name", "User")
+	title := p.getConfigValue(settings, "title", "")
+	subtitle := p.getConfigValue(settings, "subtitle", "")
+
+	var parts []string
+	parts = append(parts, name)
+	if title != "" {
+		parts = append(parts, title)
+	}
+	if subtitle != "" {
+		parts = append(parts, subtitle)
+	}
+
+	return strings.Join(parts, " - "), nil
+}

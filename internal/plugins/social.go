@@ -2,6 +2,7 @@ package plugins
 
 import (
 	"context"
+	"fmt"
 	"html/template"
 	"strings"
 
@@ -154,4 +155,45 @@ func (p *SocialPlugin) getStringFromMap(m map[string]interface{}, key string, de
 		return value
 	}
 	return defaultValue
+}
+
+func (p *SocialPlugin) RenderText(ctx context.Context) (string, error) {
+	config := p.storage.GetPluginConfig(p.Name())
+	settings := config.Settings
+
+	links, ok := settings["links"].([]interface{})
+	if !ok || len(links) == 0 {
+		return "Social: No links configured", nil
+	}
+
+	var linkNames []string
+	for i, link := range links {
+		linkMap, ok := link.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		name := p.getStringFromMap(linkMap, "name", "Link")
+
+		if i == 0 {
+			url := p.getStringFromMap(linkMap, "url", "")
+			if url != "" {
+				name = fmt.Sprintf("%s (%s)", name, url)
+			}
+		}
+		linkNames = append(linkNames, name)
+
+		if i >= 4 {
+			break
+		}
+	}
+
+	if len(linkNames) == 0 {
+		return "Social: No valid links", nil
+	}
+
+	s := fmt.Sprintf("Social: %s", strings.Join(linkNames, ", "))
+	if len(links) > 5 {
+		s += fmt.Sprintf(" and %d more", len(links)-5)
+	}
+	return s, nil
 }

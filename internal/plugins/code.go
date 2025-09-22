@@ -709,3 +709,24 @@ func (p *CodePlugin) getConfigBool(settings map[string]interface{}, key string, 
 
 	return defaultValue
 }
+func (p *CodePlugin) RenderText(ctx context.Context) (string, error) {
+	if p.githubData == nil && p.wakatimeData == nil {
+		return "Code: No data available", nil
+	}
+
+	var parts []string
+
+	if p.githubData != nil {
+		parts = append(parts, fmt.Sprintf("%d repos, %d stars", p.githubData.PublicRepos, p.githubData.TotalStars))
+	}
+
+	if p.wakatimeData != nil {
+		parts = append(parts, fmt.Sprintf("%s this week", p.wakatimeData.LastWeek.Text))
+	}
+
+	if len(parts) == 0 {
+		return "Code: No stats available", nil
+	}
+
+	return fmt.Sprintf("Code: %s", strings.Join(parts, ", ")), nil
+}

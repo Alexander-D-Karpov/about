@@ -2,6 +2,7 @@ package plugins
 
 import (
 	"context"
+	"fmt"
 	"html/template"
 	"strings"
 
@@ -102,4 +103,33 @@ func (p *TechStackPlugin) SetSettings(settings map[string]interface{}) error {
 	config := p.storage.GetPluginConfig(p.Name())
 	config.Settings = settings
 	return p.storage.SetPluginConfig(p.Name(), config)
+}
+
+func (p *TechStackPlugin) RenderText(ctx context.Context) (string, error) {
+	config := p.storage.GetPluginConfig(p.Name())
+	techs, ok := config.Settings["technologies"].([]interface{})
+	if !ok || len(techs) == 0 {
+		return "Tech: No technologies configured", nil
+	}
+
+	var techNames []string
+	for _, t := range techs {
+		techMap, ok := t.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		if name, ok := techMap["name"].(string); ok {
+			techNames = append(techNames, name)
+		}
+	}
+
+	if len(techNames) == 0 {
+		return "Tech: No valid technologies", nil
+	}
+
+	if len(techNames) > 8 {
+		return fmt.Sprintf("Tech: %s and %d more", strings.Join(techNames[:8], ", "), len(techNames)-8), nil
+	}
+
+	return fmt.Sprintf("Tech: %s", strings.Join(techNames, ", ")), nil
 }
