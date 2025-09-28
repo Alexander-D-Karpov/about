@@ -3,11 +3,13 @@ package main
 import (
 	"context"
 	"embed"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
 	"os/signal"
+	filepath "path/filepath"
 	"runtime"
 	"strings"
 	"sync"
@@ -42,6 +44,10 @@ func main() {
 
 	cfg := config.Load()
 
+	if err := initializeMediaFolders(cfg.MediaPath); err != nil {
+		log.Fatal("Failed to initialize media folders:", err)
+	}
+
 	store := storage.New(cfg.DataPath)
 	if err := store.Load(); err != nil {
 		log.Fatal("Failed to load storage:", err)
@@ -68,6 +74,13 @@ func main() {
 	staticHandler := http.FileServer(http.FS(staticFiles))
 	r.PathPrefix("/static/").Handler(addCacheHeaders(staticHandler))
 
+	if err := os.MkdirAll(cfg.MediaPath, 0755); err != nil {
+		log.Fatal("Failed to create media directory:", err)
+	}
+
+	mediaHandler := http.StripPrefix("/media/", http.FileServer(http.Dir(cfg.MediaPath)))
+	r.PathPrefix("/media/").Handler(addCacheHeaders(mediaHandler))
+
 	r.HandleFunc("/upload", handlers.NewUploadHandler(cfg).ServeHTTP).Methods("POST")
 
 	mainHandler := handlers.NewMainHandler(pluginManager, cfg, templateFiles)
@@ -76,6 +89,43 @@ func main() {
 	wsHandler := handlers.NewWebSocketHandler(hub)
 	r.HandleFunc("/ws", wsHandler.ServeHTTP)
 
+	r.HandleFunc("/api/meme/refresh", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		memePlugin, exists := pluginManager.GetPlugin("meme")
+		if !exists {
+			http.Error(w, "Meme plugin not found", http.StatusNotFound)
+			return
+		}
+
+		meme, ok := memePlugin.(*plugins.MemePlugin)
+		if !ok {
+			http.Error(w, "Invalid plugin type", http.StatusInternalServerError)
+			return
+		}
+
+		currentMeme := meme.RefreshMeme()
+
+		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+		defer cancel()
+
+		rendered, err := meme.Render(ctx)
+		if err != nil {
+			http.Error(w, "Failed to render meme", http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": true,
+			"html":    rendered,
+			"meme":    currentMeme,
+		})
+	}).Methods("POST")
+
 	r.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Cache-Control", "no-cache")
@@ -83,7 +133,6 @@ func main() {
 		status := "ok"
 		statusCode := http.StatusOK
 
-		// Test if main functionality is working with shorter timeout
 		testCtx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 		defer cancel()
 
@@ -95,7 +144,6 @@ func main() {
 				}
 			}()
 
-			// Try to get a simple plugin count instead of full render
 			enabledPlugins := pluginManager.GetEnabledPlugins()
 			pluginTestResult <- len(enabledPlugins) >= 0
 		}()
@@ -432,4 +480,29 @@ func faviconHandler(path string) http.HandlerFunc {
 		w.WriteHeader(http.StatusOK)
 		w.Write(data)
 	}
+}
+
+func initializeMediaFolders(mediaPath string) error {
+	folders := []string{
+		"uploads",
+		"icons",
+		"memes",
+		"projects",
+		"profile",
+		"uploads/profile",
+		"uploads/projects",
+		"uploads/social",
+		"uploads/personal",
+		"uploads/services",
+		"uploads/meme",
+	}
+
+	for _, folder := range folders {
+		path := filepath.Join(mediaPath, folder)
+		if err := os.MkdirAll(path, 0755); err != nil {
+			return fmt.Errorf("failed to create folder %s: %w", folder, err)
+		}
+	}
+
+	return nil
 }

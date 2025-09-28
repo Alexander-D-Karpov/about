@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"html/template"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -44,11 +45,22 @@ func NewVisitorsPlugin(storage *storage.Storage, hub *stream.Hub, dataPath strin
 		hub:        hub,
 		dataPath:   dataPath,
 		dailyStats: make(map[string]int64),
-		currentDay: time.Now().Format("29.02.2006"),
+		currentDay: time.Now().Format("2006-01-02"),
 	}
 
+	log.Printf("[Visitors] Initializing plugin, data path: %s", dataPath)
+
 	plugin.loadVisitorsData()
+
+	log.Printf("[Visitors] Loaded data: total=%d, today=%d, current_day=%s",
+		plugin.visitCount, plugin.todayCount, plugin.currentDay)
+
 	plugin.checkDayTransition()
+
+	if os.Getenv("VISITORS_DEBUG") == "true" {
+		log.Printf("[Visitors] DEBUG MODE: Testing day transition immediately")
+		plugin.testDayTransition()
+	}
 
 	go plugin.startDayChecker()
 
@@ -63,27 +75,103 @@ func (p *VisitorsPlugin) startDayChecker() {
 	ticker := time.NewTicker(time.Minute)
 	defer ticker.Stop()
 
+	log.Printf("[Visitors] Day checker started, will check every minute")
+
 	for range ticker.C {
+		log.Printf("[Visitors] Day checker tick at %s", time.Now().Format("15:04:05"))
 		p.checkDayTransition()
 	}
 }
 
 func (p *VisitorsPlugin) checkDayTransition() {
 	p.mutex.Lock()
-	defer p.mutex.Unlock()
+	today := time.Now().Format("2006-01-02")
+	needsSave := false
+	var oldDay string
+	var oldCount int64
 
-	today := time.Now().Format("29.02.2006")
 	if today != p.currentDay {
+		log.Printf("[Visitors] Day transition detected: %s -> %s (today count: %d)", p.currentDay, today, p.todayCount)
+
 		if p.currentDay != "" && p.todayCount > 0 {
 			p.dailyStats[p.currentDay] = p.todayCount
+			oldDay = p.currentDay
+			oldCount = p.todayCount
 		}
 
 		p.currentDay = today
 		p.todayCount = 0
-
-		p.saveVisitorsDataUnsafe()
-		p.broadcastUpdate()
+		needsSave = true
 	}
+	p.mutex.Unlock()
+
+	if needsSave {
+		log.Printf("[Visitors] Saving day transition data for %s with %d visits", oldDay, oldCount)
+
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+
+			if err := p.saveVisitorsDataAsync(ctx); err != nil {
+				log.Printf("[Visitors] ERROR: Failed to save day transition data: %v", err)
+			} else {
+				log.Printf("[Visitors] Successfully saved day transition data")
+			}
+
+			p.broadcastUpdate()
+		}()
+	}
+}
+
+func (p *VisitorsPlugin) saveVisitorsDataAsync(ctx context.Context) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+
+	p.mutex.RLock()
+	visitorsData := VisitorsData{
+		TotalVisits:  p.visitCount,
+		TodayVisits:  p.todayCount,
+		CurrentDay:   p.currentDay,
+		LastUpdate:   time.Now(),
+		DailyStats:   make(map[string]int64),
+		MonthlyStats: make(map[string]int64),
+	}
+
+	for k, v := range p.dailyStats {
+		visitorsData.DailyStats[k] = v
+	}
+
+	month := time.Now().Format("2006-01")
+	visitorsData.MonthlyStats[month] = p.visitCount
+	p.mutex.RUnlock()
+
+	data, err := json.MarshalIndent(visitorsData, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal error: %w", err)
+	}
+
+	dataFile := filepath.Join(p.dataPath, "visitors.json")
+	if err := os.MkdirAll(filepath.Dir(dataFile), 0755); err != nil {
+		return fmt.Errorf("create dir error: %w", err)
+	}
+
+	tempFile := dataFile + ".tmp"
+	if err := os.WriteFile(tempFile, data, 0644); err != nil {
+		return fmt.Errorf("write temp file error: %w", err)
+	}
+
+	if err := os.Rename(tempFile, dataFile); err != nil {
+		os.Remove(tempFile)
+		return fmt.Errorf("rename file error: %w", err)
+	}
+
+	log.Printf("[Visitors] Data saved: total=%d, today=%d, day=%s",
+		visitorsData.TotalVisits, visitorsData.TodayVisits, visitorsData.CurrentDay)
+
+	return nil
 }
 
 func (p *VisitorsPlugin) Render(ctx context.Context) (string, error) {
@@ -157,19 +245,41 @@ func (p *VisitorsPlugin) Render(ctx context.Context) (string, error) {
 
 func (p *VisitorsPlugin) RecordVisit(userAgent, ip string) {
 	p.mutex.Lock()
-	defer p.mutex.Unlock()
 
-	p.checkDayTransitionUnsafe()
+	today := time.Now().Format("2006-01-02")
+	if today != p.currentDay {
+		log.Printf("[Visitors] Day change detected in RecordVisit: %s -> %s", p.currentDay, today)
+		if p.currentDay != "" && p.todayCount > 0 {
+			p.dailyStats[p.currentDay] = p.todayCount
+		}
+		p.currentDay = today
+		p.todayCount = 0
+	}
 
 	p.visitCount++
 	p.todayCount++
 
-	go p.broadcastUpdate()
+	currentTotal := p.visitCount
+	currentToday := p.todayCount
+	p.mutex.Unlock()
+
+	log.Printf("[Visitors] Visit recorded: total=%d, today=%d, IP=%s", currentTotal, currentToday, ip)
 
 	go func() {
-		p.mutex.Lock()
-		defer p.mutex.Unlock()
-		p.saveVisitorsDataUnsafe()
+		p.broadcastUpdate()
+
+		if time.Since(p.lastSaveTime) > 30*time.Second {
+			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+			defer cancel()
+
+			if err := p.saveVisitorsDataAsync(ctx); err != nil {
+				log.Printf("[Visitors] ERROR: Failed to save after visit: %v", err)
+			} else {
+				p.mutex.Lock()
+				p.lastSaveTime = time.Now()
+				p.mutex.Unlock()
+			}
+		}
 	}()
 }
 
@@ -205,45 +315,28 @@ func (p *VisitorsPlugin) UpdateData(ctx context.Context) error {
 	default:
 	}
 
-	// Use a channel-based approach to avoid blocking
-	resultChan := make(chan error, 1)
+	log.Printf("[Visitors] UpdateData called, attempting save...")
 
+	saveDone := make(chan error, 1)
 	go func() {
-		defer func() {
-			if r := recover(); r != nil {
-				resultChan <- fmt.Errorf("panic in UpdateData: %v", r)
-			}
-		}()
-
-		// Try to acquire mutex with a very short timeout
-		acquired := make(chan bool, 1)
-		go func() {
-			p.mutex.Lock()
-			acquired <- true
-		}()
-
-		select {
-		case <-acquired:
-			defer p.mutex.Unlock()
-			err := p.saveVisitorsDataUnsafe()
-			resultChan <- err
-		case <-time.After(50 * time.Millisecond):
-			// If we can't get the mutex quickly, skip this update
-			resultChan <- nil
-		}
+		saveCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		saveDone <- p.saveVisitorsDataAsync(saveCtx)
 	}()
 
-	// Wait for result with context timeout
 	select {
-	case err := <-resultChan:
-		if err != nil && !strings.Contains(err.Error(), "mutex timeout") {
-			fmt.Printf("Warning: visitors UpdateData error: %v\n", err)
+	case err := <-saveDone:
+		if err != nil {
+			log.Printf("[Visitors] UpdateData save error: %v", err)
+			return nil
 		}
-		return err
+		log.Printf("[Visitors] UpdateData completed successfully")
+		return nil
 	case <-ctx.Done():
-		return ctx.Err()
-	case <-time.After(500 * time.Millisecond):
-		// Don't treat timeout as fatal error for visitors
+		log.Printf("[Visitors] UpdateData cancelled by context")
+		return nil
+	case <-time.After(2 * time.Second):
+		log.Printf("[Visitors] UpdateData save timeout, continuing anyway")
 		return nil
 	}
 }
@@ -251,16 +344,26 @@ func (p *VisitorsPlugin) UpdateData(ctx context.Context) error {
 func (p *VisitorsPlugin) loadVisitorsData() {
 	dataFile := filepath.Join(p.dataPath, "visitors.json")
 
+	log.Printf("[Visitors] Loading data from %s", dataFile)
+
 	data, err := os.ReadFile(dataFile)
 	if err != nil {
+		if os.IsNotExist(err) {
+			log.Printf("[Visitors] No existing data file, starting fresh")
+		} else {
+			log.Printf("[Visitors] ERROR reading data file: %v", err)
+		}
 		p.visitCount = 0
 		p.todayCount = 0
 		p.dailyStats = make(map[string]int64)
 		return
 	}
 
+	log.Printf("[Visitors] Loaded %d bytes from data file", len(data))
+
 	var visitorsData VisitorsData
 	if err := json.Unmarshal(data, &visitorsData); err != nil {
+		log.Printf("[Visitors] ERROR parsing JSON: %v", err)
 		p.visitCount = 0
 		p.todayCount = 0
 		p.dailyStats = make(map[string]int64)
@@ -274,17 +377,22 @@ func (p *VisitorsPlugin) loadVisitorsData() {
 		p.dailyStats = make(map[string]int64)
 	}
 
-	today := time.Now().Format("29.02.2006")
+	today := time.Now().Format("2006-01-02")
 	if visitorsData.CurrentDay == today {
 		p.todayCount = visitorsData.TodayVisits
+		log.Printf("[Visitors] Loaded today's count: %d", p.todayCount)
 	} else {
 		if visitorsData.CurrentDay != "" && visitorsData.TodayVisits > 0 {
 			p.dailyStats[visitorsData.CurrentDay] = visitorsData.TodayVisits
+			log.Printf("[Visitors] Saved previous day %s count: %d", visitorsData.CurrentDay, visitorsData.TodayVisits)
 		}
 		p.todayCount = 0
 	}
 
 	p.currentDay = today
+
+	log.Printf("[Visitors] Data loaded successfully: total=%d, today=%d, day=%s, dailyStats=%d days",
+		p.visitCount, p.todayCount, p.currentDay, len(p.dailyStats))
 }
 
 func (p *VisitorsPlugin) saveVisitorsDataUnsafe() error {
@@ -399,4 +507,57 @@ func (p *VisitorsPlugin) RenderText(ctx context.Context) (string, error) {
 
 	return fmt.Sprintf("Visitors: %s total, %s today",
 		formatNumber(total), formatNumber(today)), nil
+}
+
+func (p *VisitorsPlugin) testDayTransition() {
+	log.Printf("[Visitors] TEST: Starting day transition test")
+
+	p.mutex.Lock()
+	initialTotal := p.visitCount
+	initialToday := p.todayCount
+	initialDay := p.currentDay
+
+	p.todayCount = 42
+	p.currentDay = "2025-01-01"
+	log.Printf("[Visitors] TEST: Set test values - day: %s, today: %d", p.currentDay, p.todayCount)
+	p.mutex.Unlock()
+
+	time.Sleep(100 * time.Millisecond)
+
+	p.checkDayTransition()
+
+	time.Sleep(500 * time.Millisecond)
+
+	p.mutex.RLock()
+	newDay := p.currentDay
+	newToday := p.todayCount
+	savedCount := p.dailyStats["2025-01-01"]
+	p.mutex.RUnlock()
+
+	log.Printf("[Visitors] TEST RESULTS:")
+	log.Printf("  - Initial: day=%s, today=%d, total=%d", initialDay, initialToday, initialTotal)
+	log.Printf("  - After transition: day=%s, today=%d", newDay, newToday)
+	log.Printf("  - Saved in dailyStats[2025-01-01]: %d", savedCount)
+
+	if savedCount != 42 {
+		log.Printf("[Visitors] TEST FAILED: Expected 42 in dailyStats, got %d", savedCount)
+	} else if newToday != 0 {
+		log.Printf("[Visitors] TEST FAILED: Expected today count to reset to 0, got %d", newToday)
+	} else {
+		log.Printf("[Visitors] TEST PASSED: Day transition working correctly")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if err := p.saveVisitorsDataAsync(ctx); err != nil {
+		log.Printf("[Visitors] TEST: Save failed: %v", err)
+	} else {
+		log.Printf("[Visitors] TEST: Save succeeded")
+
+		dataFile := filepath.Join(p.dataPath, "visitors.json")
+		if data, err := os.ReadFile(dataFile); err == nil {
+			log.Printf("[Visitors] TEST: Saved file size: %d bytes", len(data))
+		}
+	}
 }

@@ -117,15 +117,10 @@
         if (!steamSection) return;
 
         $$('.game-item', steamSection).forEach(gameItem => {
-            gameItem.addEventListener('click', () => {
-                const gameName = $('.game-name', gameItem)?.textContent;
-                if (gameName) {
-                    const searchUrl = `https://store.steampowered.com/search/?term=${encodeURIComponent(gameName)}`;
-                    window.open(searchUrl, '_blank');
-                }
-            });
+            gameItem.style.cursor = 'default';
 
-            gameItem.style.cursor = 'pointer';
+            gameItem.removeEventListener('click', gameItem._clickHandler);
+
             gameItem.addEventListener('mouseenter', () => {
                 gameItem.style.transform = 'translateY(-2px)';
                 gameItem.style.boxShadow = '0 4px 12px rgba(0,0,0,0.25)';
@@ -184,33 +179,85 @@
             });
         });
     }
-
     function initMemeRefresh() {
-        const memeSection = $('.meme-section');
+        const memeSection = document.querySelector('.meme-section');
         if (!memeSection) return;
 
-        let refreshBtn = $('.meme-refresh-btn', memeSection);
+        let refreshBtn = document.querySelector('.meme-refresh-btn', memeSection);
         if (!refreshBtn) {
-            refreshBtn = document.createElement('button');
-            refreshBtn.className = 'btn btn-sm meme-refresh-btn';
-            refreshBtn.textContent = '🎲 New Meme';
-            refreshBtn.style.marginTop = '12px';
-
-            const memeContent = $('.meme-content', memeSection);
-            if (memeContent) {
-                memeContent.appendChild(refreshBtn);
+            const memeHeader = memeSection.querySelector('.meme-header');
+            if (memeHeader) {
+                refreshBtn = document.createElement('button');
+                refreshBtn.className = 'btn btn-sm meme-refresh-btn';
+                refreshBtn.textContent = '🎲 New Meme';
+                refreshBtn.type = 'button';
+                refreshBtn.style.marginLeft = 'auto';
+                memeHeader.appendChild(refreshBtn);
             }
         }
 
-        refreshBtn.addEventListener('click', () => {
-            if (window.wsSend) {
-                window.wsSend({ type: 'refresh_meme' });
-            } else {
-                fetch('/refresh-meme', { method: 'POST' })
-                    .then(() => window.location.reload())
-                    .catch(() => window.location.reload());
-            }
-        });
+        if (refreshBtn) {
+            refreshBtn.addEventListener('click', async (e) => {
+                e.preventDefault();
+                refreshBtn.disabled = true;
+                const originalText = refreshBtn.textContent;
+                refreshBtn.textContent = 'Loading...';
+
+                try {
+                    const response = await fetch('/api/meme/refresh', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        }
+                    });
+
+                    if (response.ok) {
+                        const data = await response.json();
+
+                        if (data.success && data.html) {
+                            const memeContent = memeSection.querySelector('.meme-content');
+                            if (memeContent) {
+                                memeContent.style.opacity = '0';
+                                memeContent.style.transition = 'opacity 0.2s ease';
+
+                                setTimeout(() => {
+                                    memeContent.innerHTML = '';
+                                    const tempDiv = document.createElement('div');
+                                    tempDiv.innerHTML = data.html;
+                                    const newContent = tempDiv.querySelector('.meme-content');
+                                    if (newContent) {
+                                        memeContent.innerHTML = newContent.innerHTML;
+                                    }
+
+                                    setTimeout(() => {
+                                        memeContent.style.opacity = '1';
+                                    }, 50);
+                                }, 200);
+                            }
+                        }
+                    } else {
+                        console.error('Failed to refresh meme');
+                    }
+                } catch (error) {
+                    console.error('Error refreshing meme:', error);
+                } finally {
+                    refreshBtn.disabled = false;
+                    refreshBtn.textContent = originalText;
+                }
+            });
+        }
+
+        const memeContent = memeSection.querySelector('.meme-content');
+        if (memeContent) {
+            memeContent.style.cursor = 'pointer';
+            memeContent.addEventListener('click', (e) => {
+                if (e.target.tagName === 'BUTTON') return;
+
+                if (refreshBtn) {
+                    refreshBtn.click();
+                }
+            });
+        }
     }
 
     function initVisitorsInteractions() {

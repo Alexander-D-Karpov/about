@@ -61,6 +61,7 @@ func (p *MemePlugin) Render(ctx context.Context) (string, error) {
 	<div class="meme-section section" id="meme-section">
 		<div class="meme-header">
 			<h3>{{.SectionTitle}}</h3>
+			<button type="button" class="btn btn-sm meme-refresh-btn" onclick="refreshMeme()">🎲 New Meme</button>
 		</div>
 		
 		<div class="meme-content">
@@ -156,10 +157,18 @@ func (p *MemePlugin) broadcastNewMeme() {
 	})
 }
 
-func (p *MemePlugin) RefreshMeme() {
+func (p *MemePlugin) RefreshMeme() *Meme {
 	p.selectRandomMeme()
-	p.broadcastNewMeme()
 	p.lastUpdate = time.Now()
+
+	if p.currentMeme != nil {
+		p.hub.Broadcast("meme_update", map[string]interface{}{
+			"meme":      *p.currentMeme,
+			"timestamp": time.Now().Unix(),
+		})
+	}
+
+	return p.currentMeme
 }
 
 func (p *MemePlugin) getDefaultMemes() []interface{} {
@@ -273,4 +282,8 @@ func (p *MemePlugin) RenderText(ctx context.Context) (string, error) {
 	}
 
 	return fmt.Sprintf("Meme: %s", memeText), nil
+}
+
+func (p *MemePlugin) GetCurrentMeme() *Meme {
+	return p.currentMeme
 }

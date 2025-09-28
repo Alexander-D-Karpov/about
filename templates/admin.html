@@ -5,6 +5,56 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Plugin Admin Dashboard</title>
   <link rel="stylesheet" href="/static/css/admin.css">
+  <style>
+    .image-preview {
+      max-width: 150px;
+      max-height: 150px;
+      object-fit: cover;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      margin-top: 8px;
+    }
+
+    .image-field-container {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .image-upload-group {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .current-image-preview {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px;
+      background: #f5f5f5;
+      border-radius: 4px;
+      margin-bottom: 8px;
+    }
+
+    .upload-progress {
+      display: none;
+      padding: 8px;
+      background: #e3f2fd;
+      border-radius: 4px;
+      margin-top: 8px;
+    }
+
+    .field-with-upload {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .field-with-upload .field-input {
+      flex: 1;
+    }
+  </style>
 </head>
 <body>
 <div class="header">
@@ -17,6 +67,7 @@
       <button class="btn btn-primary" onclick="saveAllPlugins()">Save All Changes</button>
       <button class="btn btn-secondary" onclick="previewSite()">Preview Site</button>
       <button class="btn btn-secondary" onclick="refreshData()">Refresh Data</button>
+      <button class="btn btn-secondary" onclick="reloadConfig()">Reload Config</button>
     </div>
     <div class="controls-right">
       <div class="search-box">
@@ -27,7 +78,7 @@
 
   <div id="plugins-container" class="plugins-grid">
     {{range .Plugins}}
-    <div class="plugin" data-plugin="{{.Name}}" data-order="{{.Order}}">
+    <div class="plugin" data-plugin="{{.Name}}" data-order="{{.Order}}" data-plugin-id="plugin-{{.Name}}">
       <div class="plugin-header">
         <div class="plugin-info">
           <div class="plugin-title">{{.Name}}</div>
@@ -45,14 +96,15 @@
         </div>
       </div>
 
-      <form class="plugin-form" data-plugin="{{.Name}}">
+      <form class="plugin-form" data-plugin="{{.Name}}" id="form-{{.Name}}">
         <div class="form-section">
           <div class="form-section-title">Configuration</div>
-          <div id="settings-{{.Name}}" class="settings-editor"></div>
+          <div id="settings-{{.Name}}" class="settings-editor" data-settings='{{.Settings | jsonPretty}}'></div>
         </div>
 
         <div class="actions">
           <button type="submit" class="btn btn-primary">Save Plugin</button>
+          <button type="button" class="btn btn-secondary" onclick="reloadPlugin('{{.Name}}')">Reload</button>
           <button type="button" class="btn btn-secondary export-btn" data-plugin="{{.Name}}">Export</button>
           <button type="button" class="btn btn-secondary reset-btn" data-plugin="{{.Name}}">Reset</button>
         </div>
@@ -63,7 +115,7 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
-<script src="/static/js/admin.js"></script>
+<script src="/static/js/admin.js?v={{.Config.AdminUser}}"></script>
 <script>
   console.log('Initializing admin dashboard...');
 
@@ -71,51 +123,36 @@
 
   {{range $plugin := .Plugins}}
   try {
-    // Use the entire settings object directly without manual field assignment
-    const settingsData = {{$plugin.Settings | json}};
-    console.log('Raw settings for {{$plugin.Name}}:', settingsData);
-
-    if (settingsData && typeof settingsData === 'object') {
-      pluginsData["{{$plugin.Name}}"] = settingsData;
-    } else {
-      console.warn('No valid settings for {{$plugin.Name}}, using empty object');
-      pluginsData["{{$plugin.Name}}"] = {};
+    const container = document.getElementById('settings-{{$plugin.Name}}');
+    if (container) {
+      const settingsStr = container.dataset.settings;
+      if (settingsStr) {
+        const settings = JSON.parse(settingsStr);
+        pluginsData["{{$plugin.Name}}"] = settings;
+        console.log('Loaded settings for {{$plugin.Name}}:', settings);
+      }
     }
   } catch (e) {
-    console.error('Failed to parse settings for {{$plugin.Name}}:', e);
+    console.error('Failed to load settings for {{$plugin.Name}}:', e);
     pluginsData["{{$plugin.Name}}"] = {};
   }
   {{end}}
-
-  console.log('All plugins data:', pluginsData);
 
   document.addEventListener('DOMContentLoaded', function() {
     console.log('DOM loaded, initializing plugins...');
 
     {{range $plugin := .Plugins}}
     try {
-      console.log('Initializing settings editor for {{$plugin.Name}} with:', pluginsData['{{$plugin.Name}}']);
-      initSettingsEditor('{{$plugin.Name}}', pluginsData['{{$plugin.Name}}'] || {});
+      const settings = pluginsData['{{$plugin.Name}}'] || {};
+      console.log('Initializing {{$plugin.Name}} with:', settings);
+      initSettingsEditor('{{$plugin.Name}}', settings);
     } catch (e) {
       console.error('Error initializing {{$plugin.Name}}:', e);
-      initSettingsEditor('{{$plugin.Name}}', {});
     }
     {{end}}
 
-    try {
-      initSortable();
-      console.log('Sortable initialized');
-    } catch (e) {
-      console.error('Error initializing sortable:', e);
-    }
-
-    try {
-      initSearch();
-      console.log('Search initialized');
-    } catch (e) {
-      console.error('Error initializing search:', e);
-    }
-
+    initSortable();
+    initSearch();
     console.log('Admin dashboard initialization complete');
   });
 </script>

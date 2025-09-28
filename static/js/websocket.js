@@ -278,7 +278,7 @@
                     }, 1000);
                     break;
                 case 'meme_update':
-                    updateMeme(message.data);
+                    updateMemeGlobal(message.data);
                     break;
                 case 'system_update':
                     updateSystemInfo(message.data);
@@ -289,6 +289,47 @@
         } catch (e) {
             console.error('Error handling message:', message, e);
         }
+    }
+
+    function updateMemeGlobal(data) {
+        const section = document.querySelector('.meme-section');
+        if (!section || !data.meme) return;
+
+        const memeContent = section.querySelector('.meme-content');
+        if (!memeContent) return;
+
+        const meme = data.meme;
+
+        memeContent.style.opacity = '0';
+        memeContent.style.transition = 'opacity 0.2s ease';
+
+        setTimeout(() => {
+            let newContent = '';
+
+            if (meme.type === 'image' || meme.type === 'gif') {
+                newContent = `
+                <div class="meme-${meme.type}">
+                    <img src="${meme.image}" alt="${meme.text}" loading="lazy">
+                    ${meme.text ? `<p class="meme-caption">${meme.text}</p>` : ''}
+                </div>
+            `;
+            } else {
+                newContent = `
+                <div class="meme-text">
+                    <p class="meme-quote">${meme.text}</p>
+                    ${meme.source ? `<p class="meme-source">— ${meme.source}</p>` : ''}
+                </div>
+            `;
+            }
+
+            memeContent.innerHTML = newContent;
+
+            setTimeout(() => {
+                memeContent.style.opacity = '1';
+            }, 50);
+        }, 200);
+
+        animateUpdate(section);
     }
 
     function updateClientCount(data) {

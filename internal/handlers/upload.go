@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/Alexander-D-Karpov/about/internal/config"
 )
@@ -57,13 +58,22 @@ func (h *UploadHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	uploadsDir := filepath.Join(h.config.MediaPath, "uploads")
+	targetDir := r.FormValue("directory")
+	if targetDir == "" {
+		targetDir = "uploads"
+	}
+
+	uploadsDir := filepath.Join(h.config.MediaPath, targetDir)
 	if err := os.MkdirAll(uploadsDir, 0755); err != nil {
 		h.jsonError(w, "Failed to create uploads directory", http.StatusInternalServerError)
 		return
 	}
 
-	filename := h.sanitizeFilename(header.Filename)
+	ext := filepath.Ext(header.Filename)
+	timestamp := time.Now().Format("20060102150405")
+	baseName := h.sanitizeFilename(strings.TrimSuffix(header.Filename, ext))
+	filename := fmt.Sprintf("%s_%s%s", baseName, timestamp, ext)
+
 	savePath := filepath.Join(uploadsDir, filename)
 
 	out, err := os.Create(savePath)
@@ -79,7 +89,7 @@ func (h *UploadHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	fileURL := fmt.Sprintf("/media/uploads/%s", filename)
+	fileURL := fmt.Sprintf("/media/%s/%s", targetDir, filename)
 
 	response := UploadResponse{
 		Success:  true,
@@ -92,7 +102,7 @@ func (h *UploadHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *UploadHandler) isValidFileType(filename string) bool {
-	allowedExts := []string{".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg"}
+	allowedExts := []string{".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg", ".ico", ".mp4", ".webm", ".mov"}
 	ext := strings.ToLower(filepath.Ext(filename))
 
 	for _, allowed := range allowedExts {

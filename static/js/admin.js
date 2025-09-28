@@ -1,5 +1,11 @@
+// Global variables
+let currentPluginData = {};
+let fileUploadQueue = new Map();
+
 function initSettingsEditor(pluginName, settings) {
     console.log(`Initializing settings editor for ${pluginName}:`, settings);
+
+    currentPluginData[pluginName] = settings;
 
     const container = document.getElementById(`settings-${pluginName}`);
     if (!container) {
@@ -9,14 +15,10 @@ function initSettingsEditor(pluginName, settings) {
 
     container.innerHTML = '';
 
-    // Use the settings exactly as provided from the file
-    // Only create minimal structure if completely missing
     if (!settings || Object.keys(settings).length === 0) {
-        console.log(`No settings found for ${pluginName}, creating minimal structure`);
         settings = createDefaultStructure(pluginName, getPluginType(pluginName));
     }
 
-    console.log(`Final settings for ${pluginName}:`, settings);
     renderPluginForm(container, pluginName, settings);
 }
 
@@ -26,7 +28,6 @@ function renderPluginForm(container, pluginName, settings) {
     const formWrapper = document.createElement('div');
     formWrapper.className = 'plugin-settings-wrapper';
 
-    // Always use existing settings as base, never replace with defaults
     if (pluginType.type === 'array-based') {
         renderArrayBasedPlugin(formWrapper, pluginName, settings, pluginType);
     } else {
@@ -37,120 +38,31 @@ function renderPluginForm(container, pluginName, settings) {
 }
 
 function createDefaultStructure(pluginName, pluginType) {
-    // Only create minimal UI structure, preserve all existing data
     const baseStructure = {
         ui: {
             sectionTitle: getDefaultSectionTitle(pluginName)
         }
     };
 
-    // For array-based plugins, only add empty array if needed
     if (pluginType.type === 'array-based') {
         baseStructure[pluginType.arrayField] = [];
     }
 
-    // For specific plugins that need nested config, add minimal structure
-    if (pluginName === 'steam') {
-        baseStructure.steamid = '';
-    }
+    const specificDefaults = {
+        'steam': { steamid: '' },
+        'lastfm': { username: '' },
+        'beatleader': { username: '' },
+        'webring': { webring_url: '', username: '' },
+        'code': { github: { username: '' }, wakatime: { api_key: '' } },
+        'info': { sourceCodeURL: '' },
+        'profile': { name: '', title: '', subtitle: '', bio: '', profileImage: '' }
+    };
 
-    if (pluginName === 'lastfm') {
-        baseStructure.username = '';
-    }
-
-    if (pluginName === 'beatleader') {
-        baseStructure.username = '';
-    }
-
-    if (pluginName === 'webring') {
-        baseStructure.webring_url = '';
-        baseStructure.username = '';
-    }
-
-    if (pluginName === 'code') {
-        baseStructure.github = { username: '' };
-        baseStructure.wakatime = { api_key: '' };
+    if (specificDefaults[pluginName]) {
+        Object.assign(baseStructure, specificDefaults[pluginName]);
     }
 
     return baseStructure;
-}
-
-function getPluginUIDefaults(pluginName) {
-    const defaults = {
-        'profile': {},
-        'social': {},
-        'techstack': {},
-        'projects': {},
-        'lastfm': {
-            showScrobbles: true,
-            showPlayButton: true,
-            showRecentTracks: true
-        },
-        'beatleader': {
-            showPepeGif: true,
-            showRecentMaps: true,
-            showMainStats: true,
-            loadingText: 'Loading BeatLeader data...'
-        },
-        'steam': {},
-        'neofetch': {},
-        'webring': {},
-        'visitors': {
-            showTotal: true,
-            showToday: true,
-            showVisitors: true
-        },
-        'services': {
-            showStatus: true,
-            showResponseTime: true
-        },
-        'code': {
-            showGitHub: true,
-            showWakatime: true,
-            showLanguages: true,
-            showCommitGraph: true
-        },
-        'info': {
-            showServerInfo: true,
-            showBuildInfo: false,
-            showSourceCode: true,
-            showSystemInfo: false
-        },
-        'personal': {
-            showImages: true,
-            showCategories: true,
-            layout: 'grid'
-        },
-        'meme': {
-            showMeme: true,
-            autoRefresh: false,
-            refreshInterval: 300
-        }
-    };
-
-    return defaults[pluginName] || {};
-}
-
-function getDefaultSectionTitle(pluginName) {
-    const titles = {
-        'profile': 'Profile',
-        'social': 'Links',
-        'techstack': 'Technologies',
-        'projects': 'Projects',
-        'lastfm': 'Music',
-        'beatleader': 'BeatLeader Stats',
-        'steam': 'Gaming Activity',
-        'neofetch': 'System Information',
-        'webring': 'webring',
-        'visitors': 'Visitors',
-        'services': 'Local Services',
-        'code': 'Coding Stats',
-        'info': 'Page Info',
-        'personal': 'Personal Info',
-        'meme': 'Random Meme'
-    };
-
-    return titles[pluginName] || formatFieldName(pluginName);
 }
 
 function getPluginType(pluginName) {
@@ -179,7 +91,7 @@ function getPluginType(pluginName) {
                 description: 'text',
                 github: 'string',
                 live: 'string',
-                image: 'string',
+                image: 'image',
                 technologies: 'array'
             }
         },
@@ -208,7 +120,7 @@ function getPluginType(pluginName) {
             itemSchema: {
                 title: 'string',
                 content: 'text',
-                image: 'string',
+                image: 'image',
                 icon: 'string',
                 category: 'string'
             }
@@ -217,7 +129,7 @@ function getPluginType(pluginName) {
             arrayField: 'memes',
             itemSchema: {
                 text: 'string',
-                image: 'string',
+                image: 'image',
                 type: 'select',
                 source: 'string',
                 category: 'string'
@@ -233,52 +145,20 @@ function getPluginType(pluginName) {
 }
 
 function renderArrayBasedPlugin(container, pluginName, settings, pluginType) {
+    // Render non-array fields first
     Object.keys(settings).forEach(key => {
         if (key !== pluginType.arrayField) {
-            createField(key, settings[key], container);
+            createField(key, settings[key], container, '', pluginName);
         }
     });
 
     const arrayData = settings[pluginType.arrayField] || [];
-
-    if (Array.isArray(arrayData) && arrayData.length > 0) {
-        renderManagedArray(container, pluginName, pluginType.arrayField, arrayData, pluginType.itemSchema);
-    } else {
-        const emptyArrayContainer = document.createElement('div');
-        emptyArrayContainer.className = 'managed-array-container';
-
-        const header = document.createElement('div');
-        header.className = 'managed-array-header';
-        header.innerHTML = `
-            <h4>${formatFieldName(pluginType.arrayField)} (0 items)</h4>
-            <button type="button" class="btn btn-secondary add-array-item" 
-                    onclick="addManagedArrayItem('${pluginName}', '${pluginType.arrayField}')">
-                Add ${pluginType.arrayField.slice(0, -1)}
-            </button>
-        `;
-
-        const itemsContainer = document.createElement('div');
-        itemsContainer.className = 'managed-array-items';
-        itemsContainer.id = `managed-array-${pluginType.arrayField}`;
-
-        emptyArrayContainer.appendChild(header);
-        emptyArrayContainer.appendChild(itemsContainer);
-        container.appendChild(emptyArrayContainer);
-    }
+    renderManagedArray(container, pluginName, pluginType.arrayField, arrayData, pluginType.itemSchema);
 }
 
 function renderObjectBasedPlugin(container, pluginName, settings) {
-    // Always render all existing settings from the file
     Object.keys(settings).forEach(key => {
-        createField(key, settings[key], container);
-    });
-
-    // Add plugin-specific fields that might be missing but are essential
-    const requiredFields = getRequiredFieldsForPlugin(pluginName);
-    requiredFields.forEach(fieldConfig => {
-        if (!settings.hasOwnProperty(fieldConfig.key)) {
-            createField(fieldConfig.key, fieldConfig.defaultValue, container);
-        }
+        createField(key, settings[key], container, '', pluginName);
     });
 
     const addMoreBtn = document.createElement('button');
@@ -289,147 +169,7 @@ function renderObjectBasedPlugin(container, pluginName, settings) {
     container.appendChild(addMoreBtn);
 }
 
-function getRequiredFieldsForPlugin(pluginName) {
-    const requiredFields = {
-        'steam': [
-            { key: 'steamid', defaultValue: '' }
-        ],
-        'lastfm': [
-            { key: 'username', defaultValue: '' }
-        ],
-        'beatleader': [
-            { key: 'username', defaultValue: '' }
-        ],
-        'webring': [
-            { key: 'webring_url', defaultValue: '' },
-            { key: 'username', defaultValue: '' }
-        ],
-        'code': [
-            { key: 'github', defaultValue: { username: '' } },
-            { key: 'wakatime', defaultValue: { api_key: '' } }
-        ],
-        'info': [
-            { key: 'sourceCodeURL', defaultValue: '' }
-        ]
-    };
-
-    return requiredFields[pluginName] || [];
-}
-
-function renderManagedArray(container, pluginName, fieldName, items, itemSchema) {
-    const arrayContainer = document.createElement('div');
-    arrayContainer.className = 'managed-array-container';
-
-    const header = document.createElement('div');
-    header.className = 'managed-array-header';
-    header.innerHTML = `
-        <h4>${formatFieldName(fieldName)} (${items.length} items)</h4>
-        <button type="button" class="btn btn-secondary add-array-item" 
-                onclick="addManagedArrayItem('${pluginName}', '${fieldName}')">
-            Add ${fieldName.slice(0, -1)}
-        </button>
-    `;
-
-    arrayContainer.appendChild(header);
-
-    const itemsContainer = document.createElement('div');
-    itemsContainer.className = 'managed-array-items';
-    itemsContainer.id = `managed-array-${fieldName}`;
-
-    items.forEach((item, index) => {
-        renderManagedArrayItem(itemsContainer, fieldName, item, index, itemSchema);
-    });
-
-    arrayContainer.appendChild(itemsContainer);
-    container.appendChild(arrayContainer);
-}
-
-function renderManagedArrayItem(container, fieldName, item, index, itemSchema) {
-    const itemDiv = document.createElement('div');
-    itemDiv.className = 'managed-array-item';
-    itemDiv.setAttribute('data-index', index);
-
-    const itemHeader = document.createElement('div');
-    itemHeader.className = 'managed-array-item-header';
-    itemHeader.innerHTML = `
-        <span class="item-number">#${index + 1}</span>
-        <button type="button" class="btn btn-danger btn-sm remove-item" 
-                onclick="removeManagedArrayItem(this)">Remove</button>
-    `;
-
-    itemDiv.appendChild(itemHeader);
-
-    const itemContent = document.createElement('div');
-    itemContent.className = 'managed-array-item-content';
-
-    Object.keys(itemSchema).forEach(key => {
-        const value = item[key] !== undefined ? item[key] : getDefaultValueForType(itemSchema[key]);
-        renderSchemaField(itemContent, `${fieldName}[${index}].${key}`, key, value, itemSchema[key]);
-    });
-
-    itemDiv.appendChild(itemContent);
-    container.appendChild(itemDiv);
-}
-
-function renderSchemaField(container, fieldPath, fieldName, value, fieldType) {
-    const field = document.createElement('div');
-    field.className = 'schema-field';
-
-    const label = document.createElement('label');
-    label.textContent = formatFieldName(fieldName);
-    label.className = 'schema-field-label';
-    field.appendChild(label);
-
-    let input;
-
-    switch (fieldType) {
-        case 'text':
-            input = document.createElement('textarea');
-            input.className = 'field-input field-textarea';
-            input.rows = 3;
-            break;
-        case 'select':
-            input = document.createElement('select');
-            input.className = 'field-input';
-            if (fieldName === 'type') {
-                ['image', 'gif', 'text'].forEach(option => {
-                    const opt = document.createElement('option');
-                    opt.value = option;
-                    opt.textContent = option;
-                    opt.selected = value === option;
-                    input.appendChild(opt);
-                });
-            }
-            break;
-        case 'array':
-            input = document.createElement('textarea');
-            input.className = 'field-input field-textarea';
-            input.rows = 2;
-            input.placeholder = 'Enter comma-separated values';
-            value = Array.isArray(value) ? value.join(', ') : (value || '');
-            break;
-        case 'object':
-            input = document.createElement('textarea');
-            input.className = 'field-input field-textarea';
-            input.rows = 4;
-            input.placeholder = 'Enter JSON object';
-            value = typeof value === 'object' ? JSON.stringify(value, null, 2) : (value || '{}');
-            break;
-        default:
-            input = document.createElement('input');
-            input.className = 'field-input';
-            input.type = 'text';
-    }
-
-    input.name = fieldPath;
-    input.value = value !== undefined ? String(value) : '';
-    input.placeholder = getPlaceholder(fieldName);
-
-    field.appendChild(input);
-    container.appendChild(field);
-}
-
-function createField(key, value, parent = document.body, path = '') {
+function createField(key, value, parent = document.body, path = '', pluginName = '') {
     const field = document.createElement('div');
     field.className = 'settings-field';
 
@@ -486,9 +226,8 @@ function createField(key, value, parent = document.body, path = '') {
     } else if (typeof value === 'string' || (value === null || value === undefined)) {
         const stringValue = value || '';
 
-        // Check if this is an image field
         if (isImageField(key, stringValue)) {
-            createImageField(field, currentPath, stringValue, key);
+            createImageField(field, currentPath, stringValue, key, pluginName);
         } else if (key.toLowerCase().includes('description') ||
             key.toLowerCase().includes('bio') ||
             key.toLowerCase().includes('content') ||
@@ -521,11 +260,10 @@ function createField(key, value, parent = document.body, path = '') {
             textarea.placeholder = key === 'ascii' ? 'Enter ASCII art lines' : 'Enter colors (one per line)';
             field.appendChild(textarea);
         } else {
-            renderGenericArray(field, value, currentPath);
+            renderGenericArray(field, value, currentPath, pluginName);
         }
 
     } else if (typeof value === 'object' && value !== null) {
-        // Recursively create fields for nested objects
         const objectContainer = document.createElement('div');
         objectContainer.className = 'object-container';
         objectContainer.style.marginLeft = '20px';
@@ -533,7 +271,6 @@ function createField(key, value, parent = document.body, path = '') {
         objectContainer.style.paddingLeft = '15px';
         objectContainer.style.marginTop = '10px';
 
-        // Create collapsible header for nested objects
         const toggleBtn = document.createElement('button');
         toggleBtn.type = 'button';
         toggleBtn.className = 'object-toggle-btn';
@@ -557,9 +294,8 @@ function createField(key, value, parent = document.body, path = '') {
         const objectContent = document.createElement('div');
         objectContent.className = 'object-content';
 
-        // Recursively create fields for all nested properties
         Object.keys(value).forEach(nestedKey => {
-            createField(nestedKey, value[nestedKey], objectContent, currentPath);
+            createField(nestedKey, value[nestedKey], objectContent, currentPath, pluginName);
         });
 
         toggleBtn.addEventListener('click', () => {
@@ -584,23 +320,7 @@ function createField(key, value, parent = document.body, path = '') {
     parent.appendChild(field);
 }
 
-function isImageField(key, value) {
-    const imageKeys = ['image', 'profileimage', 'avatar', 'cover', 'icon', 'logo', 'photo', 'picture'];
-    const keyLower = key.toLowerCase();
-
-    // Check if key name suggests it's an image field
-    const isImageKey = imageKeys.some(imgKey => keyLower.includes(imgKey));
-
-    // Check if value looks like an image path
-    const isImageValue = typeof value === 'string' &&
-        (value.match(/\.(jpg|jpeg|png|gif|webp|svg)$/i) ||
-            value.includes('/static/images/') ||
-            value.includes('/media/'));
-
-    return isImageKey || isImageValue;
-}
-
-function createImageField(field, currentPath, currentValue, key) {
+function createImageField(field, currentPath, currentValue, key, pluginName) {
     const imageContainer = document.createElement('div');
     imageContainer.className = 'image-field-container';
 
@@ -608,12 +328,24 @@ function createImageField(field, currentPath, currentValue, key) {
     if (currentValue) {
         const preview = document.createElement('div');
         preview.className = 'current-image-preview';
-        preview.innerHTML = `
-            <img src="${currentValue}" alt="Current ${key}" style="max-width: 100px; max-height: 100px; object-fit: cover; border: 1px solid #ddd; border-radius: 4px;">
-            <div style="font-size: 12px; color: #666; margin-top: 4px;">Current: ${currentValue}</div>
-        `;
+
+        const img = document.createElement('img');
+        img.src = currentValue;
+        img.alt = `Current ${key}`;
+        img.className = 'image-preview';
+        img.onerror = () => {
+            img.style.display = 'none';
+            preview.innerHTML += `<div style="color: red;">Image failed to load</div>`;
+        };
+
+        preview.appendChild(img);
+        preview.innerHTML += `<div style="font-size: 12px; color: #666;">Current: ${currentValue}</div>`;
         imageContainer.appendChild(preview);
     }
+
+    // Container for input and upload button
+    const fieldWithUpload = document.createElement('div');
+    fieldWithUpload.className = 'field-with-upload';
 
     // Text input for manual path entry
     const textInput = document.createElement('input');
@@ -622,28 +354,38 @@ function createImageField(field, currentPath, currentValue, key) {
     textInput.value = currentValue || '';
     textInput.name = currentPath;
     textInput.placeholder = 'Enter image path or upload file';
-    textInput.style.marginBottom = '8px';
 
-    // File upload input
+    // File input (hidden)
     const fileInput = document.createElement('input');
     fileInput.type = 'file';
     fileInput.accept = 'image/*';
     fileInput.className = 'image-upload-input';
-    fileInput.style.marginBottom = '8px';
+    fileInput.style.display = 'none';
+    fileInput.id = `file-${currentPath.replace(/[\.\[\]]/g, '_')}`;
 
     // Upload button
     const uploadBtn = document.createElement('button');
     uploadBtn.type = 'button';
     uploadBtn.className = 'btn btn-sm btn-secondary';
-    uploadBtn.textContent = 'Upload New Image';
+    uploadBtn.textContent = '📁 Upload';
     uploadBtn.onclick = () => fileInput.click();
+
+    // Upload progress
+    const progressDiv = document.createElement('div');
+    progressDiv.className = 'upload-progress';
+    progressDiv.textContent = 'Uploading...';
 
     fileInput.addEventListener('change', async (e) => {
         const file = e.target.files[0];
         if (file) {
+            progressDiv.style.display = 'block';
+            uploadBtn.disabled = true;
+
             try {
                 const formData = new FormData();
                 formData.append('file', file);
+                formData.append('plugin', pluginName);
+                formData.append('field', currentPath);
 
                 const response = await fetch('/admin/api/upload', {
                     method: 'POST',
@@ -655,13 +397,21 @@ function createImageField(field, currentPath, currentValue, key) {
                     textInput.value = result.url;
 
                     // Update preview
-                    const preview = imageContainer.querySelector('.current-image-preview');
-                    if (preview) {
-                        preview.innerHTML = `
-                            <img src="${result.url}" alt="Current ${key}" style="max-width: 100px; max-height: 100px; object-fit: cover; border: 1px solid #ddd; border-radius: 4px;">
-                            <div style="font-size: 12px; color: #666; margin-top: 4px;">Current: ${result.url}</div>
-                        `;
+                    let preview = imageContainer.querySelector('.current-image-preview');
+                    if (!preview) {
+                        preview = document.createElement('div');
+                        preview.className = 'current-image-preview';
+                        imageContainer.insertBefore(preview, fieldWithUpload);
                     }
+
+                    const newImg = document.createElement('img');
+                    newImg.src = result.url;
+                    newImg.alt = `Current ${key}`;
+                    newImg.className = 'image-preview';
+
+                    preview.innerHTML = '';
+                    preview.appendChild(newImg);
+                    preview.innerHTML += `<div style="font-size: 12px; color: #666;">Current: ${result.url}</div>`;
 
                     showNotification('Image uploaded successfully!', 'success');
                 } else {
@@ -670,17 +420,153 @@ function createImageField(field, currentPath, currentValue, key) {
                 }
             } catch (err) {
                 showNotification('Upload error: ' + err.message, 'error');
+            } finally {
+                progressDiv.style.display = 'none';
+                uploadBtn.disabled = false;
             }
         }
     });
 
-    imageContainer.appendChild(textInput);
+    fieldWithUpload.appendChild(textInput);
+    fieldWithUpload.appendChild(uploadBtn);
+
+    imageContainer.appendChild(fieldWithUpload);
     imageContainer.appendChild(fileInput);
-    imageContainer.appendChild(uploadBtn);
+    imageContainer.appendChild(progressDiv);
+
     field.appendChild(imageContainer);
 }
 
-function renderGenericArray(field, value, currentPath) {
+function renderManagedArray(container, pluginName, fieldName, items, itemSchema) {
+    const arrayContainer = document.createElement('div');
+    arrayContainer.className = 'managed-array-container';
+
+    const header = document.createElement('div');
+    header.className = 'managed-array-header';
+    header.innerHTML = `
+        <h4>${formatFieldName(fieldName)} (${items.length} items)</h4>
+        <button type="button" class="btn btn-secondary add-array-item" 
+                onclick="addManagedArrayItem('${pluginName}', '${fieldName}')">
+            Add ${fieldName.slice(0, -1)}
+        </button>
+    `;
+
+    arrayContainer.appendChild(header);
+
+    const itemsContainer = document.createElement('div');
+    itemsContainer.className = 'managed-array-items';
+    itemsContainer.id = `managed-array-${fieldName}`;
+
+    items.forEach((item, index) => {
+        renderManagedArrayItem(itemsContainer, pluginName, fieldName, item, index, itemSchema);
+    });
+
+    arrayContainer.appendChild(itemsContainer);
+    container.appendChild(arrayContainer);
+}
+
+function renderManagedArrayItem(container, pluginName, fieldName, item, index, itemSchema) {
+    const itemDiv = document.createElement('div');
+    itemDiv.className = 'managed-array-item';
+    itemDiv.setAttribute('data-index', index);
+
+    const itemHeader = document.createElement('div');
+    itemHeader.className = 'managed-array-item-header';
+    itemHeader.innerHTML = `
+        <span class="item-number">#${index + 1}</span>
+        <button type="button" class="btn btn-danger btn-sm remove-item" 
+                onclick="removeManagedArrayItem(this, '${pluginName}', '${fieldName}')">Remove</button>
+    `;
+
+    itemDiv.appendChild(itemHeader);
+
+    const itemContent = document.createElement('div');
+    itemContent.className = 'managed-array-item-content';
+
+    Object.keys(itemSchema).forEach(key => {
+        const value = item[key] !== undefined ? item[key] : getDefaultValueForType(itemSchema[key]);
+        renderSchemaField(itemContent, `${fieldName}[${index}].${key}`, key, value, itemSchema[key], pluginName, `${fieldName}[${index}]`);
+    });
+
+    itemDiv.appendChild(itemContent);
+    container.appendChild(itemDiv);
+}
+
+function renderSchemaField(container, fieldPath, fieldName, value, fieldType, pluginName, arrayPath) {
+    const field = document.createElement('div');
+    field.className = 'schema-field';
+
+    const label = document.createElement('label');
+    label.textContent = formatFieldName(fieldName);
+    label.className = 'schema-field-label';
+    field.appendChild(label);
+
+    let input;
+
+    switch (fieldType) {
+        case 'text':
+            input = document.createElement('textarea');
+            input.className = 'field-input field-textarea';
+            input.rows = 3;
+            input.value = value || '';
+            input.name = fieldPath;
+            break;
+
+        case 'image':
+            createImageField(field, fieldPath, value, fieldName, pluginName);
+            container.appendChild(field);
+            return;
+
+        case 'select':
+            input = document.createElement('select');
+            input.className = 'field-input';
+            if (fieldName === 'type') {
+                ['image', 'gif', 'text'].forEach(option => {
+                    const opt = document.createElement('option');
+                    opt.value = option;
+                    opt.textContent = option;
+                    opt.selected = value === option;
+                    input.appendChild(opt);
+                });
+            }
+            input.name = fieldPath;
+            break;
+
+        case 'array':
+            input = document.createElement('textarea');
+            input.className = 'field-input field-textarea';
+            input.rows = 2;
+            input.placeholder = 'Enter comma-separated values';
+            input.value = Array.isArray(value) ? value.join(', ') : (value || '');
+            input.name = fieldPath;
+            break;
+
+        case 'object':
+            input = document.createElement('textarea');
+            input.className = 'field-input field-textarea';
+            input.rows = 4;
+            input.placeholder = 'Enter JSON object';
+            input.value = typeof value === 'object' ? JSON.stringify(value, null, 2) : (value || '{}');
+            input.name = fieldPath;
+            break;
+
+        default:
+            input = document.createElement('input');
+            input.className = 'field-input';
+            input.type = 'text';
+            input.value = value || '';
+            input.name = fieldPath;
+    }
+
+    if (input) {
+        input.placeholder = getPlaceholder(fieldName);
+        field.appendChild(input);
+    }
+
+    container.appendChild(field);
+}
+
+function renderGenericArray(field, value, currentPath, pluginName) {
     const arrayContainer = document.createElement('div');
     arrayContainer.className = 'array-container';
 
@@ -690,20 +576,20 @@ function renderGenericArray(field, value, currentPath) {
     arrayContainer.appendChild(arrayHeader);
 
     value.forEach((item, index) => {
-        createArrayItem(arrayContainer, item, currentPath, index);
+        createArrayItem(arrayContainer, item, currentPath, index, pluginName);
     });
 
     const addBtn = document.createElement('button');
     addBtn.className = 'add-btn btn btn-sm btn-secondary';
     addBtn.textContent = 'Add Item';
     addBtn.type = 'button';
-    addBtn.onclick = () => addArrayItem(arrayContainer, currentPath);
+    addBtn.onclick = () => addArrayItem(arrayContainer, currentPath, pluginName);
 
     field.appendChild(arrayContainer);
     field.appendChild(addBtn);
 }
 
-function createArrayItem(container, item, path, index) {
+function createArrayItem(container, item, path, index, pluginName) {
     const itemDiv = document.createElement('div');
     itemDiv.className = 'array-item';
 
@@ -758,18 +644,8 @@ function addManagedArrayItem(pluginName, fieldName) {
     let container = document.getElementById(`managed-array-${fieldName}`);
 
     if (!container) {
-        const pluginContainer = document.getElementById(`settings-${pluginName}`);
-        const emptySection = pluginContainer.querySelector('.managed-array-container');
-
-        if (emptySection) {
-            const itemsContainer = document.createElement('div');
-            itemsContainer.className = 'managed-array-items';
-            itemsContainer.id = `managed-array-${fieldName}`;
-            emptySection.appendChild(itemsContainer);
-            container = itemsContainer;
-        } else {
-            return;
-        }
+        console.error(`Container not found for field ${fieldName}`);
+        return;
     }
 
     const index = container.querySelectorAll('.managed-array-item').length;
@@ -781,20 +657,16 @@ function addManagedArrayItem(pluginName, fieldName) {
         emptyItem[key] = getDefaultValueForType(itemSchema[key]);
     });
 
-    renderManagedArrayItem(container, fieldName, emptyItem, index, itemSchema);
+    renderManagedArrayItem(container, pluginName, fieldName, emptyItem, index, itemSchema);
     updateManagedArrayTitle(pluginName, fieldName);
 }
 
-
-function removeManagedArrayItem(button) {
+function removeManagedArrayItem(button, pluginName, fieldName) {
     const item = button.closest('.managed-array-item');
     const container = item.parentElement;
     item.remove();
 
     reindexManagedArrayItems(container);
-
-    const fieldName = container.id.replace('managed-array-', '');
-    const pluginName = container.closest('.plugin').dataset.plugin;
     updateManagedArrayTitle(pluginName, fieldName);
 }
 
@@ -811,14 +683,14 @@ function reindexManagedArrayItems(container) {
         inputs.forEach(input => {
             const name = input.name;
             if (name && name.includes('[') && name.includes(']')) {
-                const fieldName = name.split('[')[0];
+                const parts = name.split('[');
+                const fieldName = parts[0];
                 const propertyName = name.split('.').pop();
                 input.name = `${fieldName}[${newIndex}].${propertyName}`;
             }
         });
     });
 }
-
 
 function reindexArrayItems(container, path) {
     const items = container.querySelectorAll('.array-item');
@@ -830,9 +702,9 @@ function reindexArrayItems(container, path) {
     });
 }
 
-function addArrayItem(container, path) {
+function addArrayItem(container, path, pluginName) {
     const index = container.querySelectorAll('.array-item').length;
-    createArrayItem(container, '', path, index);
+    createArrayItem(container, '', path, index, pluginName);
     updateArrayTitle(container);
 }
 
@@ -862,7 +734,7 @@ function addObjectSetting(container, pluginName) {
     const settingType = prompt('Enter setting type (string/number/boolean/object/array):', 'string');
     const defaultValue = getDefaultValueForType(settingType);
 
-    createField(settingName, defaultValue, container);
+    createField(settingName, defaultValue, container, '', pluginName);
 }
 
 function addNestedField(container, parentPath) {
@@ -875,63 +747,6 @@ function addNestedField(container, parentPath) {
     createField(fieldName, defaultValue, container, parentPath);
 }
 
-function getDefaultValueForType(fieldType) {
-    switch (fieldType) {
-        case 'array': return [];
-        case 'object': return {};
-        case 'number': return 0;
-        case 'boolean': return false;
-        case 'text': return '';
-        default: return '';
-    }
-}
-
-function formatFieldName(key) {
-    return key
-        .replace(/([A-Z])/g, ' $1')
-        .replace(/^./, str => str.toUpperCase())
-        .replace(/_/g, ' ')
-        .replace(/([a-z])([A-Z])/g, '$1 $2')
-        .trim();
-}
-
-function getPlaceholder(key) {
-    const placeholders = {
-        url: 'https://example.com',
-        email: 'user@example.com',
-        name: 'Enter name...',
-        title: 'Enter title...',
-        description: 'Enter description...',
-        bio: 'Enter biography...',
-        content: 'Enter content...',
-        username: 'Enter username...',
-        apikey: 'Enter API key...',
-        api_key: 'Enter API key...',
-        token: 'Enter token...',
-        password: 'Enter password...',
-        steamid: 'Enter Steam ID...',
-        image: '/static/images/example.jpg',
-        icon: 'icon-name',
-        sectiontitle: 'Section Title',
-        webring_url: 'https://webring.example.com',
-        sourcecodeur: 'https://github.com/user/repo',
-        hostname: 'localhost',
-        github: 'https://github.com/user/repo',
-        live: 'https://example.com',
-        text: 'Enter text...',
-        source: 'Source...',
-        category: 'Category',
-        refreshInterval: '300'
-    };
-
-    const keyLower = key.toLowerCase();
-    for (const [k, v] of Object.entries(placeholders)) {
-        if (keyLower.includes(k)) return v;
-    }
-
-    return 'Enter value...';
-}
-
 function collectSettings(form) {
     const settings = {};
     const inputs = form.querySelectorAll('.field-input, input[type="checkbox"]');
@@ -942,37 +757,30 @@ function collectSettings(form) {
 
         let value = input.type === 'checkbox' ? input.checked : input.value;
 
-        // Handle different input types without double-escaping
         if (input.type === 'number') {
             value = parseFloat(value) || 0;
         } else if (input.tagName === 'TEXTAREA') {
             if (name.includes('ascii') || name.includes('colors')) {
-                // Handle ASCII art and color arrays
                 value = value.split('\n').filter(line => line.trim() !== '');
             } else if (name.includes('[') && name.includes(']')) {
-                // Handle array items - check if it's JSON or comma-separated
                 if (value.trim().startsWith('{') || value.trim().startsWith('[')) {
                     try {
                         value = JSON.parse(value);
                     } catch (e) {
-                        // If JSON parsing fails, treat as comma-separated for technologies
                         if (name.includes('technologies')) {
                             value = value.split(',').map(tech => tech.trim()).filter(tech => tech !== '');
                         }
                     }
                 } else if (name.includes('technologies')) {
-                    // Handle comma-separated technologies
                     value = value.split(',').map(tech => tech.trim()).filter(tech => tech !== '');
                 }
             }
-            // For other textareas, keep as string - DO NOT escape or modify
         }
-        // For regular text inputs, keep value as-is without escaping
 
         setNestedValue(settings, name, value);
     });
 
-    // Handle managed arrays (for array-based plugins)
+    // Handle managed arrays
     const managedArrays = form.querySelectorAll('.managed-array-items');
     managedArrays.forEach(arrayContainer => {
         const arrayName = arrayContainer.id.replace('managed-array-', '');
@@ -1014,7 +822,6 @@ function setNestedValue(obj, path, value) {
         const key = keys[i];
         const nextKey = keys[i + 1];
 
-        // Check if the next key is a number (array index)
         if (!isNaN(nextKey) && nextKey !== '') {
             if (!(key in current)) current[key] = [];
             if (!Array.isArray(current[key])) current[key] = [];
@@ -1039,6 +846,103 @@ function setNestedValue(obj, path, value) {
     }
 }
 
+// Helper functions
+function isImageField(key, value) {
+    const imageKeys = ['image', 'profileimage', 'avatar', 'cover', 'icon', 'logo', 'photo', 'picture', 'imagecropped', 'favicon'];
+    const keyLower = key.toLowerCase();
+
+    const isImageKey = imageKeys.some(imgKey => keyLower.includes(imgKey));
+
+    const isImageValue = typeof value === 'string' &&
+        (value.match(/\.(jpg|jpeg|png|gif|webp|svg|ico)$/i) ||
+            value.includes('/static/') ||
+            value.includes('/media/') ||
+            value.includes('http://') ||
+            value.includes('https://'));
+
+    return isImageKey || isImageValue;
+}
+
+function getDefaultValueForType(fieldType) {
+    switch (fieldType) {
+        case 'array': return [];
+        case 'object': return {};
+        case 'number': return 0;
+        case 'boolean': return false;
+        case 'text': return '';
+        case 'image': return '';
+        default: return '';
+    }
+}
+
+function formatFieldName(key) {
+    return key
+        .replace(/([A-Z])/g, ' $1')
+        .replace(/^./, str => str.toUpperCase())
+        .replace(/_/g, ' ')
+        .replace(/([a-z])([A-Z])/g, '$1 $2')
+        .trim();
+}
+
+function getPlaceholder(key) {
+    const placeholders = {
+        url: 'https://example.com',
+        email: 'user@example.com',
+        name: 'Enter name...',
+        title: 'Enter title...',
+        description: 'Enter description...',
+        bio: 'Enter biography...',
+        content: 'Enter content...',
+        username: 'Enter username...',
+        apikey: 'Enter API key...',
+        api_key: 'Enter API key...',
+        token: 'Enter token...',
+        steamid: 'Enter Steam ID...',
+        image: '/static/images/example.jpg',
+        icon: 'icon-name',
+        sectiontitle: 'Section Title',
+        webring_url: 'https://webring.example.com',
+        sourcecodeur: 'https://github.com/user/repo',
+        hostname: 'localhost',
+        github: 'https://github.com/user/repo',
+        live: 'https://example.com',
+        text: 'Enter text...',
+        source: 'Source...',
+        category: 'Category',
+        refreshInterval: '300'
+    };
+
+    const keyLower = key.toLowerCase();
+    for (const [k, v] of Object.entries(placeholders)) {
+        if (keyLower.includes(k)) return v;
+    }
+
+    return 'Enter value...';
+}
+
+function getDefaultSectionTitle(pluginName) {
+    const titles = {
+        'profile': 'Profile',
+        'social': 'Links',
+        'techstack': 'Technologies',
+        'projects': 'Projects',
+        'lastfm': 'Music',
+        'beatleader': 'BeatLeader Stats',
+        'steam': 'Gaming Activity',
+        'neofetch': 'System Information',
+        'webring': 'webring',
+        'visitors': 'Visitors',
+        'services': 'Local Services',
+        'code': 'Coding Stats',
+        'info': 'Page Info',
+        'personal': 'Personal Info',
+        'meme': 'Random Meme'
+    };
+
+    return titles[pluginName] || formatFieldName(pluginName);
+}
+
+// Initialize functions
 function initSortable() {
     new Sortable(document.getElementById('plugins-container'), {
         animation: 150,
@@ -1104,7 +1008,9 @@ function updatePluginOrder() {
         });
 }
 
+// Form submission handlers
 document.addEventListener('DOMContentLoaded', function() {
+    // Handle individual plugin form submissions
     document.querySelectorAll('.plugin-form').forEach(form => {
         form.addEventListener('submit', async function(e) {
             e.preventDefault();
@@ -1136,16 +1042,14 @@ document.addEventListener('DOMContentLoaded', function() {
                     const result = await response.json();
                     showNotification(result.message, 'success');
 
-                    const pluginContainer = this.closest('.plugin');
-                    if (pluginContainer) {
-                        pluginContainer.dataset.order = result.order || orderInput.value;
-                    }
+                    // Update the settings in memory
+                    currentPluginData[pluginName] = result.settings || settings;
 
-                    const settingsContainer = document.getElementById(`settings-${pluginName}`);
-                    if (settingsContainer) {
-                        const currentSettings = collectSettings(this);
-                        settingsContainer.innerHTML = '';
-                        initSettingsEditor(pluginName, currentSettings);
+                    // Refresh the form with new data
+                    const container = document.getElementById(`settings-${pluginName}`);
+                    if (container) {
+                        container.innerHTML = '';
+                        initSettingsEditor(pluginName, currentPluginData[pluginName]);
                     }
                 } else {
                     const error = await response.text();
@@ -1160,6 +1064,7 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     });
 
+    // Handle toggle changes
     document.querySelectorAll('.plugin-toggle').forEach(toggle => {
         toggle.addEventListener('change', function() {
             const form = document.querySelector(`.plugin-form[data-plugin="${this.dataset.plugin}"]`);
@@ -1169,6 +1074,7 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     });
 
+    // Handle order changes
     document.querySelectorAll('.order-input').forEach(input => {
         input.addEventListener('change', function() {
             const plugin = this.closest('.plugin');
@@ -1182,6 +1088,7 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 });
 
+// Utility functions
 function showNotification(message, type) {
     const notification = document.createElement('div');
     notification.className = 'notification ' + type;
@@ -1213,16 +1120,13 @@ function saveAllPlugins() {
     showNotification('Saving all plugins...', 'info');
 
     forms.forEach(form => {
-        const handler = function() {
-            saved++;
-            if (saved === total) {
-                showNotification('All plugins saved successfully!', 'success');
-            }
-            form.removeEventListener('submit', handler);
-        };
-
-        form.addEventListener('submit', handler, { once: true });
         form.dispatchEvent(new Event('submit', { bubbles: true }));
+        saved++;
+        if (saved === total) {
+            setTimeout(() => {
+                showNotification('All plugins saved successfully!', 'success');
+            }, 1000);
+        }
     });
 }
 
@@ -1236,3 +1140,68 @@ function refreshData() {
         window.location.reload();
     }, 1000);
 }
+
+async function reloadPlugin(pluginName) {
+    try {
+        const response = await fetch(`/admin/api/plugin/reload?plugin=${pluginName}`);
+        if (response.ok) {
+            const data = await response.json();
+
+            // Update the plugin data
+            currentPluginData[pluginName] = data.settings;
+
+            // Refresh the form
+            const container = document.getElementById(`settings-${pluginName}`);
+            if (container) {
+                container.innerHTML = '';
+                initSettingsEditor(pluginName, data.settings);
+            }
+
+            // Update toggle and order
+            const toggle = document.querySelector(`.plugin-toggle[data-plugin="${pluginName}"]`);
+            if (toggle) {
+                toggle.checked = data.enabled;
+            }
+
+            const orderInput = document.querySelector(`.plugin[data-plugin="${pluginName}"] .order-input`);
+            if (orderInput) {
+                orderInput.value = data.order;
+            }
+
+            showNotification(`Plugin ${pluginName} reloaded successfully`, 'success');
+        } else {
+            throw new Error('Failed to reload plugin');
+        }
+    } catch (err) {
+        showNotification('Error reloading plugin: ' + err.message, 'error');
+    }
+}
+
+async function reloadConfig() {
+    try {
+        const response = await fetch('/admin/api/refresh', {
+            method: 'POST'
+        });
+
+        if (response.ok) {
+            showNotification('Configuration reloaded from disk', 'success');
+            setTimeout(() => {
+                window.location.reload();
+            }, 1000);
+        } else {
+            throw new Error('Failed to reload configuration');
+        }
+    } catch (err) {
+        showNotification('Error: ' + err.message, 'error');
+    }
+}
+
+// Export functions for global access
+window.addManagedArrayItem = addManagedArrayItem;
+window.removeManagedArrayItem = removeManagedArrayItem;
+window.saveAllPlugins = saveAllPlugins;
+window.previewSite = previewSite;
+window.refreshData = refreshData;
+window.reloadPlugin = reloadPlugin;
+window.reloadConfig = reloadConfig;
+window.initSettingsEditor = initSettingsEditor;

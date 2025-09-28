@@ -971,12 +971,35 @@ func (p *LastFMPlugin) RenderText(ctx context.Context) (string, error) {
 		artist = "Unknown Artist"
 	}
 
+	track := p.currentTrack.Name
+	if track == "" {
+		track = "Unknown Track"
+	}
+
+	// Truncate artist and track names to prevent overflow
+	maxArtistLen := 20
+	maxTrackLen := 25
+
+	if len(artist) > maxArtistLen {
+		artist = artist[:maxArtistLen-3] + "..."
+	}
+
+	if len(track) > maxTrackLen {
+		track = track[:maxTrackLen-3] + "..."
+	}
+
 	scrobbles := ""
 	if p.userInfo != nil && p.userInfo.PlayCount != "" {
 		count := formatScrobbles(p.userInfo.PlayCount)
 		scrobbles = fmt.Sprintf(" (%s scrobbles)", count)
+
+		// Truncate scrobbles if the whole line would be too long
+		totalLen := len(status) + len(track) + len(artist) + len(scrobbles) + 10 // +10 for " - " and " by "
+		if totalLen > 55 {                                                       // Leave some margin for the box borders
+			scrobbles = "" // Skip scrobbles if line too long
+		}
 	}
 
 	return fmt.Sprintf("Music: %s - %s by %s%s",
-		status, p.currentTrack.Name, artist, scrobbles), nil
+		status, track, artist, scrobbles), nil
 }

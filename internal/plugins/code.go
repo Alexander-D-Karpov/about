@@ -190,6 +190,8 @@ func (p *CodePlugin) Render(ctx context.Context) (string, error) {
 	showLanguages := p.getConfigBool(settings, "ui.showLanguages", true)
 	showCommitGraph := p.getConfigBool(settings, "ui.showCommitGraph", true)
 
+	githubUsername := p.getConfigValue(settings, "github.username", "")
+
 	tmpl := `
 	<div class="code-section section" data-w="2">
 		<div class="plugin-header">
@@ -300,7 +302,7 @@ func (p *CodePlugin) Render(ctx context.Context) (string, error) {
 				<div class="collapsible-content collapsed" id="repos">
 					<div class="repo-list">
 						{{range .GitHubData.RecentRepos}}
-						<div class="repo-item">
+						<div class="repo-item" onclick="window.open('https://github.com/{{$.GitHubUsername}}/{{.Name}}', '_blank')" style="cursor: pointer;">
 							<span class="repo-name">{{.Name}}</span>
 							<div class="repo-tags">
 								{{if .Language}}<span class="repo-lang">{{.Language}}</span>{{end}}
@@ -339,6 +341,7 @@ func (p *CodePlugin) Render(ctx context.Context) (string, error) {
 		GitHubData       *GitHubUserData
 		WakatimeData     *WakatimeData
 		MaxWeeklyCommits int
+		GitHubUsername   string
 	}{
 		SectionTitle:     sectionTitle,
 		ShowGitHub:       showGitHub,
@@ -348,6 +351,7 @@ func (p *CodePlugin) Render(ctx context.Context) (string, error) {
 		GitHubData:       p.githubData,
 		WakatimeData:     p.wakatimeData,
 		MaxWeeklyCommits: maxWeeklyCommits,
+		GitHubUsername:   githubUsername,
 	}
 
 	funcMap := template.FuncMap{
