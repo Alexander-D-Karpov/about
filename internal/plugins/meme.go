@@ -45,8 +45,6 @@ func NewMemePlugin(storage *storage.Storage, hub *stream.Hub) *MemePlugin {
 func (p *MemePlugin) Name() string { return "meme" }
 
 func (p *MemePlugin) Render(ctx context.Context) (string, error) {
-	p.selectRandomMeme()
-
 	config := p.storage.GetPluginConfig(p.Name())
 	settings := config.Settings
 
@@ -61,7 +59,7 @@ func (p *MemePlugin) Render(ctx context.Context) (string, error) {
 	<div class="meme-section section" id="meme-section">
 		<div class="meme-header">
 			<h3>{{.SectionTitle}}</h3>
-			<button type="button" class="btn btn-sm meme-refresh-btn" onclick="refreshMeme()">🎲 New Meme</button>
+			<button type="button" class="btn btn-sm meme-refresh-btn" onclick="refreshMeme()">🎲</button>
 		</div>
 		
 		<div class="meme-content">
@@ -113,8 +111,14 @@ func (p *MemePlugin) UpdateData(ctx context.Context) error {
 
 	if autoRefresh && time.Since(p.lastUpdate) > time.Duration(refreshInterval)*time.Second {
 		p.selectRandomMeme()
-		p.broadcastNewMeme()
 		p.lastUpdate = time.Now()
+
+		if p.currentMeme != nil {
+			p.hub.Broadcast("meme_update", map[string]interface{}{
+				"meme":      *p.currentMeme,
+				"timestamp": time.Now().Unix(),
+			})
+		}
 	}
 	return nil
 }

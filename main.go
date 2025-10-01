@@ -109,19 +109,9 @@ func main() {
 
 		currentMeme := meme.RefreshMeme()
 
-		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
-		defer cancel()
-
-		rendered, err := meme.Render(ctx)
-		if err != nil {
-			http.Error(w, "Failed to render meme", http.StatusInternalServerError)
-			return
-		}
-
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": true,
-			"html":    rendered,
 			"meme":    currentMeme,
 		})
 	}).Methods("POST")

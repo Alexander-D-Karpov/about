@@ -758,3 +758,17 @@ input:checked + .slider:before {
         align-items: stretch;
     }
 }
+
+.managed-array-footer {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 12px;
+    padding-top: 8px;
+    border-top: 1px solid var(--border);
+}
+
+.icon-default-hint {
+    color: var(--ink-2);
+    margin-top: 2px;
+}
+

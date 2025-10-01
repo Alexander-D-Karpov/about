@@ -67,12 +67,29 @@ func (p *SocialPlugin) Render(ctx context.Context) (string, error) {
 
 		// Allow optional direct icon path override
 		iconURL := p.getStringFromMap(linkMap, "iconPath", "")
-		if iconURL == "" {
-			iconSlug := p.getStringFromMap(linkMap, "icon", "link")
-			// default location for icons: /static/icons/<slug>.svg
-			iconURL = "/static/icons/" + iconSlug + ".svg"
-		}
+		if strings.TrimSpace(iconURL) == "" {
+			iconField := p.getStringFromMap(linkMap, "icon", "link")
+			iconField = strings.TrimSpace(iconField)
 
+			switch {
+			case iconField == "":
+				iconURL = "/static/icons/link.svg"
+
+			case strings.HasPrefix(iconField, "/"),
+				strings.HasPrefix(iconField, "http://"),
+				strings.HasPrefix(iconField, "https://"):
+				// already a full path or URL
+				iconURL = iconField
+
+			case strings.Contains(iconField, "."):
+				// has extension → keep it
+				iconURL = "/static/icons/" + iconField
+
+			default:
+				// plain slug → default to .svg
+				iconURL = "/static/icons/" + iconField + ".svg"
+			}
+		}
 		socialLinks = append(socialLinks, socialLink{
 			Name:    name,
 			URL:     url,

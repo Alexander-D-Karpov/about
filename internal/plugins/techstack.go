@@ -63,11 +63,29 @@ func (p *TechStackPlugin) Render(ctx context.Context) (string, error) {
 		name, _ := techMap["name"].(string)
 
 		iconURL := ""
-		if v, ok := techMap["iconPath"].(string); ok && v != "" {
-			iconURL = v
+		if v, ok := techMap["iconPath"].(string); ok && strings.TrimSpace(v) != "" {
+			// explicit direct path
+			iconURL = strings.TrimSpace(v)
 		} else {
-			if slug, ok := techMap["icon"].(string); ok && slug != "" {
-				iconURL = "/static/icons/" + slug + ".svg"
+			// allow full path/URL in "icon" OR fall back to slug under /static/icons
+			if raw, ok := techMap["icon"].(string); ok && strings.TrimSpace(raw) != "" {
+				icon := strings.TrimSpace(raw)
+
+				switch {
+				case strings.HasPrefix(icon, "/"),
+					strings.HasPrefix(icon, "http://"),
+					strings.HasPrefix(icon, "https://"):
+					// already a full path or URL
+					iconURL = icon
+
+				case strings.Contains(icon, "."):
+					// looks like "foo.png" or "vendor/foo.svg" → keep extension as provided
+					iconURL = "/static/icons/" + icon
+
+				default:
+					// plain slug → default to .svg in /static/icons
+					iconURL = "/static/icons/" + icon + ".svg"
+				}
 			} else {
 				// safe fallback
 				iconURL = "/static/icons/stack.svg"

@@ -189,7 +189,7 @@
             if (memeHeader) {
                 refreshBtn = document.createElement('button');
                 refreshBtn.className = 'btn btn-sm meme-refresh-btn';
-                refreshBtn.textContent = '🎲 New Meme';
+                refreshBtn.textContent = '🎲';
                 refreshBtn.type = 'button';
                 refreshBtn.style.marginLeft = 'auto';
                 memeHeader.appendChild(refreshBtn);
@@ -211,35 +211,19 @@
                         }
                     });
 
-                    if (response.ok) {
-                        const data = await response.json();
-
-                        if (data.success && data.html) {
-                            const memeContent = memeSection.querySelector('.meme-content');
-                            if (memeContent) {
-                                memeContent.style.opacity = '0';
-                                memeContent.style.transition = 'opacity 0.2s ease';
-
-                                setTimeout(() => {
-                                    memeContent.innerHTML = '';
-                                    const tempDiv = document.createElement('div');
-                                    tempDiv.innerHTML = data.html;
-                                    const newContent = tempDiv.querySelector('.meme-content');
-                                    if (newContent) {
-                                        memeContent.innerHTML = newContent.innerHTML;
-                                    }
-
-                                    setTimeout(() => {
-                                        memeContent.style.opacity = '1';
-                                    }, 50);
-                                }, 200);
-                            }
-                        }
-                    } else {
-                        console.error('Failed to refresh meme');
+                    if (!response.ok) {
+                        throw new Error('Failed to refresh meme');
                     }
+
+                    const data = await response.json();
+
+                    if (!data.success) {
+                        throw new Error('Server returned error');
+                    }
+
                 } catch (error) {
                     console.error('Error refreshing meme:', error);
+                    showNotification('Failed to refresh meme', 'error');
                 } finally {
                     refreshBtn.disabled = false;
                     refreshBtn.textContent = originalText;

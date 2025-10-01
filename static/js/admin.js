@@ -112,7 +112,7 @@ function getPluginType(pluginName) {
                 name: 'string',
                 url: 'string',
                 description: 'text',
-                icon: 'string'
+                icon: 'image'
             }
         },
         'personal': {
@@ -140,7 +140,6 @@ function getPluginType(pluginName) {
     if (arrayBasedPlugins[pluginName]) {
         return { type: 'array-based', ...arrayBasedPlugins[pluginName] };
     }
-
     return { type: 'object-based' };
 }
 
@@ -324,38 +323,74 @@ function createImageField(field, currentPath, currentValue, key, pluginName) {
     const imageContainer = document.createElement('div');
     imageContainer.className = 'image-field-container';
 
+    const isIconField = key.toLowerCase().includes('icon');
+    const applyIconClass = (imgEl, val) => {
+        const guessIcon = isIconField || isBareIconName(val) || (typeof val === 'string' && val.includes('/static/icons/'));
+        imgEl.className = 'image-preview' + (guessIcon ? ' image-preview--icon' : '');
+    };
+
     // Current image preview
     if (currentValue) {
         const preview = document.createElement('div');
         preview.className = 'current-image-preview';
 
         const img = document.createElement('img');
-        img.src = currentValue;
+        img.src = resolveIconURL(currentValue);
         img.alt = `Current ${key}`;
-        img.className = 'image-preview';
+        applyIconClass(img, currentValue);        // <-- apply small icon styling when appropriate
         img.onerror = () => {
             img.style.display = 'none';
-            preview.innerHTML += `<div style="color: red;">Image failed to load</div>`;
+            preview.innerHTML += `<div style="color: var(--bad);">Image failed to load: ${resolveIconURL(currentValue)}</div>`;
         };
 
+        const meta = document.createElement('div');
+        meta.style.fontSize = '12px';
+        meta.style.color = 'var(--muted)';
+        meta.innerHTML = `
+            <div>Value: <code>${currentValue}</code></div>
+            ${isBareIconName(currentValue) ? `<div class="icon-default-hint">Default icon path: <code>${resolveIconURL(currentValue)}</code></div>` : ''}
+        `;
+
         preview.appendChild(img);
-        preview.innerHTML += `<div style="font-size: 12px; color: #666;">Current: ${currentValue}</div>`;
+        preview.appendChild(meta);
         imageContainer.appendChild(preview);
     }
 
-    // Container for input and upload button
     const fieldWithUpload = document.createElement('div');
     fieldWithUpload.className = 'field-with-upload';
 
-    // Text input for manual path entry
     const textInput = document.createElement('input');
     textInput.className = 'field-input';
     textInput.type = 'text';
     textInput.value = currentValue || '';
     textInput.name = currentPath;
-    textInput.placeholder = 'Enter image path or upload file';
+    textInput.placeholder = isIconField
+        ? 'telegram or /static/icons/telegram.svg or uploaded URL'
+        : 'Enter image path or upload file';
 
-    // File input (hidden)
+    // Live preview update
+    textInput.addEventListener('input', () => {
+        const preview = imageContainer.querySelector('.current-image-preview');
+        if (!preview) return;
+
+        let img = preview.querySelector('img');
+        if (!img) {
+            img = document.createElement('img');
+            preview.prepend(img);
+        }
+        img.style.display = '';
+        img.src = resolveIconURL(textInput.value);
+        applyIconClass(img, textInput.value);     // <-- keep icon size when typing
+
+        const meta = preview.querySelector('div[style*="font-size: 12px"]');
+        if (meta) {
+            meta.innerHTML = `
+                <div>Value: <code>${textInput.value}</code></div>
+                ${isBareIconName(textInput.value) ? `<div class="icon-default-hint">Default icon path: <code>${resolveIconURL(textInput.value)}</code></div>` : ''}
+            `;
+        }
+    });
+
     const fileInput = document.createElement('input');
     fileInput.type = 'file';
     fileInput.accept = 'image/*';
@@ -363,67 +398,60 @@ function createImageField(field, currentPath, currentValue, key, pluginName) {
     fileInput.style.display = 'none';
     fileInput.id = `file-${currentPath.replace(/[\.\[\]]/g, '_')}`;
 
-    // Upload button
     const uploadBtn = document.createElement('button');
     uploadBtn.type = 'button';
     uploadBtn.className = 'btn btn-sm btn-secondary';
     uploadBtn.textContent = '📁 Upload';
     uploadBtn.onclick = () => fileInput.click();
 
-    // Upload progress
     const progressDiv = document.createElement('div');
     progressDiv.className = 'upload-progress';
     progressDiv.textContent = 'Uploading...';
 
     fileInput.addEventListener('change', async (e) => {
         const file = e.target.files[0];
-        if (file) {
-            progressDiv.style.display = 'block';
-            uploadBtn.disabled = true;
+        if (!file) return;
 
-            try {
-                const formData = new FormData();
-                formData.append('file', file);
-                formData.append('plugin', pluginName);
-                formData.append('field', currentPath);
+        progressDiv.style.display = 'block';
+        uploadBtn.disabled = true;
+        try {
+            const formData = new FormData();
+            formData.append('file', file);
+            formData.append('plugin', pluginName);
+            formData.append('field', currentPath);
 
-                const response = await fetch('/admin/api/upload', {
-                    method: 'POST',
-                    body: formData
-                });
+            const response = await fetch('/admin/api/upload', { method: 'POST', body: formData });
+            if (!response.ok) throw new Error(await response.text());
+            const result = await response.json();
+            textInput.value = result.url;
 
-                if (response.ok) {
-                    const result = await response.json();
-                    textInput.value = result.url;
-
-                    // Update preview
-                    let preview = imageContainer.querySelector('.current-image-preview');
-                    if (!preview) {
-                        preview = document.createElement('div');
-                        preview.className = 'current-image-preview';
-                        imageContainer.insertBefore(preview, fieldWithUpload);
-                    }
-
-                    const newImg = document.createElement('img');
-                    newImg.src = result.url;
-                    newImg.alt = `Current ${key}`;
-                    newImg.className = 'image-preview';
-
-                    preview.innerHTML = '';
-                    preview.appendChild(newImg);
-                    preview.innerHTML += `<div style="font-size: 12px; color: #666;">Current: ${result.url}</div>`;
-
-                    showNotification('Image uploaded successfully!', 'success');
-                } else {
-                    const error = await response.text();
-                    showNotification('Upload failed: ' + error, 'error');
-                }
-            } catch (err) {
-                showNotification('Upload error: ' + err.message, 'error');
-            } finally {
-                progressDiv.style.display = 'none';
-                uploadBtn.disabled = false;
+            let preview = imageContainer.querySelector('.current-image-preview');
+            if (!preview) {
+                preview = document.createElement('div');
+                preview.className = 'current-image-preview';
+                imageContainer.insertBefore(preview, fieldWithUpload);
             }
+            preview.innerHTML = '';
+
+            const newImg = document.createElement('img');
+            newImg.src = result.url;
+            newImg.alt = `Current ${key}`;
+            applyIconClass(newImg, result.url);   // <-- apply small icon styling to uploaded icon too
+
+            const meta = document.createElement('div');
+            meta.style.fontSize = '12px';
+            meta.style.color = 'var(--muted)';
+            meta.innerHTML = `<div>Value: <code>${result.url}</code></div>`;
+
+            preview.appendChild(newImg);
+            preview.appendChild(meta);
+
+            showNotification('Image uploaded successfully!', 'success');
+        } catch (err) {
+            showNotification('Upload failed: ' + err.message, 'error');
+        } finally {
+            progressDiv.style.display = 'none';
+            uploadBtn.disabled = false;
         }
     });
 
@@ -444,13 +472,8 @@ function renderManagedArray(container, pluginName, fieldName, items, itemSchema)
     const header = document.createElement('div');
     header.className = 'managed-array-header';
     header.innerHTML = `
-        <h4>${formatFieldName(fieldName)} (${items.length} items)</h4>
-        <button type="button" class="btn btn-secondary add-array-item" 
-                onclick="addManagedArrayItem('${pluginName}', '${fieldName}')">
-            Add ${fieldName.slice(0, -1)}
-        </button>
+        <h4>${formatFieldName(fieldName)} (<span class="item-count">${items.length}</span> items)</h4>
     `;
-
     arrayContainer.appendChild(header);
 
     const itemsContainer = document.createElement('div');
@@ -462,8 +485,22 @@ function renderManagedArray(container, pluginName, fieldName, items, itemSchema)
     });
 
     arrayContainer.appendChild(itemsContainer);
+
+    const footer = document.createElement('div');
+    footer.className = 'managed-array-footer';
+
+    const addBtn = document.createElement('button');
+    addBtn.type = 'button';
+    addBtn.className = 'btn btn-secondary add-array-item';
+    addBtn.textContent = `Add ${fieldName.slice(0, -1)}`;
+    addBtn.onclick = () => addManagedArrayItem(pluginName, fieldName);
+
+    footer.appendChild(addBtn);
+    arrayContainer.appendChild(footer);
+
     container.appendChild(arrayContainer);
 }
+
 
 function renderManagedArrayItem(container, pluginName, fieldName, item, index, itemSchema) {
     const itemDiv = document.createElement('div');
@@ -501,6 +538,12 @@ function renderSchemaField(container, fieldPath, fieldName, value, fieldType, pl
     label.className = 'schema-field-label';
     field.appendChild(label);
 
+    if (String(fieldName).toLowerCase() === 'icon') {
+        createImageField(field, fieldPath, value, fieldName, pluginName);
+        container.appendChild(field);
+        return;
+    }
+
     let input;
 
     switch (fieldType) {
@@ -512,7 +555,7 @@ function renderSchemaField(container, fieldPath, fieldName, value, fieldType, pl
             input.name = fieldPath;
             break;
 
-        case 'image':
+        case 'image': // already handled by some schemas; keep supporting it
             createImageField(field, fieldPath, value, fieldName, pluginName);
             container.appendChild(field);
             return;
@@ -565,6 +608,7 @@ function renderSchemaField(container, fieldPath, fieldName, value, fieldType, pl
 
     container.appendChild(field);
 }
+
 
 function renderGenericArray(field, value, currentPath, pluginName) {
     const arrayContainer = document.createElement('div');
@@ -712,11 +756,9 @@ function updateManagedArrayTitle(pluginName, fieldName) {
     const container = document.getElementById(`managed-array-${fieldName}`);
     if (!container) return;
 
-    const header = container.parentElement.querySelector('.managed-array-header h4');
-    if (header) {
-        const count = container.querySelectorAll('.managed-array-item').length;
-        header.textContent = `${formatFieldName(fieldName)} (${count} items)`;
-    }
+    const count = container.querySelectorAll('.managed-array-item').length;
+    const countSpan = container.parentElement.querySelector('.managed-array-header .item-count');
+    if (countSpan) countSpan.textContent = count;
 }
 
 function updateArrayTitle(container) {
@@ -899,7 +941,7 @@ function getPlaceholder(key) {
         token: 'Enter token...',
         steamid: 'Enter Steam ID...',
         image: '/static/images/example.jpg',
-        icon: 'icon-name',
+        icon: 'telegram or /static/icons/telegram.svg',
         sectiontitle: 'Section Title',
         webring_url: 'https://webring.example.com',
         sourcecodeur: 'https://github.com/user/repo',
@@ -1091,14 +1133,45 @@ document.addEventListener('DOMContentLoaded', function() {
 // Utility functions
 function showNotification(message, type) {
     const notification = document.createElement('div');
-    notification.className = 'notification ' + type;
+    notification.className = `notification ${type}`;
     notification.textContent = message;
+
+    Object.assign(notification.style, {
+        position: 'fixed',
+        top: '20px',
+        right: '20px',
+        padding: '8px 16px',
+        borderRadius: '4px',
+        color: 'white',
+        fontWeight: '500',
+        zIndex: '10000',
+        transform: 'translateX(400px)',
+        transition: 'transform 0.3s ease',
+        maxWidth: '300px'
+    });
+
+    switch (type) {
+        case 'success':
+            notification.style.background = '#4CAF50';
+            break;
+        case 'error':
+            notification.style.background = '#f44336';
+            break;
+        case 'info':
+            notification.style.background = '#2196F3';
+            break;
+        default:
+            notification.style.background = '#333';
+    }
+
     document.body.appendChild(notification);
 
-    setTimeout(() => notification.classList.add('show'), 100);
+    setTimeout(() => {
+        notification.style.transform = 'translateX(0)';
+    }, 100);
 
     setTimeout(() => {
-        notification.classList.remove('show');
+        notification.style.transform = 'translateX(400px)';
         setTimeout(() => {
             if (notification.parentNode) {
                 notification.parentNode.removeChild(notification);
@@ -1106,6 +1179,7 @@ function showNotification(message, type) {
         }, 300);
     }, 3000);
 }
+
 
 function saveAllPlugins() {
     const forms = document.querySelectorAll('.plugin-form');
@@ -1194,6 +1268,14 @@ async function reloadConfig() {
     } catch (err) {
         showNotification('Error: ' + err.message, 'error');
     }
+}
+
+function isBareIconName(val) {
+    return typeof val === 'string' && val.trim() !== '' && !/[\/.]/.test(val); // no slash, no dot
+}
+function resolveIconURL(val) {
+    if (!val) return '';
+    return isBareIconName(val) ? `/static/icons/${val}.svg` : val;
 }
 
 // Export functions for global access
