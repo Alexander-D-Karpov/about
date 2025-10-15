@@ -334,7 +334,7 @@ func (p *LastFMPlugin) Render(ctx context.Context) (string, error) {
 
 			recentTracksToShow = append(recentTracksToShow, track)
 
-			if len(recentTracksToShow) >= 3 {
+			if len(recentTracksToShow) >= 5 {
 				break
 			}
 		}
@@ -356,11 +356,11 @@ func (p *LastFMPlugin) Render(ctx context.Context) (string, error) {
 				<div class="track-main">
 					{{if .Image}}
 					<div class="track-cover-large">
-						<img src="{{.Image}}" alt="Album art" loading="lazy">
+						<img src="{{.Image}}" alt="Album art" loading="lazy" id="lastfm-artwork">
 						<div class="track-overlay">
 							{{if and .ShowPlayButton .CanPlay}}
-							<button class="play-btn" onclick="playTrack('{{.SearchQuery}}')" title="Play track">
-								<svg viewBox="0 0 24 24" width="24" height="24">
+							<button class="play-btn play-btn-large" onclick="playTrack('{{.SearchQuery}}')" title="Play track">
+								<svg viewBox="0 0 24 24" width="32" height="32">
 									<path fill="currentColor" d="M8 5v14l11-7z"/>
 								</svg>
 							</button>
@@ -390,13 +390,47 @@ func (p *LastFMPlugin) Render(ctx context.Context) (string, error) {
 				</div>
 			</div>
 
+			<div class="custom-music-player" id="custom-music-player" style="display:none">
+				<div class="player-artwork-mini">
+					<img src="" alt="" id="player-artwork-mini">
+				</div>
+				<div class="player-info">
+					<div class="player-track-name" id="player-track-name"></div>
+					<div class="player-artist-name" id="player-artist-name"></div>
+				</div>
+				<div class="player-progress-container">
+					<div class="player-progress-bar" id="player-progress-bar">
+						<div class="player-progress-fill" id="player-progress-fill"></div>
+					</div>
+					<div class="player-time">
+						<span id="player-current-time">0:00</span>
+						<span id="player-duration">0:00</span>
+					</div>
+				</div>
+				<div class="player-controls">
+					<button class="player-btn" id="player-play-pause" onclick="toggleMusicPlayPause()" title="Play/Pause">
+						<svg viewBox="0 0 24 24" width="20" height="20" id="play-pause-icon">
+							<path fill="currentColor" d="M8 5v14l11-7z"/>
+						</svg>
+					</button>
+					<button class="player-btn" onclick="stopMusicPlayback()" title="Stop">
+						<svg viewBox="0 0 24 24" width="20" height="20">
+							<rect fill="currentColor" x="6" y="6" width="12" height="12"/>
+						</svg>
+					</button>
+					<input type="range" class="player-volume" id="player-volume" min="0" max="100" value="80" title="Volume">
+				</div>
+			</div>
+
+			<audio id="lastfm-audio-element" preload="metadata"></audio>
+
 			{{if .ShowRecentTracks}}
 			{{if .RecentTracks}}
 			<div class="recent-tracks">
 				<h4>Recently played</h4>
 				<div class="recent-tracks-list">
 					{{range .RecentTracks}}
-					<div class="recent-track-item">
+					<div class="recent-track-item" data-track="{{.Name}}" data-artist="{{.Artist}}">
 						{{if .Image}}
 						<div class="recent-track-cover">
 							<img src="{{.Image}}" alt="{{.Name}}" loading="lazy">

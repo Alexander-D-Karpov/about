@@ -276,7 +276,7 @@ func (p *SteamPlugin) renderLoading() string {
 }
 
 func (p *SteamPlugin) UpdateData(ctx context.Context) error {
-	if p.apiKey == "" || time.Since(p.lastUpdate) < 5*time.Minute {
+	if p.apiKey == "" || time.Since(p.lastUpdate) < 4*time.Minute {
 		return nil
 	}
 
@@ -329,18 +329,30 @@ func (p *SteamPlugin) updatePlayerSummary(steamID string) error {
 
 	if len(response.Response.Players) > 0 {
 		oldGameStatus := ""
+		oldPersonaState := 0
 		if p.playerSummary != nil {
 			oldGameStatus = p.playerSummary.GameExtraInfo
+			oldPersonaState = p.playerSummary.PersonaState
 		}
 
 		p.playerSummary = &response.Response.Players[0]
 
 		newGameStatus := p.playerSummary.GameExtraInfo
-		if oldGameStatus != newGameStatus {
+		newPersonaState := p.playerSummary.PersonaState
+
+		if oldGameStatus != newGameStatus || oldPersonaState != newPersonaState {
+			gameImage := ""
+			if p.playerSummary.GameID != "" {
+				gameImage = fmt.Sprintf("https://cdn.cloudflare.steamstatic.com/steam/apps/%s/header.jpg",
+					p.playerSummary.GameID)
+			}
+
 			p.hub.Broadcast("steam_status_update", map[string]interface{}{
 				"isPlaying":    newGameStatus != "",
 				"currentGame":  newGameStatus,
-				"personaState": p.playerSummary.PersonaState,
+				"gameImage":    gameImage,
+				"gameId":       p.playerSummary.GameID,
+				"personaState": newPersonaState,
 				"personaName":  p.playerSummary.PersonaName,
 				"timestamp":    time.Now().Unix(),
 			})

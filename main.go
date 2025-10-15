@@ -274,8 +274,8 @@ func startBackgroundTasks(store *storage.Storage, pm *plugins.Manager) {
 			}
 		}()
 
-		lastFMTicker := time.NewTicker(10 * time.Minute)
-		generalTicker := time.NewTicker(1 * time.Hour)
+		lastFMTicker := time.NewTicker(5 * time.Minute)
+		generalTicker := time.NewTicker(10 * time.Minute)
 		systemTicker := time.NewTicker(30 * time.Second)
 
 		defer func() {
@@ -399,6 +399,50 @@ func startBackgroundTasks(store *storage.Storage, pm *plugins.Manager) {
 
 						if err := visitors.UpdateData(ctx); err != nil {
 							// Don't log visitors timeout errors as they're handled in the plugin
+						}
+					}
+				}()
+			}
+		}
+	}()
+
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("Steam update task panic recovered: %v", r)
+				time.Sleep(30 * time.Second)
+				if pm != nil {
+					go startBackgroundTasks(store, pm)
+				}
+			}
+		}()
+
+		steamTicker := time.NewTicker(2 * time.Minute)
+		defer steamTicker.Stop()
+
+		for {
+			select {
+			case <-quit:
+				return
+			case <-steamTicker.C:
+				go func() {
+					defer func() {
+						if r := recover(); r != nil {
+							log.Printf("Steam update panic recovered: %v", r)
+						}
+					}()
+
+					if pm != nil && pm.GetClientCount() > 0 {
+						if !updateMutex.TryLock() {
+							return
+						}
+						defer updateMutex.Unlock()
+
+						_, cancel := context.WithTimeout(context.Background(), 25*time.Second)
+						defer cancel()
+
+						if err := pm.UpdatePlugin("steam"); err != nil {
+							log.Printf("Steam update failed (non-fatal): %v", err)
 						}
 					}
 				}()

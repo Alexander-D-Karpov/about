@@ -99,11 +99,7 @@ function getPluginType(pluginName) {
             arrayField: 'machines',
             itemSchema: {
                 name: 'string',
-                username: 'string',
-                hostname: 'string',
-                ascii: 'array',
-                info: 'object',
-                colors: 'array'
+                output: 'text'
             }
         },
         'services': {
@@ -544,6 +540,22 @@ function renderSchemaField(container, fieldPath, fieldName, value, fieldType, pl
         return;
     }
 
+    if (String(fieldName).toLowerCase() === 'output') {
+        const textarea = document.createElement('textarea');
+        textarea.className = 'field-input field-textarea neofetch-output-field';
+        textarea.rows = 20;
+        textarea.value = value || '';
+        textarea.name = fieldPath;
+        textarea.placeholder = 'Paste neofetch output here...';
+        textarea.style.fontFamily = 'monospace';
+        textarea.style.fontSize = '12px';
+        textarea.style.whiteSpace = 'pre';
+        textarea.style.overflowX = 'auto';
+        field.appendChild(textarea);
+        container.appendChild(field);
+        return;
+    }
+
     let input;
 
     switch (fieldType) {
@@ -555,7 +567,7 @@ function renderSchemaField(container, fieldPath, fieldName, value, fieldType, pl
             input.name = fieldPath;
             break;
 
-        case 'image': // already handled by some schemas; keep supporting it
+        case 'image':
             createImageField(field, fieldPath, value, fieldName, pluginName);
             container.appendChild(field);
             return;
@@ -608,7 +620,6 @@ function renderSchemaField(container, fieldPath, fieldName, value, fieldType, pl
 
     container.appendChild(field);
 }
-
 
 function renderGenericArray(field, value, currentPath, pluginName) {
     const arrayContainer = document.createElement('div');

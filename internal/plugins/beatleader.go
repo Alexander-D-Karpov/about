@@ -6,9 +6,11 @@ import (
 	"fmt"
 	"html/template"
 	"io"
+	"log"
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Alexander-D-Karpov/about/internal/storage"
@@ -16,11 +18,24 @@ import (
 )
 
 type BeatLeaderPlugin struct {
-	storage      *storage.Storage
-	hub          *stream.Hub
-	playerData   *BeatLeaderPlayer
-	recentScores []BeatLeaderScore
-	lastUpdate   time.Time
+	storage             *storage.Storage
+	hub                 *stream.Hub
+	cacheInvalidator    func()
+	playerData          *BeatLeaderPlayer
+	recentScores        []BeatLeaderScore
+	lastUpdate          time.Time
+	cachedCubesSliced   int64
+	lastCubesCalculated time.Time
+	cubesCalculating    bool
+	cubesMutex          sync.RWMutex
+}
+
+func (p *BeatLeaderPlugin) SetCacheInvalidator(fn func()) {
+	p.cacheInvalidator = fn
+}
+
+type PluginManagerInterface interface {
+	UpdatePlugin(pluginName string) error
 }
 
 type BeatLeaderPlayer struct {
@@ -175,9 +190,96 @@ type BeatLeaderScore struct {
 }
 
 func NewBeatLeaderPlugin(storage *storage.Storage, hub *stream.Hub) *BeatLeaderPlugin {
-	return &BeatLeaderPlugin{
+	plugin := &BeatLeaderPlugin{
 		storage: storage,
 		hub:     hub,
+	}
+
+	plugin.loadCachedCubes()
+
+	go plugin.calculateCubesSlicedBackground()
+
+	return plugin
+}
+
+func (p *BeatLeaderPlugin) loadCachedCubes() {
+	config := p.storage.GetPluginConfig(p.Name())
+
+	if cubes, ok := config.Settings["cachedCubes"].(float64); ok {
+		p.cubesMutex.Lock()
+		p.cachedCubesSliced = int64(cubes)
+		p.cubesMutex.Unlock()
+		log.Printf("BeatLeader: Loaded cached cubes: %d", p.cachedCubesSliced)
+	} else {
+		log.Printf("BeatLeader: No cached cubes found, will calculate from scratch")
+	}
+
+	if timestamp, ok := config.Settings["lastCubesCalculated"].(string); ok {
+		if t, err := time.Parse(time.RFC3339, timestamp); err == nil {
+			p.cubesMutex.Lock()
+			p.lastCubesCalculated = t
+			p.cubesMutex.Unlock()
+			log.Printf("BeatLeader: Last calculation was at %s", t.Format(time.RFC3339))
+		}
+	}
+}
+
+func (p *BeatLeaderPlugin) saveCachedCubes() {
+	p.cubesMutex.RLock()
+	cubes := p.cachedCubesSliced
+	calculatedAt := p.lastCubesCalculated
+	p.cubesMutex.RUnlock()
+
+	config := p.storage.GetPluginConfig(p.Name())
+	if config.Settings == nil {
+		config.Settings = make(map[string]interface{})
+	}
+
+	config.Settings["cachedCubes"] = float64(cubes)
+	config.Settings["lastCubesCalculated"] = calculatedAt.Format(time.RFC3339)
+
+	if err := p.storage.SetPluginConfig(p.Name(), config); err != nil {
+		log.Printf("BeatLeader: Failed to save cached cubes: %v", err)
+	} else {
+		log.Printf("BeatLeader: Saved cached cubes to storage: %d", cubes)
+	}
+
+	if err := p.storage.Save(); err != nil {
+		log.Printf("BeatLeader: Failed to persist storage to disk: %v", err)
+	} else {
+		log.Printf("BeatLeader: Successfully persisted cubes cache to disk")
+	}
+}
+
+func (p *BeatLeaderPlugin) calculateCubesSlicedBackground() {
+	time.Sleep(10 * time.Second)
+
+	ticker := time.NewTicker(24 * time.Hour)
+	defer ticker.Stop()
+
+	shouldRecalculate := false
+
+	p.cubesMutex.RLock()
+	lastCalc := p.lastCubesCalculated
+	cachedValue := p.cachedCubesSliced
+	p.cubesMutex.RUnlock()
+
+	if cachedValue == 0 {
+		shouldRecalculate = true
+		log.Printf("BeatLeader: No cached cubes, will calculate now")
+	} else if !lastCalc.IsZero() && time.Since(lastCalc) > 24*time.Hour {
+		shouldRecalculate = true
+		log.Printf("BeatLeader: Cache is stale (%s old), will recalculate", time.Since(lastCalc).Round(time.Hour))
+	} else {
+		log.Printf("BeatLeader: Using cached cubes: %d (calculated %s ago)", cachedValue, time.Since(lastCalc).Round(time.Minute))
+	}
+
+	if shouldRecalculate {
+		p.performCubesCalculation()
+	}
+
+	for range ticker.C {
+		p.performCubesCalculation()
 	}
 }
 
@@ -200,6 +302,12 @@ func (p *BeatLeaderPlugin) extractScoreID(replayURL string) string {
 }
 
 func (p *BeatLeaderPlugin) Render(ctx context.Context) (string, error) {
+	select {
+	case <-ctx.Done():
+		return "", ctx.Err()
+	default:
+	}
+
 	config := p.storage.GetPluginConfig(p.Name())
 	settings := config.Settings
 
@@ -212,8 +320,12 @@ func (p *BeatLeaderPlugin) Render(ctx context.Context) (string, error) {
 	showRecentMaps := p.getConfigBool(settings, "ui.showRecentMaps", true)
 	showMainStats := p.getConfigBool(settings, "ui.showMainStats", true)
 
-	cubesSliced := p.calculateCubesSliced()
+	p.cubesMutex.RLock()
+	cubesSliced := p.cachedCubesSliced
+	p.cubesMutex.RUnlock()
+
 	cubesFormatted := formatNumber(cubesSliced)
+	cubesExact := formatNumberWithCommas(cubesSliced)
 
 	tmpl := `
 	<div class="beatleader-section section">
@@ -233,9 +345,9 @@ func (p *BeatLeaderPlugin) Render(ctx context.Context) (string, error) {
 				<div class="stat-label">Performance Points</div>
 				<div class="stat-value">{{printf "%.0f" .PlayerData.PP}}pp</div>
 			</div>
-			<div class="stat-item">
+			<div class="stat-item" data-tooltip="Exact: {{.CubesExact}}">
 				<div class="stat-label">Cubes Sliced</div>
-				<div class="stat-value">{{.CubesFormatted}}</div>
+				<div class="stat-value" data-cubes="{{.CubesSliced}}">{{.CubesFormatted}}</div>
 			</div>
 		</div>
 		{{end}}
@@ -244,22 +356,47 @@ func (p *BeatLeaderPlugin) Render(ctx context.Context) (string, error) {
 		<h4>Recent Maps {{if .ShowPepeGif}} <img src="/static/images/pepe-dance.gif" alt="" class="pepe-gif" loading="lazy" style="width: 20px; height: 20px">{{end}}</h4>
 		<div class="maps-list">
 			{{range .RecentScores}}
-			<div class="map-item" {{if .ReplayURL}}onclick="window.open('{{.ReplayURL}}', '_blank')" style="cursor: pointer;"{{end}}>
-				{{if .Leaderboard.Song.CoverImage}}
-				<img src="{{.Leaderboard.Song.CoverImage}}" alt="{{.Leaderboard.Song.Name}}" class="map-cover" loading="lazy">
-				{{end}}
-				<div class="map-info">
-					<div class="map-name">{{.Leaderboard.Song.Name}}</div>
-					<div class="map-stats">
-						<span>{{.Leaderboard.Difficulty.DifficultyName}}</span>
-						<span>{{printf "%.1f" .Leaderboard.Difficulty.Stars}}⭐</span>
-						<span>{{printf "%.1f" (mul .Accuracy 100)}}%</span>
-						{{if .PP}}<span>{{printf "%.0f" .PP}}pp</span>{{end}}
-						{{if .FullCombo}}<span>FC</span>{{end}}
-						{{if .ReplayURL}}<span class="replay-indicator">🎬</span>{{end}}
+				{{if .ReplayURL}}
+				<a class="map-item"
+				   href="{{.ReplayURL}}"
+				   target="_blank"
+				   rel="noopener noreferrer">
+					{{if .Leaderboard.Song.CoverImage}}
+					<img src="{{.Leaderboard.Song.CoverImage}}" alt="{{.Leaderboard.Song.Name}}" class="map-cover" loading="lazy">
+					{{end}}
+					<div class="map-info">
+						<div class="map-name">{{.Leaderboard.Song.Name}}</div>
+						<div class="map-stats">
+							<span>{{.Leaderboard.Difficulty.DifficultyName}}</span>
+							{{if gt .Leaderboard.Difficulty.Stars 0.0}}
+							<span>{{printf "%.1f" .Leaderboard.Difficulty.Stars}}⭐</span>
+							{{end}}
+							<span>{{printf "%.1f" (mul .Accuracy 100)}}%</span>
+							{{if .PP}}<span>{{printf "%.0f" .PP}}pp</span>{{end}}
+							{{if .FullCombo}}<span>FC</span>{{end}}
+							{{if .ReplayURL}}<span class="replay-indicator">🎬</span>{{end}}
+						</div>
+					</div>
+				</a>
+				{{else}}
+				<div class="map-item">
+					{{if .Leaderboard.Song.CoverImage}}
+					<img src="{{.Leaderboard.Song.CoverImage}}" alt="{{.Leaderboard.Song.Name}}" class="map-cover" loading="lazy">
+					{{end}}
+					<div class="map-info">
+						<div class="map-name">{{.Leaderboard.Song.Name}}</div>
+						<div class="map-stats">
+							<span>{{.Leaderboard.Difficulty.DifficultyName}}</span>
+							{{if gt .Leaderboard.Difficulty.Stars 0.0}}
+							<span>{{printf "%.1f" .Leaderboard.Difficulty.Stars}}⭐</span>
+							{{end}}
+							<span>{{printf "%.1f" (mul .Accuracy 100)}}%</span>
+							{{if .PP}}<span>{{printf "%.0f" .PP}}pp</span>{{end}}
+							{{if .FullCombo}}<span>FC</span>{{end}}
+						</div>
 					</div>
 				</div>
-			</div>
+				{{end}}
 			{{end}}
 		</div>
 		{{end}}
@@ -291,6 +428,7 @@ func (p *BeatLeaderPlugin) Render(ctx context.Context) (string, error) {
 	funcMap := template.FuncMap{
 		"mul":    func(a, b float64) float64 { return a * b },
 		"printf": fmt.Sprintf,
+		"gt":     func(a, b float64) bool { return a > b },
 	}
 
 	data := struct {
@@ -300,7 +438,9 @@ func (p *BeatLeaderPlugin) Render(ctx context.Context) (string, error) {
 		ShowMainStats  bool
 		PlayerData     *BeatLeaderPlayer
 		RecentScores   []map[string]interface{}
+		CubesSliced    int64
 		CubesFormatted string
+		CubesExact     string
 	}{
 		SectionTitle:   sectionTitle,
 		ShowPepeGif:    showPepeGif,
@@ -308,7 +448,9 @@ func (p *BeatLeaderPlugin) Render(ctx context.Context) (string, error) {
 		ShowMainStats:  showMainStats,
 		PlayerData:     p.playerData,
 		RecentScores:   processedScores,
+		CubesSliced:    cubesSliced,
 		CubesFormatted: cubesFormatted,
+		CubesExact:     cubesExact,
 	}
 
 	t, err := template.New("beatleader").Funcs(funcMap).Parse(tmpl)
@@ -324,6 +466,21 @@ func (p *BeatLeaderPlugin) Render(ctx context.Context) (string, error) {
 
 	return buf.String(), nil
 }
+
+func formatNumberWithCommas(n int64) string {
+	str := fmt.Sprintf("%d", n)
+	var result []rune
+
+	for i, r := range []rune(str) {
+		if i > 0 && (len(str)-i)%3 == 0 {
+			result = append(result, ',')
+		}
+		result = append(result, r)
+	}
+
+	return string(result)
+}
+
 func (p *BeatLeaderPlugin) renderLoading(settings map[string]interface{}) string {
 	sectionTitle := p.getConfigValue(settings, "ui.sectionTitle", "BeatLeader Stats")
 	loadingText := p.getConfigValue(settings, "ui.loadingText", "Loading BeatLeader data...")
@@ -338,7 +495,7 @@ func (p *BeatLeaderPlugin) renderLoading(settings map[string]interface{}) string
 }
 
 func (p *BeatLeaderPlugin) UpdateData(ctx context.Context) error {
-	if time.Since(p.lastUpdate) < 30*time.Minute {
+	if time.Since(p.lastUpdate) < 5*time.Minute {
 		return nil
 	}
 
@@ -552,18 +709,10 @@ func (p *BeatLeaderPlugin) getConfigBool(settings map[string]interface{}, key st
 }
 
 func (p *BeatLeaderPlugin) calculateCubesSliced() int64 {
-	if p.playerData == nil || p.playerData.ScoreStats.AverageAccuracy <= 0 {
-		return 0
-	}
+	p.cubesMutex.RLock()
+	defer p.cubesMutex.RUnlock()
 
-	totalScore := float64(p.playerData.ScoreStats.TotalScore)
-	averageAccuracy := p.playerData.ScoreStats.AverageAccuracy
-
-	// Normalize to 100% accuracy and divide by points per cube
-	perfectScore := totalScore / averageAccuracy
-	cubesSliced := perfectScore / (115.0 * 8.0)
-
-	return int64(cubesSliced)
+	return p.cachedCubesSliced
 }
 
 func (p *BeatLeaderPlugin) RenderText(ctx context.Context) (string, error) {
@@ -580,4 +729,162 @@ func (p *BeatLeaderPlugin) RenderText(ctx context.Context) (string, error) {
 		p.playerData.CountryRank,
 		p.playerData.PP,
 		cubesFormatted), nil
+}
+
+func (p *BeatLeaderPlugin) performCubesCalculation() {
+	p.cubesMutex.Lock()
+	if p.cubesCalculating {
+		p.cubesMutex.Unlock()
+		return
+	}
+	p.cubesCalculating = true
+	p.cubesMutex.Unlock()
+
+	defer func() {
+		p.cubesMutex.Lock()
+		p.cubesCalculating = false
+		p.cubesMutex.Unlock()
+	}()
+
+	config := p.storage.GetPluginConfig(p.Name())
+	username, ok := config.Settings["username"].(string)
+	if !ok {
+		log.Printf("BeatLeader: username not configured for cubes calculation")
+		return
+	}
+
+	log.Printf("BeatLeader: Starting cubes calculation for %s", username)
+
+	var totalCubes int64
+	page := 1
+	const scoresPerPage = 100
+	var totalScores int
+
+	for {
+		scores, metadata, err := p.fetchScoresPage(username, page, scoresPerPage)
+		if err != nil {
+			log.Printf("BeatLeader: Error fetching scores page %d: %v", page, err)
+			break
+		}
+
+		if page == 1 {
+			totalScores = metadata.Total
+			log.Printf("BeatLeader: Total scores to process: %d (across %d pages)", totalScores, (totalScores+scoresPerPage-1)/scoresPerPage)
+		}
+
+		for _, score := range scores {
+			cubesInAttempt := float64(score.BaseScore) / (115.0 * 8.0)
+			totalCubes += int64(cubesInAttempt)
+		}
+
+		log.Printf("BeatLeader: Processed page %d/%d, total cubes so far: %d", page, (totalScores+scoresPerPage-1)/scoresPerPage, totalCubes)
+
+		if len(scores) == 0 || page*scoresPerPage >= totalScores {
+			break
+		}
+
+		page++
+		time.Sleep(500 * time.Millisecond)
+	}
+
+	p.cubesMutex.Lock()
+	p.cachedCubesSliced = totalCubes
+	p.lastCubesCalculated = time.Now()
+	p.cubesMutex.Unlock()
+
+	log.Printf("BeatLeader: Cubes calculation complete: %d total cubes sliced", totalCubes)
+
+	p.saveCachedCubes()
+
+	p.hub.Broadcast("beatleader_cubes_update", map[string]interface{}{
+		"cubes":     totalCubes,
+		"formatted": formatNumber(totalCubes),
+		"timestamp": time.Now().Unix(),
+	})
+
+	if p.cacheInvalidator != nil {
+		p.cacheInvalidator()
+	}
+}
+
+func (p *BeatLeaderPlugin) fetchScoresPage(username string, page int, count int) ([]BeatLeaderScore, struct {
+	Total        int
+	Page         int
+	ItemsPerPage int
+}, error) {
+	url := fmt.Sprintf("https://api.beatleader.com/player/%s/scoresstats?page=%d&sortBy=date&order=desc&count=%d",
+		username, page, count)
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, struct {
+			Total        int
+			Page         int
+			ItemsPerPage int
+		}{}, fmt.Errorf("failed to create request: %v", err)
+	}
+
+	req.Header.Set("Accept-Encoding", "identity")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, struct {
+			Total        int
+			Page         int
+			ItemsPerPage int
+		}{}, fmt.Errorf("failed to fetch scores: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, struct {
+			Total        int
+			Page         int
+			ItemsPerPage int
+		}{}, fmt.Errorf("API returned status %d", resp.StatusCode)
+	}
+
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, struct {
+			Total        int
+			Page         int
+			ItemsPerPage int
+		}{}, fmt.Errorf("failed to read response: %v", err)
+	}
+
+	start := 0
+	for start < len(bodyBytes) && bodyBytes[start] <= 32 {
+		start++
+	}
+
+	if start >= len(bodyBytes) || bodyBytes[start] != '{' {
+		return nil, struct {
+			Total        int
+			Page         int
+			ItemsPerPage int
+		}{}, fmt.Errorf("invalid API response")
+	}
+
+	var response BeatLeaderScoresResponse
+	if err := json.Unmarshal(bodyBytes[start:], &response); err != nil {
+		return nil, struct {
+			Total        int
+			Page         int
+			ItemsPerPage int
+		}{}, fmt.Errorf("failed to decode scores: %v", err)
+	}
+
+	metadata := struct {
+		Total        int
+		Page         int
+		ItemsPerPage int
+	}{
+		Total:        response.Metadata.Total,
+		Page:         response.Metadata.Page,
+		ItemsPerPage: response.Metadata.ItemsPerPage,
+	}
+
+	return response.Data, metadata, nil
 }

@@ -57,6 +57,7 @@
     <link rel="stylesheet" href="/static/css/plugin-projects.css">
     <link rel="stylesheet" href="/static/css/plugin-services.css">
     <link rel="stylesheet" href="/static/css/plugin-info.css">
+    <link rel="stylesheet" href="/static/css/plugin-personal.css">
 
     <script type="application/ld+json">
         {
@@ -75,9 +76,9 @@
 </head>
 <body>
 <div class="container">
-    {{range .Plugins}}
-    {{.}}
-    {{end}}
+    {{ range .Plugins }}
+    {{ . }}
+    {{ end }}
 </div>
 
 <div class="status-bar">
@@ -85,57 +86,37 @@
     <span id="status-text">Connecting...</span>
 </div>
 
-<script src="/static/js/websocket.js"></script>
-<script src="/static/js/interactions.js"></script>
-<script src="/static/js/music-player.js"></script>
-<script src="/static/js/plugins.js"></script>
+<!-- Order matters: core WM first, then interactions/plugins -->
+<script src="/static/js/websocket.js" defer></script>
+<script src="/static/js/windowManager.js" defer></script>
+<script src="/static/js/interactions.js" defer></script>
+<script src="/static/js/music-player.js" defer></script>
+<script src="/static/js/plugins.js" defer></script>
+<script src="/static/js/greetings.js" defer></script>
+
 <script>
     function refreshMeme() {
         const refreshBtns = document.querySelectorAll('.meme-refresh-btn');
-
         refreshBtns.forEach(btn => {
             btn.dataset.originalText = btn.textContent;
             btn.disabled = true;
             btn.textContent = 'Loading...';
         });
-
-        fetch('/api/meme/refresh', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            }
-        })
-            .then(response => {
-                if (!response.ok) {
-                    throw new Error('Failed to refresh meme');
-                }
-                return response.json();
-            })
-            .then(data => {
-                // The WebSocket broadcast will handle updating the meme for everyone
-                // We only need to handle the success here
-                console.log('Meme refreshed successfully');
-            })
-            .catch(error => {
-                console.error('Error refreshing meme:', error);
-                // If error occurs, still update the local meme if we have HTML
-            })
+        fetch('/api/meme/refresh', { method: 'POST', headers: { 'Content-Type': 'application/json' } })
+            .then(r => { if (!r.ok) throw new Error('Failed to refresh meme'); return r.json(); })
+            .then(() => console.log('Meme refreshed successfully'))
+            .catch(err => console.error('Error refreshing meme:', err))
             .finally(() => {
-                // Re-enable all buttons and restore text
                 setTimeout(() => {
-                    const btns = document.querySelectorAll('.meme-refresh-btn');
-                    btns.forEach(btn => {
+                    document.querySelectorAll('.meme-refresh-btn').forEach(btn => {
                         btn.disabled = false;
                         btn.textContent = btn.dataset.originalText || '🎲 New Meme';
                         delete btn.dataset.originalText;
                     });
-                }, 500); // Small delay to prevent spam clicking
+                }, 500);
             });
     }
-
-    window.addEventListener('DOMContentLoaded', function() {
-        window.refreshMeme = refreshMeme;
-    });
+    window.addEventListener('DOMContentLoaded', function(){ window.refreshMeme = refreshMeme; });
 </script>
 </body>
 </html>

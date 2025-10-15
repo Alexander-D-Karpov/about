@@ -322,8 +322,8 @@ func (p *ServicesPlugin) renderNoServices() string {
 	</section>`
 }
 
-func (p *ServicesPlugin) UpdateData(ctx context.Context) error {
-	if time.Since(p.lastCheck) < 2*time.Minute {
+func (p *ServicesPlugin) UpdateData(context.Context) error {
+	if time.Since(p.lastCheck) < 1*time.Minute {
 		return nil
 	}
 

@@ -5,110 +5,89 @@
     const $$ = (q, c = document) => Array.from(c.querySelectorAll(q));
     const on = (el, ev, fn, opts) => el && el.addEventListener(ev, fn, opts);
 
-    function initTechStackFiltering() {
-        const techSection = $('.tech-section');
-        if (!techSection) return;
+    function initCodeSectionToggles(){
+        const codeSection = $('.code-section');
+        if (!codeSection) return;
 
-        const projectsSection = $('.projects-section');
-        if (!projectsSection) return;
+        // If another initializer already wired the toggles, reuse it.
+        if (typeof window.initCodeToggles === 'function') {
+            window.initCodeToggles();
+            return;
+        }
 
-        const techItems = $$('.tech-item', techSection);
-        const projectCards = $$('.project-card', projectsSection);
+        const toggles = $$('.section-toggle', codeSection);
+        toggles.forEach(toggle => {
+            if (toggle.dataset.listenerAttached === '1') return;
+            toggle.dataset.listenerAttached = '1';
 
-        techItems.forEach(item => {
-            const techName = item.querySelector('.tech-name')?.textContent ||
-                item.title ||
-                item.querySelector('img')?.alt || '';
+            toggle.addEventListener('click', () => {
+                const target = toggle.dataset.target;
+                const content = codeSection.querySelector('#' + target);
+                const icon = toggle.querySelector('.toggle-icon');
+                if (!content || !icon) return;
 
-            item.style.cursor = 'pointer';
-            item.addEventListener('click', () => {
-                techItems.forEach(t => t.classList.remove('filtered'));
-                item.classList.add('filtered');
-
-                projectCards.forEach(card => {
-                    const techTags = $$('.tech-tag', card);
-                    const hasTech = techTags.some(tag =>
-                        tag.textContent.toLowerCase().includes(techName.toLowerCase())
-                    );
-
-                    card.style.opacity = hasTech ? '1' : '0.3';
-                    card.style.transform = hasTech ? 'scale(1)' : 'scale(0.95)';
-                    card.style.transition = 'opacity 0.3s ease, transform 0.3s ease';
-                });
+                const isCollapsed = content.classList.contains('collapsed');
+                content.classList.toggle('collapsed', !isCollapsed);
+                icon.textContent = isCollapsed ? '▼' : '▶';
+                toggle.setAttribute('aria-expanded', isCollapsed ? 'true' : 'false');
 
                 setTimeout(() => {
-                    techItems.forEach(t => t.classList.remove('filtered'));
-                    projectCards.forEach(card => {
-                        card.style.opacity = '1';
-                        card.style.transform = 'scale(1)';
-                    });
-                }, 3000);
-            });
+                    if (window.mosaicUtils) window.mosaicUtils.resizeAll();
+                }, 300);
+            }, { passive: true });
         });
     }
 
-    function initProjectTechFiltering() {
+    function initProjectTechFiltering(){
         const projectsSection = $('.projects-section');
         if (!projectsSection) return;
 
         $$('.tech-tag', projectsSection).forEach(tag => {
+            if (tag.dataset.listenerAttached === '1') return;
+            tag.dataset.listenerAttached = '1';
+
+            tag.style.cursor = 'pointer';
             tag.addEventListener('click', (e) => {
                 e.stopPropagation();
-                const techName = tag.textContent;
-                const projectCards = $$('.project-card', projectsSection);
-
-                projectCards.forEach(card => {
-                    const techTags = $$('.tech-tag', card);
-                    const hasTech = techTags.some(t => t.textContent === techName);
-
-                    if (!hasTech) {
-                        card.style.opacity = '0.3';
-                        card.style.transform = 'scale(0.95)';
-                    } else {
-                        card.style.opacity = '1';
-                        card.style.transform = 'scale(1.02)';
-                    }
-                    card.style.transition = 'opacity 0.3s ease, transform 0.3s ease';
-                });
-
+                const name = tag.textContent.trim();
+                projectsSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
                 setTimeout(() => {
-                    projectCards.forEach(card => {
-                        card.style.opacity = '1';
-                        card.style.transform = 'scale(1)';
-                    });
-                }, 2500);
-            });
+                    if (typeof window.applyTechFilter === 'function') window.applyTechFilter(name);
+                }, 450);
+            }, { passive: false });
         });
     }
 
-    function initCodeSectionToggles() {
+    function initCodeSectionToggles(){
         const codeSection = $('.code-section');
         if (!codeSection) return;
 
-        $$('.section-toggle', codeSection).forEach(toggle => {
+        // If another initializer already wired the toggles, reuse it.
+        if (typeof window.initCodeToggles === 'function') {
+            window.initCodeToggles();
+            return;
+        }
+
+        const toggles = $$('.section-toggle', codeSection);
+        toggles.forEach(toggle => {
+            if (toggle.dataset.listenerAttached === '1') return;
+            toggle.dataset.listenerAttached = '1';
+
             toggle.addEventListener('click', () => {
                 const target = toggle.dataset.target;
-                const content = $(`#${target}`, codeSection);
-                const icon = $('.toggle-icon', toggle);
+                const content = codeSection.querySelector('#' + target);
+                const icon = toggle.querySelector('.toggle-icon');
+                if (!content || !icon) return;
 
-                if (content) {
-                    const isCollapsed = content.classList.contains('collapsed');
+                const isCollapsed = content.classList.contains('collapsed');
+                content.classList.toggle('collapsed', !isCollapsed);
+                icon.textContent = isCollapsed ? '▼' : '▶';
+                toggle.setAttribute('aria-expanded', isCollapsed ? 'true' : 'false');
 
-                    if (isCollapsed) {
-                        content.classList.remove('collapsed');
-                        icon.textContent = '▼';
-                        toggle.setAttribute('aria-expanded', 'true');
-                    } else {
-                        content.classList.add('collapsed');
-                        icon.textContent = '▶';
-                        toggle.setAttribute('aria-expanded', 'false');
-                    }
-
-                    setTimeout(() => {
-                        if (window.mosaicUtils) window.mosaicUtils.resizeAll();
-                    }, 300);
-                }
-            });
+                setTimeout(() => {
+                    if (window.mosaicUtils) window.mosaicUtils.resizeAll();
+                }, 300);
+            }, { passive: true });
         });
     }
 
@@ -179,68 +158,75 @@
             });
         });
     }
-    function initMemeRefresh() {
+    function initTechStackFiltering(){
+        const techSection = $('.tech-section');
+        const projectsSection = $('.projects-section');
+        if (!techSection || !projectsSection) return;
+
+        const go = (name) => {
+            projectsSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            setTimeout(() => {
+                if (typeof window.applyTechFilter === 'function') {
+                    window.applyTechFilter(name);
+                } else {
+                    // graceful fallback: dim non-matching cards
+                    $$('.project-card', projectsSection).forEach(card => {
+                        const tags = $$('.tech-tag', card);
+                        const hit = tags.some(t => t.textContent.trim().toLowerCase() === name.toLowerCase());
+                        card.style.opacity = hit ? '1' : '0.2';
+                        card.style.transform = hit ? 'scale(1)' : 'scale(0.95)';
+                    });
+                }
+            }, 450);
+        };
+
+        $$('.tech-item', techSection).forEach(item => {
+            if (item.dataset.listenerAttached === '1') return;
+            item.dataset.listenerAttached = '1';
+
+            const name = item.querySelector('.tech-name')?.textContent || item.title || item.querySelector('img')?.alt || '';
+            if (!name) return;
+
+            item.style.cursor = 'pointer';
+            item.addEventListener('click', () => go(name), { passive: true });
+        });
+    }
+
+    function initMemeRefresh(){
         const memeSection = document.querySelector('.meme-section');
         if (!memeSection) return;
 
-        let refreshBtn = document.querySelector('.meme-refresh-btn', memeSection);
-        if (!refreshBtn) {
-            const memeHeader = memeSection.querySelector('.meme-header');
-            if (memeHeader) {
+        let refreshBtn = memeSection.querySelector('.meme-refresh-btn');
+        if (!refreshBtn){
+            const header = memeSection.querySelector('.meme-header');
+            if (header){
                 refreshBtn = document.createElement('button');
                 refreshBtn.className = 'btn btn-sm meme-refresh-btn';
-                refreshBtn.textContent = '🎲';
                 refreshBtn.type = 'button';
-                refreshBtn.style.marginLeft = 'auto';
-                memeHeader.appendChild(refreshBtn);
+                refreshBtn.textContent = '🎲';
+                header.appendChild(refreshBtn);
             }
         }
 
-        if (refreshBtn) {
-            refreshBtn.addEventListener('click', async (e) => {
-                e.preventDefault();
-                refreshBtn.disabled = true;
-                const originalText = refreshBtn.textContent;
-                refreshBtn.textContent = 'Loading...';
-
-                try {
-                    const response = await fetch('/api/meme/refresh', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                        }
-                    });
-
-                    if (!response.ok) {
-                        throw new Error('Failed to refresh meme');
-                    }
-
-                    const data = await response.json();
-
-                    if (!data.success) {
-                        throw new Error('Server returned error');
-                    }
-
-                } catch (error) {
-                    console.error('Error refreshing meme:', error);
-                    showNotification('Failed to refresh meme', 'error');
-                } finally {
-                    refreshBtn.disabled = false;
-                    refreshBtn.textContent = originalText;
-                }
-            });
+        if (refreshBtn){
+            if (refreshBtn.hasAttribute('onclick')) refreshBtn.removeAttribute('onclick');
+            if (refreshBtn.dataset.listenerAttached !== '1'){
+                refreshBtn.dataset.listenerAttached = '1';
+                refreshBtn.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    if (typeof window.refreshMeme === 'function') window.refreshMeme();
+                }, { passive: false });
+            }
         }
 
         const memeContent = memeSection.querySelector('.meme-content');
-        if (memeContent) {
+        if (memeContent && memeContent.dataset.listenerAttached !== '1'){
+            memeContent.dataset.listenerAttached = '1';
             memeContent.style.cursor = 'pointer';
             memeContent.addEventListener('click', (e) => {
-                if (e.target.tagName === 'BUTTON') return;
-
-                if (refreshBtn) {
-                    refreshBtn.click();
-                }
-            });
+                if (e.target.closest('button')) return;
+                refreshBtn && refreshBtn.click();
+            }, { passive: true });
         }
     }
 

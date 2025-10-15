@@ -13,9 +13,10 @@
     let lastFMCheckInterval = null;
     let clientCountRequestTimeout = null;
     let imageLoadQueue = new Map();
+    let wsInitialized = false;
 
     function connect() {
-        if (ws && (ws.readyState === WebSocket.CONNECTING || ws.readyState === WebSocket.OPEN)) {
+        if (wsInitialized && ws && (ws.readyState === WebSocket.CONNECTING || ws.readyState === WebSocket.OPEN)) {
             return;
         }
 
@@ -25,6 +26,7 @@
             return;
         }
 
+        wsInitialized = true;
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         const wsURL = protocol + '//' + window.location.host + '/ws';
 
@@ -73,6 +75,7 @@
                 }
                 clientCountRequestTimeout = setTimeout(() => {
                     sendMessage({ type: 'get_client_count' });
+                    clientCountRequestTimeout = null;
                 }, 100);
             };
 
@@ -558,7 +561,7 @@
     }
 
     function updateSteamStatus(data) {
-        const section = document.querySelector('.steam-section');
+        const section = $('.steam-section');
         if (!section) return;
 
         const currentGameDiv = section.querySelector('.current-game');
@@ -566,34 +569,60 @@
 
         if (data.isPlaying && data.currentGame) {
             if (!currentGameDiv) {
-                const headerElement = section.querySelector('h3');
+                const headerElement = section.querySelector('.plugin-header');
                 if (headerElement) {
                     const gameHTML = `
-                        <div class="current-game">
-                            <div class="current-game-header">
-                                <span class="status-indicator status-online"></span>
-                                <span class="current-game-status">Currently Playing</span>
-                            </div>
-                            <div class="current-game-info">
-                                <div class="current-game-name">${data.currentGame}</div>
-                                <div class="current-game-actions">
-                                    <a href="https://store.steampowered.com/search/?term=${encodeURIComponent(data.currentGame)}" target="_blank" rel="noopener" class="btn btn-sm">
-                                        <svg viewBox="0 0 24 24" width="14" height="14">
-                                            <path fill="currentColor" d="M14 3v2h3.59l-9.83 9.83 1.41 1.41L19 6.41V10h2V3m-2 16H5V5h7V3H5c-1.11 0-2 .89-2 2v14c0 1.11.89 2 2 2h14c1.11 0 2-.89 2-2v-7h-2v7Z"/>
-                                        </svg>
-                                        View on Steam
-                                    </a>
-                                </div>
+                    <div class="current-game">
+                        <div class="current-game-header">
+                            <span class="status-indicator status-online"></span>
+                            <span class="current-game-status">Currently Playing</span>
+                        </div>
+                        ${data.gameImage ? `
+                        <div class="current-game-cover">
+                            <img src="${data.gameImage}" alt="${data.currentGame}" loading="lazy" class="game-cover-image">
+                        </div>
+                        ` : ''}
+                        <div class="current-game-info">
+                            <div class="current-game-name">${data.currentGame}</div>
+                            <div class="current-game-actions">
+                                <a href="https://store.steampowered.com/${data.gameId ? 'app/' + data.gameId : 'search/?term=' + encodeURIComponent(data.currentGame)}" target="_blank" rel="noopener" class="btn btn-sm">
+                                    <svg viewBox="0 0 24 24" width="14" height="14">
+                                        <path fill="currentColor" d="M14 3v2h3.59l-9.83 9.83 1.41 1.41L19 6.41V10h2V3m-2 16H5V5h7V3H5c-1.11 0-2 .89-2 2v14c0 1.11.89 2 2 2h14c1.11 0 2-.89 2-2v-7h-2v7Z"/>
+                                    </svg>
+                                    View on Steam
+                                </a>
                             </div>
                         </div>
-                    `;
+                    </div>
+                `;
                     headerElement.insertAdjacentHTML('afterend', gameHTML);
                 }
             } else {
                 const gameName = currentGameDiv.querySelector('.current-game-name');
                 const gameLink = currentGameDiv.querySelector('.current-game-actions a');
+                const gameCover = currentGameDiv.querySelector('.current-game-cover');
+
                 if (gameName) gameName.textContent = data.currentGame;
-                if (gameLink) gameLink.href = `https://store.steampowered.com/search/?term=${encodeURIComponent(data.currentGame)}`;
+                if (gameLink) {
+                    gameLink.href = data.gameId
+                        ? `https://store.steampowered.com/app/${data.gameId}`
+                        : `https://store.steampowered.com/search/?term=${encodeURIComponent(data.currentGame)}`;
+                }
+
+                if (data.gameImage && !gameCover) {
+                    const infoDiv = currentGameDiv.querySelector('.current-game-info');
+                    if (infoDiv) {
+                        const coverHTML = `
+                        <div class="current-game-cover">
+                            <img src="${data.gameImage}" alt="${data.currentGame}" loading="lazy" class="game-cover-image">
+                        </div>
+                    `;
+                        infoDiv.insertAdjacentHTML('beforebegin', coverHTML);
+                    }
+                } else if (data.gameImage && gameCover) {
+                    const img = gameCover.querySelector('img');
+                    if (img) loadImageSmoothly(img, data.gameImage);
+                }
             }
 
             if (playerStatusDiv) playerStatusDiv.style.display = 'none';
@@ -601,16 +630,16 @@
             if (currentGameDiv) currentGameDiv.remove();
 
             if (!playerStatusDiv) {
-                const headerElement = section.querySelector('h3');
+                const headerElement = section.querySelector('.plugin-header');
                 if (headerElement) {
                     const statusHTML = `
-                        <div class="player-status">
-                            <div class="status-info">
-                                <span class="status-indicator status-${getPersonaStateClass(data.personaState)}"></span>
-                                <span class="status-text">${getPersonaStateText(data.personaState)}</span>
-                            </div>
+                    <div class="player-status">
+                        <div class="status-info">
+                            <span class="status-indicator status-${getPersonaStateClass(data.personaState)}"></span>
+                            <span class="status-text">${getPersonaStateText(data.personaState)}</span>
                         </div>
-                    `;
+                    </div>
+                `;
                     headerElement.insertAdjacentHTML('afterend', statusHTML);
                 }
             } else {
@@ -994,8 +1023,12 @@
     window.wsDisconnect = disconnect;
     window.wsStatus = () => isConnected;
     window.wsSend = sendMessage;
+    let webringUpdateInterval = null;
+    let webringInitialized = false;
 
     function initWebringUpdater() {
+        if (webringInitialized) return;
+
         const webringSection = document.querySelector('.webring-section');
         if (!webringSection) return;
 
@@ -1004,6 +1037,7 @@
 
         if (!baseUrl || !username) return;
 
+        webringInitialized = true;
         let isUpdating = false;
         let lastUpdateTime = 0;
 
@@ -1101,19 +1135,62 @@
         }
 
         setTimeout(updateWebringFromAPI, 2000);
-        setInterval(updateWebringFromAPI, 60 * 60 * 1000);
+
+        if (webringUpdateInterval) {
+            clearInterval(webringUpdateInterval);
+        }
+        webringUpdateInterval = setInterval(updateWebringFromAPI, 60 * 60 * 1000);
 
         document.addEventListener('visibilitychange', () => {
             if (!document.hidden) {
                 setTimeout(updateWebringFromAPI, 1000);
             }
-        });
+        }, { once: false, passive: true });
+    }
+    let mainInitialized = false;
+
+    function initialize() {
+        if (mainInitialized) return;
+        mainInitialized = true;
+
+        connect();
+        initWebringUpdater();
     }
 
     if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', initWebringUpdater);
+        document.addEventListener('DOMContentLoaded', initialize, { once: true });
     } else {
-        initWebringUpdater();
+        initialize();
     }
+
+    window.addEventListener('beforeunload', disconnect, { once: true });
+    window.addEventListener('pagehide', disconnect, { once: true });
+
+    document.addEventListener('visibilitychange', function() {
+        if (document.hidden) {
+            stopHeartbeat();
+            stopLastFMCheck();
+        } else {
+            if (isConnected) {
+                startHeartbeat();
+                startLastFMCheck();
+
+                if (clientCountRequestTimeout) {
+                    clearTimeout(clientCountRequestTimeout);
+                }
+                clientCountRequestTimeout = setTimeout(() => {
+                    sendMessage({ type: 'get_client_count' });
+                    clientCountRequestTimeout = null;
+                }, 100);
+            } else if (shouldReconnect) {
+                connect();
+            }
+        }
+    }, { passive: true });
+
+    window.wsReconnect = connect;
+    window.wsDisconnect = disconnect;
+    window.wsStatus = () => isConnected;
+    window.wsSend = sendMessage;
 
 })();

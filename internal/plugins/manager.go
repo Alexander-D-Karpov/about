@@ -48,6 +48,11 @@ func NewManager(storage *storage.Storage, hub *stream.Hub, config *config.Config
 }
 
 func (m *Manager) LoadAll() error {
+	beatLeaderPlugin := NewBeatLeaderPlugin(m.storage, m.hub)
+	beatLeaderPlugin.SetCacheInvalidator(func() {
+		m.InvalidatePluginCache("beatleader")
+	})
+
 	plugins := []Plugin{
 		NewProfilePlugin(m.storage, m.hub),
 		NewSocialPlugin(m.storage, m.hub),
@@ -56,7 +61,7 @@ func (m *Manager) LoadAll() error {
 		NewNeofetchPlugin(m.storage, m.hub),
 		NewWebringPlugin(m.storage, m.hub),
 		NewLastFMPlugin(m.storage, m.hub, m.config.LastFMKey),
-		NewBeatLeaderPlugin(m.storage, m.hub),
+		beatLeaderPlugin,
 		NewSteamPlugin(m.storage, m.hub, m.config.SteamKey),
 		NewVisitorsPlugin(m.storage, m.hub, m.config.DataPath),
 		NewServicesPlugin(m.storage, m.hub),
@@ -885,4 +890,19 @@ func (m *Manager) GetSystemTextSummary() string {
 	m.mutex.RUnlock()
 
 	return fmt.Sprintf("System: %d/%d plugins enabled", enabledCount, totalPlugins)
+}
+
+func (m *Manager) InvalidatePluginCache(pluginName string) {
+	m.mutex.Lock()
+	delete(m.renderedCache, pluginName)
+	m.mutex.Unlock()
+
+	log.Printf("Invalidated cache for plugin: %s", pluginName)
+}
+
+func (m *Manager) GetClientCount() int {
+	if m.hub == nil {
+		return 0
+	}
+	return m.hub.GetClientCount()
 }

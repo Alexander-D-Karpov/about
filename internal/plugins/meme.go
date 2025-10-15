@@ -6,6 +6,7 @@ import (
 	"html/template"
 	"math/rand"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Alexander-D-Karpov/about/internal/storage"
@@ -18,6 +19,8 @@ type MemePlugin struct {
 	currentMeme *Meme
 	lastUpdate  time.Time
 	rng         *rand.Rand
+	shownMemes  map[string]bool
+	mutex       sync.RWMutex
 }
 
 type Meme struct {
@@ -31,9 +34,10 @@ type Meme struct {
 func NewMemePlugin(storage *storage.Storage, hub *stream.Hub) *MemePlugin {
 	source := rand.NewSource(time.Now().UnixNano())
 	plugin := &MemePlugin{
-		storage: storage,
-		hub:     hub,
-		rng:     rand.New(source),
+		storage:    storage,
+		hub:        hub,
+		rng:        rand.New(source),
+		shownMemes: make(map[string]bool),
 	}
 
 	plugin.selectRandomMeme()
@@ -135,13 +139,37 @@ func (p *MemePlugin) selectRandomMeme() {
 		return
 	}
 
-	memeIndex := p.rng.Intn(len(memes))
-	memeData := memes[memeIndex]
+	p.mutex.Lock()
+	defer p.mutex.Unlock()
+
+	unshownMemes := []interface{}{}
+	for _, meme := range memes {
+		memeMap, ok := meme.(map[string]interface{})
+		if !ok {
+			continue
+		}
+
+		memeKey := fmt.Sprintf("%v-%v", memeMap["text"], memeMap["image"])
+		if !p.shownMemes[memeKey] {
+			unshownMemes = append(unshownMemes, meme)
+		}
+	}
+
+	if len(unshownMemes) == 0 {
+		p.shownMemes = make(map[string]bool)
+		unshownMemes = memes
+	}
+
+	memeIndex := p.rng.Intn(len(unshownMemes))
+	memeData := unshownMemes[memeIndex]
 
 	memeMap, ok := memeData.(map[string]interface{})
 	if !ok {
 		return
 	}
+
+	memeKey := fmt.Sprintf("%v-%v", memeMap["text"], memeMap["image"])
+	p.shownMemes[memeKey] = true
 
 	p.currentMeme = &Meme{
 		Text:     p.getStringFromMap(memeMap, "text", ""),
