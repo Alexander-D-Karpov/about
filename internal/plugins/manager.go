@@ -147,7 +147,7 @@ func (m *Manager) preRenderPlugins(ctx context.Context) {
 		select {
 		case <-renderCtx.Done():
 			fmt.Printf("Pre-rendering timeout for remaining plugins\n")
-			break
+			return
 		default:
 		}
 
@@ -433,7 +433,8 @@ func (m *Manager) UpdateExternalData() {
 	}
 
 cleanup:
-	for completed < activeUpdates {
+	breakLoop := false
+	for completed < activeUpdates && !breakLoop {
 		select {
 		case update := <-updateChan:
 			completed++
@@ -441,7 +442,7 @@ cleanup:
 				failedPlugins = append(failedPlugins, update.plugin.Name())
 			}
 		case <-time.After(100 * time.Millisecond):
-			break
+			breakLoop = true
 		}
 	}
 

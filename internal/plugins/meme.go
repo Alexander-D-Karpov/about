@@ -180,15 +180,6 @@ func (p *MemePlugin) selectRandomMeme() {
 	}
 }
 
-func (p *MemePlugin) broadcastNewMeme() {
-	if p.currentMeme == nil {
-		return
-	}
-	p.hub.Broadcast("meme_update", map[string]interface{}{
-		"meme": *p.currentMeme,
-	})
-}
-
 func (p *MemePlugin) RefreshMeme() *Meme {
 	p.selectRandomMeme()
 	p.lastUpdate = time.Now()

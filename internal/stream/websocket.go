@@ -213,37 +213,6 @@ func (h *Hub) broadcastHeartbeat() {
 	}
 }
 
-func (h *Hub) cleanupStaleConnections() {
-	h.mutex.Lock()
-	defer h.mutex.Unlock()
-
-	deadClients := make([]*Client, 0)
-	for client := range h.clients {
-		if client.conn != nil {
-			client.conn.SetReadDeadline(time.Now().Add(time.Second))
-			if _, _, err := client.conn.NextReader(); err != nil {
-				deadClients = append(deadClients, client)
-			}
-		}
-	}
-
-	for _, client := range deadClients {
-		delete(h.clients, client)
-		if client.conn != nil {
-			client.conn.Close()
-		}
-		select {
-		case <-client.send:
-		default:
-		}
-		close(client.send)
-	}
-
-	if len(deadClients) > 0 {
-		log.Printf("Cleaned up %d stale connections", len(deadClients))
-	}
-}
-
 func (h *Hub) broadcastClientCount(count int) {
 	message := Message{
 		Type: "client_count_update",

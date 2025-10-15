@@ -74,62 +74,27 @@ linters-settings:
 linters:
   enable:
     - bodyclose
-    - deadcode
-    - depguard
-    - dogsled
-    - dupl
     - errcheck
-    - exhaustive
-    - funlen
-    - gochecknoinits
     - goconst
     - gocritic
     - gocyclo
     - gofmt
     - goimports
-    - golint
-    - gomnd
-    - goprintffuncname
     - gosec
     - gosimple
     - govet
     - ineffassign
-    - interfacer
-    - lll
     - misspell
-    - nakedret
-    - noctx
-    - nolintlint
-    - rowserrcheck
-    - scopelint
     - staticcheck
-    - structcheck
     - stylecheck
     - typecheck
     - unconvert
     - unparam
     - unused
-    - varcheck
     - whitespace
-    - gochecknoglobals
-    - gocognit
-    - godot
-    - godox
-    - goerr113
-    - gofumpt
-    - goheader
-    - gomodguard
-    - goprintffuncname
-    - gosec
-    - nestif
-    - nolintlint
-    - prealloc
-    - testpackage
-    - wsl
-  
+
   disable:
-    - maligned
-    - gochecknoglobals  # Too strict for this project
+    - gochecknoglobals
 
 issues:
   exclude-rules:

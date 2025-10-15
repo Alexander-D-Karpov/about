@@ -12,133 +12,85 @@ jobs:
     
     strategy:
       matrix:
-        go-version: [1.21, 1.22]
-    
+        go-version: ['1.22', '1.23']
+
     steps:
-    - uses: actions/checkout@v4
-    
-    - name: Set up Go
-      uses: actions/setup-go@v4
-      with:
-        go-version: ${{ matrix.go-version }}
-    
-    - name: Cache Go modules
-      uses: actions/cache@v3
-      with:
-        path: ~/go/pkg/mod
-        key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
-        restore-keys: |
-          ${{ runner.os }}-go-
-    
-    - name: Download dependencies
-      run: go mod download
-    
-    - name: Verify dependencies
-      run: go mod verify
-    
-    - name: Check formatting
-      run: |
-        if [ "$(gofmt -s -l . | wc -l)" -gt 0 ]; then
-          echo "Code is not formatted properly:"
-          gofmt -s -l .
-          exit 1
-        fi
-    
-    - name: Run go vet
-      run: go vet ./...
-    
-    - name: Install staticcheck
-      run: go install honnef.co/go/tools/cmd/staticcheck@latest
-    
-    - name: Run staticcheck
-      run: staticcheck ./...
-    
-    - name: Run tests
-      run: go test -v -race -coverprofile=coverage.out ./...
-    
-    - name: Upload coverage to Codecov
-      uses: codecov/codecov-action@v3
-      with:
-        file: ./coverage.out
-        flags: unittests
-        name: codecov-umbrella
-    
-    - name: Build application
-      run: go build -v ./...
-    
-    - name: Test application startup
-      run: |
-        # Create test environment
-        mkdir -p test_data
-        
-        # Create minimal .env file for testing
-        cat > .env << EOL
-        PORT=18080
-        DATA_PATH=./test_data
-        STATIC_PATH=./static
-        MEDIA_PATH=./test_data/media
-        ADMIN_USER=testadmin
-        ADMIN_PASS=testpass123
-        DEBUG=true
-        EOL
-        
-        # Build the application
-        go build -o about-test .
-        
-        # Start application in background
-        ./about-test &
-        APP_PID=$!
-        
-        # Wait for application to start
-        sleep 5
-        
-        # Test that application responds
-        if curl -f http://localhost:18080/health; then
-          echo "Application started successfully"
-        else
-          echo "Application failed to respond"
-          exit 1
-        fi
-        
-        # Test status endpoint
-        if curl -f http://localhost:18080/status; then
-          echo "Status endpoint working"
-        else
-          echo "Status endpoint failed"
-          exit 1
-        fi
-        
-        # Clean up
-        kill $APP_PID
-        rm -rf test_data
-        rm about-test .env
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go-version }}
+
+      - name: Cache Go modules
+        uses: actions/cache@v4
+        with:
+          path: ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Verify dependencies
+        run: go mod verify
+
+      - name: Check formatting
+        run: |
+          if [ "$(gofmt -s -l . | wc -l)" -gt 0 ]; then
+            echo "Code is not formatted properly:"
+            gofmt -s -l .
+            exit 1
+          fi
+
+      - name: Run go vet
+        run: go vet ./...
+
+      - name: Install staticcheck
+        run: go install honnef.co/go/tools/cmd/staticcheck@latest
+
+      - name: Run staticcheck
+        run: staticcheck ./...
+
+      - name: Run tests
+        run: go test -v -race -coverprofile=coverage.out ./...
+
+      - name: Upload coverage
+        uses: codecov/codecov-action@v4
+        with:
+          file: ./coverage.out
+          flags: unittests
+
+      - name: Build
+        run: go build -v ./...
 
   security:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
-    
-    - name: Set up Go
-      uses: actions/setup-go@v4
-      with:
-        go-version: 1.22
-    
-    - name: Run Gosec Security Scanner
-      uses: securecodewarrior/github-action-gosec@master
-      with:
-        args: './...'
+      - uses: actions/checkout@v4
 
-  dependency-check:
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - name: Run Gosec
+        uses: securego/gosec@master
+        with:
+          args: './...'
+
+  vulnerability-check:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
-    
-    - name: Set up Go
-      uses: actions/setup-go@v4
-      with:
-        go-version: 1.22
-    
-    - name: Check for known vulnerabilities
-      run: |
-        go install golang.org/x/vuln/cmd/govulncheck@latest
-        govulncheck ./...
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - name: Run govulncheck
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          govulncheck ./...

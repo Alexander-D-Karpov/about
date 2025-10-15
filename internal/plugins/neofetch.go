@@ -20,11 +20,6 @@ type NeofetchMachine struct {
 	Output string `json:"output"`
 }
 
-type neoRow struct {
-	Ascii string
-	Info  template.HTML
-}
-
 func NewNeofetchPlugin(st *storage.Storage, hub *stream.Hub) *NeofetchPlugin {
 	return &NeofetchPlugin{storage: st, hub: hub}
 }

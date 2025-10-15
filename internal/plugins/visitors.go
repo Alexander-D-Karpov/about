@@ -17,17 +17,15 @@ import (
 )
 
 type VisitorsPlugin struct {
-	storage       *storage.Storage
-	hub           *stream.Hub
-	visitCount    int64
-	todayCount    int64
-	currentDay    string
-	dataPath      string
-	mutex         sync.RWMutex
-	lastSaveTime  time.Time
-	lastDayCheck  time.Time
-	dailyStats    map[string]int64
-	lastBroadcast time.Time
+	storage      *storage.Storage
+	hub          *stream.Hub
+	visitCount   int64
+	todayCount   int64
+	currentDay   string
+	dataPath     string
+	mutex        sync.RWMutex
+	lastSaveTime time.Time
+	dailyStats   map[string]int64
 }
 
 type VisitorsData struct {
@@ -283,18 +281,6 @@ func (p *VisitorsPlugin) RecordVisit(userAgent, ip string) {
 	}()
 }
 
-func (p *VisitorsPlugin) checkDayTransitionUnsafe() {
-	today := time.Now().Format("29.02.2006")
-	if today != p.currentDay {
-		if p.currentDay != "" && p.todayCount > 0 {
-			p.dailyStats[p.currentDay] = p.todayCount
-		}
-
-		p.currentDay = today
-		p.todayCount = 0
-	}
-}
-
 func (p *VisitorsPlugin) broadcastUpdate() {
 	p.mutex.RLock()
 	total := p.visitCount
@@ -393,34 +379,6 @@ func (p *VisitorsPlugin) loadVisitorsData() {
 
 	log.Printf("[Visitors] Data loaded successfully: total=%d, today=%d, day=%s, dailyStats=%d days",
 		p.visitCount, p.todayCount, p.currentDay, len(p.dailyStats))
-}
-
-func (p *VisitorsPlugin) saveVisitorsDataUnsafe() error {
-	dataFile := filepath.Join(p.dataPath, "visitors.json")
-
-	if err := os.MkdirAll(filepath.Dir(dataFile), 0755); err != nil {
-		return err
-	}
-
-	visitorsData := VisitorsData{
-		TotalVisits:  p.visitCount,
-		TodayVisits:  p.todayCount,
-		CurrentDay:   p.currentDay,
-		LastUpdate:   time.Now(),
-		DailyStats:   p.dailyStats,
-		MonthlyStats: make(map[string]int64),
-	}
-
-	month := time.Now().Format("2006-01")
-	visitorsData.MonthlyStats[month] = p.visitCount
-
-	data, err := json.MarshalIndent(visitorsData, "", "  ")
-	if err != nil {
-		return err
-	}
-
-	p.lastSaveTime = time.Now()
-	return os.WriteFile(dataFile, data, 0644)
 }
 
 func (p *VisitorsPlugin) GetSettings() map[string]interface{} {

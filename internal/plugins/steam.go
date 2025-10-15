@@ -18,7 +18,6 @@ type SteamPlugin struct {
 	hub           *stream.Hub
 	apiKey        string
 	recentGames   []SteamGame
-	currentGame   *SteamCurrentGame
 	playerSummary *SteamPlayerSummary
 	lastUpdate    time.Time
 }
@@ -382,12 +381,12 @@ func (p *SteamPlugin) updateRecentGames(steamID string) error {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("Steam API returned status %d", resp.StatusCode)
+		return fmt.Errorf("steam API returned status %d", resp.StatusCode)
 	}
 
 	contentType := resp.Header.Get("Content-Type")
 	if !strings.Contains(contentType, "application/json") {
-		return fmt.Errorf("Steam API returned non-JSON content: %s", contentType)
+		return fmt.Errorf("steam API returned non-JSON content: %s", contentType)
 	}
 
 	var response SteamResponse

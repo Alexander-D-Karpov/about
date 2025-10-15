@@ -534,7 +534,7 @@ func (p *BeatLeaderPlugin) updatePlayerData(username string) error {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("BeatLeader API returned status %d", resp.StatusCode)
+		return fmt.Errorf("beatLeader API returned status %d", resp.StatusCode)
 	}
 
 	bodyBytes, err := io.ReadAll(resp.Body)
@@ -548,11 +548,11 @@ func (p *BeatLeaderPlugin) updatePlayerData(username string) error {
 	}
 
 	if start >= len(bodyBytes) {
-		return fmt.Errorf("BeatLeader API returned only whitespace")
+		return fmt.Errorf("beatLeader API returned only whitespace")
 	}
 
 	if bodyBytes[start] != '{' {
-		return fmt.Errorf("BeatLeader API returned non-JSON content: %s", string(bodyBytes[:min(100, len(bodyBytes))]))
+		return fmt.Errorf("beatLeader API returned non-JSON content: %s", string(bodyBytes[:min(100, len(bodyBytes))]))
 	}
 
 	var newData BeatLeaderPlayer
@@ -597,7 +597,7 @@ func (p *BeatLeaderPlugin) updateRecentScores(username string) error {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("BeatLeader scores API returned status %d", resp.StatusCode)
+		return fmt.Errorf("beatLeader scores API returned status %d", resp.StatusCode)
 	}
 
 	bodyBytes, err := io.ReadAll(resp.Body)
@@ -611,11 +611,11 @@ func (p *BeatLeaderPlugin) updateRecentScores(username string) error {
 	}
 
 	if start >= len(bodyBytes) {
-		return fmt.Errorf("BeatLeader scores API returned only whitespace")
+		return fmt.Errorf("beatLeader scores API returned only whitespace")
 	}
 
 	if bodyBytes[start] != '{' {
-		return fmt.Errorf("BeatLeader scores API returned non-JSON content: %s", string(bodyBytes[:min(100, len(bodyBytes))]))
+		return fmt.Errorf("beatLeader scores API returned non-JSON content: %s", string(bodyBytes[:min(100, len(bodyBytes))]))
 	}
 
 	var response BeatLeaderScoresResponse
@@ -842,7 +842,7 @@ func (p *BeatLeaderPlugin) fetchScoresPage(username string, page int, count int)
 			Total        int
 			Page         int
 			ItemsPerPage int
-		}{}, fmt.Errorf("API returned status %d", resp.StatusCode)
+		}{}, fmt.Errorf("api returned status %d", resp.StatusCode)
 	}
 
 	bodyBytes, err := io.ReadAll(resp.Body)
