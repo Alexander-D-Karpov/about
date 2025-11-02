@@ -447,21 +447,6 @@ func (p *CodePlugin) updateGitHubData(username string) error {
 
 	totalStars := 0
 	languageBytes := make(map[string]int)
-	languageColors := map[string]string{
-		"Go":         "#00ADD8",
-		"Python":     "#3776ab",
-		"JavaScript": "#f1e05a",
-		"TypeScript": "#2b7489",
-		"Java":       "#b07219",
-		"C++":        "#f34b7d",
-		"C":          "#555555",
-		"Rust":       "#dea584",
-		"HTML":       "#e34c26",
-		"CSS":        "#1572B6",
-		"Shell":      "#89e051",
-		"PHP":        "#4F5D95",
-	}
-
 	for _, repo := range repos {
 		totalStars += repo.Stars
 		if repo.Language != "" {
@@ -479,10 +464,7 @@ func (p *CodePlugin) updateGitHubData(username string) error {
 		if totalBytes > 0 {
 			percentage := float64(bytes) / float64(totalBytes) * 100
 			if percentage >= 1.0 {
-				color := languageColors[lang]
-				if color == "" {
-					color = p.getLanguageColor(lang)
-				}
+				color := p.getLanguageColor(lang)
 				topLanguages = append(topLanguages, LanguageStat{
 					Name:       lang,
 					Percentage: percentage,

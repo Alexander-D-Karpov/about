@@ -7,10 +7,8 @@
     const baseReconnectDelay = 1000;
     let isConnected = false;
     let shouldReconnect = true;
-    let heartbeatInterval = null;
     let reconnectTimeout = null;
     let connectionRetryCount = 0;
-    let lastFMCheckInterval = null;
     let clientCountRequestTimeout = null;
     let imageLoadQueue = new Map();
     let wsInitialized = false;
@@ -60,6 +58,7 @@
                 isConnected = true;
                 shouldReconnect = true;
                 updateConnectionStatus('connected');
+
                 startHeartbeat();
                 startLastFMCheck();
 
@@ -77,6 +76,10 @@
                     sendMessage({ type: 'get_client_count' });
                     clientCountRequestTimeout = null;
                 }, 100);
+
+                setTimeout(() => {
+                    sendMessage({type: 'check_lastfm'});
+                }, 500);
             };
 
             ws.onmessage = function(event) {
@@ -178,13 +181,33 @@
         }, finalDelay);
     }
 
+    let heartbeatInterval = null;
+    let heartbeatTimeout = null;
+    let missedHeartbeats = 0;
+    const MAX_MISSED_HEARTBEATS = 3;
+
     function startHeartbeat() {
         stopHeartbeat();
+        missedHeartbeats = 0;
+
         heartbeatInterval = setInterval(() => {
             if (ws && ws.readyState === WebSocket.OPEN) {
                 try {
                     const pingMessage = JSON.stringify({ type: 'ping' });
                     ws.send(pingMessage);
+
+                    if (heartbeatTimeout) clearTimeout(heartbeatTimeout);
+
+                    heartbeatTimeout = setTimeout(() => {
+                        missedHeartbeats++;
+                        console.warn(`Missed heartbeat ${missedHeartbeats}/${MAX_MISSED_HEARTBEATS}`);
+
+                        if (missedHeartbeats >= MAX_MISSED_HEARTBEATS) {
+                            console.error('Too many missed heartbeats, reconnecting');
+                            stopHeartbeat();
+                            if (ws) ws.close();
+                        }
+                    }, 10000);
                 } catch (e) {
                     console.error('Failed to send ping:', e);
                 }
@@ -199,14 +222,49 @@
             clearInterval(heartbeatInterval);
             heartbeatInterval = null;
         }
+        if (heartbeatTimeout) {
+            clearTimeout(heartbeatTimeout);
+            heartbeatTimeout = null;
+        }
+        missedHeartbeats = 0;
     }
+
+    function onHeartbeatResponse() {
+        missedHeartbeats = 0;
+        if (heartbeatTimeout) {
+            clearTimeout(heartbeatTimeout);
+            heartbeatTimeout = null;
+        }
+    }
+
+    let lastFMCheckInterval = null;
+    let lastFMCheckTimeout = null;
+    let lastFMLastResponse = 0;
 
     function startLastFMCheck() {
         stopLastFMCheck();
+
         lastFMCheckInterval = setInterval(() => {
+            const now = Date.now();
+
+            if (lastFMLastResponse > 0 && (now - lastFMLastResponse) > 120000) {
+                console.warn('LastFM updates stale, reconnecting WebSocket');
+                if (shouldReconnect) {
+                    ws?.close();
+                    setTimeout(connect, 1000);
+                }
+                return;
+            }
+
             if (ws && ws.readyState === WebSocket.OPEN && getClientCount() > 0) {
                 try {
                     sendMessage({ type: 'check_lastfm' });
+
+                    if (lastFMCheckTimeout) clearTimeout(lastFMCheckTimeout);
+
+                    lastFMCheckTimeout = setTimeout(() => {
+                        console.warn('LastFM check timeout, no response in 30s');
+                    }, 30000);
                 } catch (e) {
                     console.error('Failed to send LastFM check:', e);
                 }
@@ -218,6 +276,18 @@
         if (lastFMCheckInterval) {
             clearInterval(lastFMCheckInterval);
             lastFMCheckInterval = null;
+        }
+        if (lastFMCheckTimeout) {
+            clearTimeout(lastFMCheckTimeout);
+            lastFMCheckTimeout = null;
+        }
+    }
+
+    function onLastFMResponse() {
+        lastFMLastResponse = Date.now();
+        if (lastFMCheckTimeout) {
+            clearTimeout(lastFMCheckTimeout);
+            lastFMCheckTimeout = null;
         }
     }
 
@@ -233,15 +303,18 @@
         try {
             switch (message.type) {
                 case 'pong':
+                    onHeartbeatResponse();
                     break;
                 case 'client_count_update':
                     updateClientCount(message.data);
                     break;
                 case 'lastfm_update':
+                    onLastFMResponse();
                     updateLastFM(message.data);
                     break;
                 case 'lastfm_realtime':
-                    updateLastFMRealtime(message.data);
+                    onLastFMResponse();
+                    updateLastFM(message.data);
                     break;
                 case 'beatleader_update':
                     updateBeatLeader(message.data);
@@ -285,6 +358,9 @@
                     break;
                 case 'system_update':
                     updateSystemInfo(message.data);
+                    break;
+                case 'heartbeat':
+                    onHeartbeatResponse();
                     break;
                 default:
                     console.debug('Unknown message type:', message.type);
@@ -370,6 +446,9 @@
                 case 'connecting':
                     statusIndicator.classList.add('status-loading');
                     break;
+                case 'goodbye':
+                    statusIndicator.classList.add('status-offline');
+                    break;
                 case 'disconnected':
                 case 'error':
                 case 'failed':
@@ -385,6 +464,9 @@
                     break;
                 case 'connecting':
                     statusText.textContent = connectionRetryCount > 0 ? `Reconnecting... (${connectionRetryCount})` : 'Connecting...';
+                    break;
+                case 'goodbye':
+                    statusText.textContent = 'Goodbye!';
                     break;
                 case 'disconnected':
                     statusText.textContent = 'Disconnected';
@@ -434,10 +516,26 @@
         if (trackAlbum && data.album) trackAlbum.textContent = `from ${data.album}`;
 
         if (statusText) {
-            statusText.textContent = data.isPlaying ? 'Now Playing' : 'Last played';
+            const isNowPlaying = data.isPlaying === true || data.isPlaying === 'true';
+            statusText.textContent = isNowPlaying ? 'Now Playing' : 'Last played';
+
             const statusContainer = statusText.closest('.track-status');
             if (statusContainer) {
-                statusContainer.className = data.isPlaying ? 'track-status now-playing' : 'track-status';
+                if (isNowPlaying) {
+                    statusContainer.classList.add('now-playing');
+                } else {
+                    statusContainer.classList.remove('now-playing');
+                }
+            }
+
+            const statusIndicator = section.querySelector('.status-indicator');
+            if (statusIndicator) {
+                statusIndicator.className = 'status-indicator';
+                if (isNowPlaying) {
+                    statusIndicator.classList.add('status-online');
+                } else {
+                    statusIndicator.classList.add('status-offline');
+                }
             }
         }
 
@@ -449,21 +547,83 @@
             setTimeout(() => { coverImg.style.opacity = '1'; }, 150);
         }
 
-        const statusIndicator = section.querySelector('.status-indicator');
-        if (statusIndicator) {
-            statusIndicator.className = 'status-indicator';
-            if (data.isPlaying) {
-                statusIndicator.classList.add('status-online');
-            } else {
-                statusIndicator.classList.add('status-offline');
-            }
-        }
-
-        if (data.recentTracks && data.recentTracks.length > 0) {
+        if (data.recentTracks && Array.isArray(data.recentTracks) && data.recentTracks.length > 0) {
             updateRecentTracks(section, data.recentTracks);
         }
 
         animateUpdate(section);
+    }
+
+    function updateRecentTracks(section, recentTracks) {
+        const recentContainer = section.querySelector('.recent-tracks-list');
+        if (!recentContainer) return;
+
+        const existingTracks = Array.from(recentContainer.querySelectorAll('.recent-track-item')).map(item => {
+            const nameEl = item.querySelector('.recent-track-name');
+            const artistEl = item.querySelector('.recent-track-artist');
+            return {
+                name: nameEl ? nameEl.textContent.replace(' 🎵', '').trim() : '',
+                artist: artistEl ? artistEl.textContent.trim() : ''
+            };
+        });
+
+        const newTracks = recentTracks.slice(0, 5).map(track => ({
+            name: track.name || 'Unknown Track',
+            artist: track.artist || 'Unknown Artist'
+        }));
+
+        const hasChanges = JSON.stringify(existingTracks) !== JSON.stringify(newTracks);
+
+        if (!hasChanges) return;
+
+        recentContainer.innerHTML = '';
+
+        const maxTracks = 5;
+        const tracksToShow = recentTracks.slice(0, maxTracks);
+
+        tracksToShow.forEach((track) => {
+            const trackElement = document.createElement('div');
+            trackElement.className = 'recent-track-item';
+
+            const isCurrentlyPlaying = track.isPlaying === true || track.isPlaying === 'true';
+
+            if (isCurrentlyPlaying) {
+                trackElement.classList.add('now-playing');
+            }
+
+            const trackName = track.name || 'Unknown Track';
+            const trackArtist = track.artist || 'Unknown Artist';
+            const trackImage = track.image || '';
+            const relativeTime = track.relativeTime || '';
+
+            trackElement.innerHTML = `
+            ${trackImage ? `<div class="recent-track-cover"><img src="${trackImage}" alt="${trackName}" loading="lazy"></div>` : ''}
+            <div class="recent-track-info">
+                <div class="recent-track-name">${trackName}${isCurrentlyPlaying ? ' 🎵' : ''}</div>
+                <div class="recent-track-artist">${trackArtist}</div>
+            </div>
+            <div class="recent-track-time">${relativeTime}</div>
+        `;
+
+            if (!isCurrentlyPlaying && window.playTrack) {
+                trackElement.style.cursor = 'pointer';
+
+                trackElement.addEventListener('click', function () {
+                    const searchQuery = `${trackArtist} ${trackName}`;
+                    window.playTrack(searchQuery);
+                });
+
+                trackElement.addEventListener('mouseenter', () => {
+                    trackElement.style.background = 'rgba(255,255,255,.024)';
+                });
+
+                trackElement.addEventListener('mouseleave', () => {
+                    trackElement.style.background = '';
+                });
+            }
+
+            recentContainer.appendChild(trackElement);
+        });
     }
 
     function loadImageSmoothly(imgElement, newSrc) {
@@ -499,39 +659,6 @@
         fadeOut();
     }
 
-    function updateRecentTracks(section, recentTracks) {
-        const recentContainer = section.querySelector('.recent-tracks-list');
-        if (!recentContainer) return;
-
-        recentContainer.innerHTML = '';
-
-        recentTracks.forEach(track => {
-            const trackElement = document.createElement('div');
-            trackElement.className = 'recent-track-item';
-            trackElement.innerHTML = `
-                ${track.image ? `<div class="recent-track-cover"><img src="${track.image}" alt="${track.name}" loading="lazy"></div>` : ''}
-                <div class="recent-track-info">
-                    <div class="recent-track-name">${track.name}</div>
-                    <div class="recent-track-artist">${track.artist}</div>
-                </div>
-                <div class="recent-track-time">${track.relativeTime}</div>
-            `;
-
-            if (window.playTrack) {
-                trackElement.style.cursor = 'pointer';
-                trackElement.addEventListener('click', () => {
-                    window.playTrack(`${track.artist} ${track.name}`);
-                });
-            }
-
-            recentContainer.appendChild(trackElement);
-        });
-    }
-
-    function updateLastFMRealtime(data) {
-        updateLastFM(data);
-    }
-
     function updateBeatLeader(data) {
         const section = document.querySelector('.beatleader-section');
         if (!section) return;
@@ -543,10 +670,22 @@
             const ppStat = statItems[2].querySelector('.stat-value');
             const accuracyStat = statItems[3].querySelector('.stat-value');
 
-            if (rankStat) rankStat.textContent = '#' + data.rank;
-            if (countryRankStat) countryRankStat.textContent = '#' + data.countryRank;
-            if (ppStat) ppStat.textContent = Math.round(data.pp) + 'pp';
-            if (accuracyStat) accuracyStat.textContent = data.accuracy.toFixed(1) + '%';
+            if (rankStat) {
+                rankStat.textContent = '#' + data.rank;
+                rankStat.dataset.rawValue = String(data.rank);
+            }
+            if (countryRankStat) {
+                countryRankStat.textContent = '#' + data.countryRank;
+                countryRankStat.dataset.rawValue = String(data.countryRank);
+            }
+            if (ppStat) {
+                ppStat.textContent = Math.round(data.pp) + 'pp';
+                ppStat.dataset.rawValue = String(Math.round(data.pp));
+            }
+            if (accuracyStat) {
+                accuracyStat.textContent = data.accuracy.toFixed(1) + '%';
+                accuracyStat.dataset.rawValue = String(data.accuracy);
+            }
         }
 
         animateUpdate(section);
@@ -748,26 +887,20 @@
         if (data.total !== undefined) {
             const totalElements = document.querySelectorAll('.total-visits, [data-stat="total"]');
             totalElements.forEach(el => {
-                const currentValue = parseInt(el.textContent.replace(/[^\d]/g, '')) || 0;
                 const newValue = data.total;
-
-                if (currentValue !== newValue) {
-                    animateCounterUpdate(el, currentValue, newValue);
-                    updated = true;
-                }
+                el.dataset.rawValue = String(newValue);
+                el.textContent = formatNumber(newValue);
+                updated = true;
             });
         }
 
         if (data.today !== undefined) {
             const todayElements = document.querySelectorAll('.today-visits, [data-stat="today"]');
             todayElements.forEach(el => {
-                const currentValue = parseInt(el.textContent.replace(/[^\d]/g, '')) || 0;
                 const newValue = data.today;
-
-                if (currentValue !== newValue) {
-                    animateCounterUpdate(el, currentValue, newValue);
-                    updated = true;
-                }
+                el.dataset.rawValue = String(newValue);
+                el.textContent = formatNumber(newValue);
+                updated = true;
             });
         }
 
@@ -951,7 +1084,10 @@
         element.style.color = 'var(--accent)';
         element.style.transition = 'transform 0.2s ease, color 0.3s ease';
 
-        element.textContent = formatNumber(newValue);
+        const formatted = formatNumber(newValue);
+        element.textContent = formatted;
+        element.dataset.rawValue = String(newValue);
+        element.dataset.animated = 'true';
 
         setTimeout(() => {
             element.style.transform = '';
@@ -983,6 +1119,8 @@
             clearTimeout(clientCountRequestTimeout);
             clientCountRequestTimeout = null;
         }
+
+        updateConnectionStatus('goodbye');
 
         if (ws) {
             ws.close(1000, 'Client disconnect');

@@ -4,6 +4,28 @@
     const $  = (q, c=document) => c.querySelector(q);
     const $$ = (q, c=document) => Array.from(c.querySelectorAll(q));
     const on = (el, ev, fn, opts) => el && el.addEventListener(ev, fn, opts);
+    const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+    const now = () => Date.now();
+
+    const throttle = (fn, ms = 100) => {
+        let t = 0, to, last;
+        return (...args) => {
+            const n = now();
+            if (n - t > ms) {
+                t = n;
+                fn(...args);
+            } else {
+                last = args;
+                clearTimeout(to);
+                to = setTimeout(() => {
+                    t = now();
+                    fn(...(last || []));
+                }, ms);
+            }
+        };
+    };
+
+    const isInteractive = (node) => !!node.closest('button, a, input, select, textarea, [contenteditable], .plugin-btn');
 
     function ensureProjectsAlwaysLast(){
         const mosaic = window.mosaicUtils?.getMosaic();
@@ -24,7 +46,6 @@
         });
     }
 
-    // --- Tech filtering (persistent) ---
     let currentFilter = null;
     let filterPopup;
 
@@ -34,70 +55,62 @@
         filterPopup = document.createElement('div');
         filterPopup.className = 'tech-filter-popup';
 
-        // Inline styles so it works without any extra CSS
-        Object.assign(filterPopup.style, {
-            position: 'fixed',
-            top: '10px',
-            left: '50%',
-            transform: 'translateX(-50%)',
-            zIndex: '9999',
-            display: 'none',
-            alignItems: 'center',
-            gap: '10px',
-            padding: '10px 14px',
-            borderRadius: '10px',
-            background: 'rgba(20,20,24,0.9)',
-            color: 'var(--fg, #e5e7eb)',
-            boxShadow: '0 8px 28px rgba(0,0,0,.35)',
-            backdropFilter: 'blur(6px)',
-            WebkitBackdropFilter: 'blur(6px)',
-            border: '1px solid rgba(255,255,255,.08)',
-            fontWeight: '600'
-        });
-
         filterPopup.innerHTML = `
-        <span class="filter-icon" aria-hidden="true">🔧</span>
-        <span class="filter-text">Filtering projects by:</span>
-        <strong class="filter-tech" style="color: var(--accent, #7aa2ff);"></strong>
+        <span class="filter-icon" style="font-size:18px;" aria-hidden="true">🔧</span>
+        <span class="filter-text">Filtering:</span>
+        <strong class="filter-tech" style="color:#7aa2ff;"></strong>
         <button class="clear-filter-btn" type="button" aria-label="Clear project filter"
-            style="margin-left:8px;padding:6px 10px;border-radius:8px;border:1px solid rgba(255,255,255,.15);background:transparent;color:inherit;cursor:pointer;">
-            Clear
+            style="margin-left:4px;padding:6px 12px;border-radius:8px;border:1px solid rgba(255,255,255,.2);background:rgba(255,107,107,.9);color:white;cursor:pointer;font-weight:700;font-size:12px;transition:all .2s ease;">
+            Clear ✕
         </button>
     `;
 
-        filterPopup.querySelector('.clear-filter-btn').addEventListener('click', clearTechFilter, { passive: true });
+        const clearBtn = filterPopup.querySelector('.clear-filter-btn');
+        clearBtn.addEventListener('mouseover', () => {
+            clearBtn.style.background = 'rgba(220,38,38,1)';
+            clearBtn.style.transform = 'scale(1.05)';
+        });
+        clearBtn.addEventListener('mouseout', () => {
+            clearBtn.style.background = 'rgba(255,107,107,.9)';
+            clearBtn.style.transform = 'scale(1)';
+        });
+        clearBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            clearTechFilter();
+        }, {passive: false});
+
         document.body.appendChild(filterPopup);
         return filterPopup;
     }
+
     function showFilterPopup(name){
         const p = createFilterPopup();
         const label = p.querySelector('.filter-tech');
         if (label) label.textContent = name;
 
-        // show with a tiny animation
-        p.style.display = 'flex';
-        p.style.opacity = '0';
-        p.style.transition = 'opacity 160ms ease, transform 160ms ease';
-        p.style.transform = 'translateX(-50%) translateY(-6px)';
-        requestAnimationFrame(() => {
-            p.style.opacity = '1';
-            p.style.transform = 'translateX(-50%) translateY(0)';
-        });
+        p.classList.add('show');
+        p.style.transition = 'opacity 200ms ease, transform 200ms ease';
+        p.style.transform = 'translateX(-50%) translateY(0)';
     }
 
-    function matchesTech(tags, name){
-        const re = new RegExp(`\\b${name.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')}\\b`, 'i');
-        return tags.some(t => re.test(t.textContent.trim()));
+    function hideFilterPopup() {
+        if (!filterPopup) return;
+        filterPopup.classList.remove('show');
     }
+
     function clearTechFilter(){
-        const projectsSection = document.querySelector('.projects-section');
-        if (!projectsSection) return;
+        const projectsSection = document.querySelector('.projects-section, .projects-section.plugin, .plugin.projects-section');
+        if (!projectsSection) {
+            console.warn('Projects section not found for clearing');
+            return;
+        }
 
         projectsSection.querySelectorAll('.project-card').forEach(card => {
+            card.style.transition = 'all 0.3s ease';
             card.style.opacity = '1';
             card.style.transform = 'scale(1)';
             card.style.filter = 'none';
-            card.style.transition = 'all 0.3s ease';
             card.style.outline = '';
             card.style.outlineOffset = '';
         });
@@ -105,60 +118,185 @@
         document.querySelectorAll('.tech-item.filtered').forEach(x => x.classList.remove('filtered'));
         currentFilter = null;
 
-        if (filterPopup) {
-            filterPopup.style.opacity = '0';
-            filterPopup.style.transform = 'translateX(-50%) translateY(-6px)';
-            setTimeout(() => { filterPopup.style.display = 'none'; }, 160);
-        }
+        hideFilterPopup();
 
         if (window.mosaicUtils) window.mosaicUtils.resizeAll();
     }
 
     function applyTechFilter(name){
-        const techSection = document.querySelector('.tech-section');
-        const projects = document.querySelector('.projects-section');
-        if (!techSection || !projects) return;
+        if (!name) return;
 
-        techSection.querySelectorAll('.tech-item').forEach(it => {
-            const label = it.querySelector('.tech-name')?.textContent || it.title || it.querySelector('img')?.alt || '';
-            if (label.toLowerCase() === name.toLowerCase()) it.classList.add('filtered');
-            else it.classList.remove('filtered');
-        });
+        const techSection = document.querySelector('.tech-section, .tech-section.plugin, .plugin.tech-section');
+        const projectsSection = document.querySelector('.projects-section, .projects-section.plugin, .plugin.projects-section');
 
-        let any = false;
+        if (!projectsSection) {
+            console.warn('Projects section not found');
+            return;
+        }
+
+        console.log(`Applying filter for: ${name}`);
+        currentFilter = name;
+
+        if (techSection) {
+            techSection.querySelectorAll('.tech-item').forEach(item => {
+                const label = item.querySelector('.tech-name')?.textContent ||
+                    item.title ||
+                    item.querySelector('img')?.alt || '';
+
+                if (label.toLowerCase() === name.toLowerCase()) {
+                    item.classList.add('filtered');
+                } else {
+                    item.classList.remove('filtered');
+                }
+            });
+        }
+
+        let matchCount = 0;
         const matchingCards = [];
 
-        projects.querySelectorAll('.project-card').forEach(card => {
-            const tags = card.querySelectorAll('.tech-tag');
-            const hit = Array.from(tags).some(t => new RegExp(`\\b${name.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\$&')}\\b`, 'i').test(t.textContent.trim()));
+        projectsSection.querySelectorAll('.project-card').forEach(card => {
+            const tags = Array.from(card.querySelectorAll('.tech-tag'));
+            const tagTexts = tags.map(t => t.textContent.trim().toLowerCase());
+            const searchName = name.toLowerCase();
+
+            const isMatch = tagTexts.some(tag => tag === searchName || tag.includes(searchName));
 
             card.style.transition = 'all 0.3s ease';
-            card.style.opacity   = hit ? '1' : '0.2';
-            card.style.transform = hit ? 'scale(1)' : 'scale(0.95)';
-            card.style.filter    = hit ? 'none' : 'grayscale(80%)';
 
-            if (hit) { any = true; matchingCards.push(card); }
+            if (isMatch) {
+                card.style.opacity = '1';
+                card.style.transform = 'scale(1)';
+                card.style.filter = 'none';
+                matchingCards.push(card);
+                matchCount++;
+            } else {
+                card.style.opacity = '0.25';
+                card.style.transform = 'scale(0.96)';
+                card.style.filter = 'grayscale(70%)';
+            }
         });
 
-        if (any) {
+        console.log(`Found ${matchCount} matching projects`);
+
+        if (matchCount > 0) {
             showFilterPopup(name);
 
-            projects.scrollIntoView({ behavior:'smooth', block:'start' });
+            projectsSection.scrollIntoView({
+                behavior: 'smooth',
+                block: 'start'
+            });
 
             setTimeout(() => {
                 matchingCards.forEach(card => {
                     card.style.outline = '2px solid var(--accent)';
                     card.style.outlineOffset = '4px';
                 });
+
                 setTimeout(() => {
-                    matchingCards.forEach(card => { card.style.outline = ''; card.style.outlineOffset = ''; });
+                    matchingCards.forEach(card => {
+                        card.style.outline = '';
+                        card.style.outlineOffset = '';
+                    });
                 }, 2000);
-            }, 450);
+            }, 500);
         } else {
+            console.warn(`No projects found matching "${name}"`);
             clearTechFilter();
         }
 
-        if (window.mosaicUtils) window.mosaicUtils.resizeAll();
+        if (window.mosaicUtils) {
+            setTimeout(() => window.mosaicUtils.resizeAll(), 100);
+        }
+    }
+
+    function initTechFiltering() {
+        const techSection = document.querySelector('.tech-section, .tech-section.plugin, .plugin.tech-section');
+        const projectsSection = document.querySelector('.projects-section, .projects-section.plugin, .plugin.projects-section');
+
+        if (!techSection) {
+            console.warn('Tech section not found. Available sections:',
+                Array.from(document.querySelectorAll('[class*="section"]')).map(el => el.className));
+            return;
+        }
+
+        if (!projectsSection) {
+            console.warn('Projects section not found. Available sections:',
+                Array.from(document.querySelectorAll('[class*="section"]')).map(el => el.className));
+            return;
+        }
+
+        techSection.querySelectorAll('.tech-item').forEach(item => {
+            if (item.dataset.techFilterAttached === '1') return;
+            item.dataset.techFilterAttached = '1';
+
+            const name = item.querySelector('.tech-name')?.textContent ||
+                item.title ||
+                item.querySelector('img')?.alt || '';
+
+            if (!name) {
+                console.warn('Tech item without name found:', item);
+                return;
+            }
+
+            item.style.cursor = 'pointer';
+
+            item.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                console.log(`Tech item clicked: ${name}`);
+                currentFilter = name;
+                applyTechFilter(name);
+            }, {passive: false});
+
+            item.addEventListener('mouseenter', () => {
+                if (!item.classList.contains('filtered')) {
+                    item.style.transform = 'translateY(-2px)';
+                }
+            });
+
+            item.addEventListener('mouseleave', () => {
+                if (!item.classList.contains('filtered')) {
+                    item.style.transform = '';
+                }
+            });
+        });
+
+        projectsSection.querySelectorAll('.tech-tag').forEach(tag => {
+            if (tag.dataset.techFilterAttached === '1') return;
+            tag.dataset.techFilterAttached = '1';
+
+            tag.style.cursor = 'pointer';
+
+            tag.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+
+                const name = tag.textContent.trim();
+                console.log(`Tech tag clicked: ${name}`);
+
+                currentFilter = name;
+
+                projectsSection.scrollIntoView({
+                    behavior: 'smooth',
+                    block: 'start'
+                });
+
+                setTimeout(() => {
+                    applyTechFilter(name);
+                }, 300);
+            }, {passive: false});
+
+            tag.addEventListener('mouseenter', () => {
+                tag.style.transform = 'scale(1.05)';
+            });
+
+            tag.addEventListener('mouseleave', () => {
+                tag.style.transform = 'scale(1)';
+            });
+        });
+
+        if (!window.applyTechFilter) window.applyTechFilter = applyTechFilter;
+        if (!window.clearTechFilter) window.clearTechFilter = clearTechFilter;
     }
 
     function initSteamHover(){
@@ -175,13 +313,12 @@
         });
     }
 
-    // --- Code, Music, Services and misc plugin interactions ---
     function initCodeToggles(){
         const sec = $('.code-section');
         if (!sec) return;
 
         $$('.section-toggle', sec).forEach(toggle => {
-            if (toggle.dataset.listenerAttached === '1') return; // prevent double-binding from multiple initializers
+            if (toggle.dataset.listenerAttached === '1') return;
             toggle.dataset.listenerAttached = '1';
 
             toggle.addEventListener('click', (e) => {
@@ -207,55 +344,6 @@
         });
     }
 
-    function initTechFiltering(){
-        const tech = document.querySelector('.tech-section');
-        const projects = document.querySelector('.projects-section');
-        if (!tech || !projects) return;
-
-        // Bind clicks on the main tech stack list
-        tech.querySelectorAll('.tech-item').forEach(item => {
-            if (item.dataset.listenerAttached === '1') return;
-            item.dataset.listenerAttached = '1';
-
-            item.style.cursor = 'pointer';
-            item.addEventListener('click', () => {
-                const name = item.querySelector('.tech-name')?.textContent
-                    || item.title
-                    || item.querySelector('img')?.alt
-                    || '';
-                if (!name) return;
-
-                projects.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                setTimeout(() => {
-                    currentFilter = name; // uses the existing module-scoped variable
-                    applyTechFilter(name);
-                }, 450);
-            }, { passive: true });
-        });
-
-        // Bind clicks on tech tags inside each project card
-        projects.querySelectorAll('.tech-tag').forEach(tag => {
-            if (tag.dataset.listenerAttached === '1') return;
-            tag.dataset.listenerAttached = '1';
-
-            tag.style.cursor = 'pointer';
-            tag.addEventListener('click', (e) => {
-                e.stopPropagation();
-                const name = tag.textContent.trim();
-                projects.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                setTimeout(() => {
-                    currentFilter = name;
-                    applyTechFilter(name);
-                }, 450);
-            }, { passive: false });
-        });
-
-        // Expose for other scripts (plugins.js) to reuse the persistent UI instead of duplicating logic
-        if (!window.applyTechFilter) window.applyTechFilter = applyTechFilter;
-        if (!window.clearTechFilter) window.clearTechFilter = clearTechFilter;
-    }
-
-
     function initLastFM(){
         const sec = $('.lastfm-section'); if (!sec) return;
         $$('.recent-track-item', sec).forEach(item => {
@@ -269,31 +357,6 @@
             });
         });
     }
-
-    // Smooth meme refresh: hold height so layout doesn't jump while image swaps.
-    function lockSectionHeight(sectionEl){
-        const plugin = sectionEl.closest('.plugin') || sectionEl;
-        if (!plugin) return () => {};
-        const rect = plugin.getBoundingClientRect();
-        const prevMin = plugin.style.minHeight;
-        plugin.style.minHeight = rect.height + 'px';
-
-        // Try to keep the viewport anchored around the meme during the swap.
-        const preTop = plugin.getBoundingClientRect().top;
-        const release = () => {
-            plugin.style.minHeight = prevMin || '';
-            // Re-anchor after update to compensate for subtle grid changes.
-            const postTop = plugin.getBoundingClientRect().top;
-            const dy = postTop - preTop;
-            if (Math.abs(dy) > 1) window.scrollBy(0, dy);
-            if (window.mosaicUtils) window.mosaicUtils.resizeAll();
-        };
-
-        // Safety release in case no images load event fires
-        const t = setTimeout(release, 1000);
-        return () => { clearTimeout(t); release(); };
-    }
-
 
     function initMeme(){
         const sec = document.querySelector('.meme-section');
@@ -334,6 +397,7 @@
     }
 
     function initVisitors(){ $$('.visitors-section .visitor-stat').forEach(s => s.style.cursor='pointer'); }
+
     function initServices(){
         const sec = $('.services-section');
         if (!sec) return;
@@ -365,11 +429,17 @@
             }
         });
     }
+
     function initWebring(){
         const sec = $('.webring-section'); if (!sec) return;
         const home = $('.webring-home', sec);
-        if (home) on(home, 'click', (e) => { e.preventDefault(); const base = sec.dataset.baseUrl; if (base) window.open(base, '_blank'); });
+        if (home) on(home, 'click', (e) => {
+            e.preventDefault();
+            const base = sec.dataset.baseUrl;
+            if (base) window.open(base, '_blank');
+        });
     }
+
     function initNeofetchSwitch(){
         const sec = document.querySelector('.neofetch-section');
         if (!sec) return;
@@ -420,9 +490,6 @@
         });
     }
 
-    function throttle(fn, wait){
-        let t=0; return function(){ const now=Date.now(); if (now-t>wait){ t=now; fn(); } };
-    }
     function initAnimatedCounters(){
         const anim = (el) => {
             const text = el.textContent;
@@ -452,28 +519,44 @@
                 return;
             }
 
-            setTimeout(() => {
-                ensureProjectsAlwaysLast();
+            const waitForSections = (attempt = 0) => {
+                const techSection = document.querySelector('.tech-section, .tech-section.plugin, .plugin.tech-section');
+                const projectsSection = document.querySelector('.projects-section, .projects-section.plugin, .plugin.projects-section');
 
-                initTechFiltering();
-                initCodeToggles();
-                initSteamHover();
-                initLastFM();
-                initMeme();
-                initVisitors();
-                initServices();
-                initWebring();
-                initNeofetchSwitch();
-                initAnimatedCounters();
+                if (!techSection || !projectsSection) {
+                    if (attempt < 20) {
+                        console.log(`Waiting for sections... (attempt ${attempt + 1})`);
+                        setTimeout(() => waitForSections(attempt + 1), 100);
+                        return;
+                    } else {
+                        console.warn('Sections not found after 20 attempts');
+                    }
+                }
 
                 setTimeout(() => {
                     ensureProjectsAlwaysLast();
+
+                    initTechFiltering();
+                    initCodeToggles();
+                    initSteamHover();
+                    initLastFM();
+                    initMeme();
+                    initVisitors();
+                    initServices();
+                    initWebring();
+                    initNeofetchSwitch();
+                    initAnimatedCounters();
+
+                    setTimeout(() => {
+                        ensureProjectsAlwaysLast();
+                        window.mosaicUtils && window.mosaicUtils.resizeAll();
+                    }, 120);
+
                     window.mosaicUtils && window.mosaicUtils.resizeAll();
-                }, 120);
+                }, 80);
+            };
 
-                window.mosaicUtils && window.mosaicUtils.resizeAll();
-            }, 80);
-
+            waitForSections();
         };
 
         waitForMosaic();
@@ -481,5 +564,11 @@
 
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
     else init();
+
+    window.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && currentFilter) {
+            clearTechFilter();
+        }
+    });
 
 })();

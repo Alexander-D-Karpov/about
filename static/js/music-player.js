@@ -14,18 +14,24 @@
         customAudioElement = document.getElementById('lastfm-audio-element');
         if (!customAudioElement) return;
 
+        customAudioElement.removeEventListener('loadedmetadata', updatePlayerDuration);
+        customAudioElement.removeEventListener('timeupdate', updatePlayerProgress);
+        customAudioElement.removeEventListener('play', onCustomPlay);
+        customAudioElement.removeEventListener('pause', onCustomPause);
+        customAudioElement.removeEventListener('ended', onCustomEnded);
+
+        customAudioElement.addEventListener('loadedmetadata', updatePlayerDuration);
+        customAudioElement.addEventListener('timeupdate', updatePlayerProgress);
+        customAudioElement.addEventListener('play', onCustomPlay);
+        customAudioElement.addEventListener('pause', onCustomPause);
+        customAudioElement.addEventListener('ended', onCustomEnded);
+
         const progressBar = document.getElementById('player-progress-bar');
         const volumeSlider = document.getElementById('player-volume');
 
-        customAudioElement.addEventListener('loadedmetadata', updatePlayerDuration, { once: false });
-        customAudioElement.addEventListener('timeupdate', updatePlayerProgress, { once: false });
-        customAudioElement.addEventListener('play', onCustomPlay, { once: false });
-        customAudioElement.addEventListener('pause', onCustomPause, { once: false });
-        customAudioElement.addEventListener('ended', onCustomEnded, { once: false });
-
         if (progressBar && !progressBar.dataset.hasListener) {
             progressBar.dataset.hasListener = 'true';
-            progressBar.addEventListener('click', seekToPosition, { once: false });
+            progressBar.addEventListener('click', seekToPosition);
         }
 
         if (volumeSlider && !volumeSlider.dataset.hasListener) {
@@ -34,7 +40,7 @@
                 if (customAudioElement) {
                     customAudioElement.volume = e.target.value / 100;
                 }
-            }, { once: false });
+            });
             customAudioElement.volume = 0.8;
         }
     }
@@ -66,14 +72,32 @@
     }
 
     function loadAndPlayCustomTrack(track) {
+        if (!customAudioElement) return;
+
+        if (currentLoadedTrack && currentLoadedTrack.file === track.file) {
+            if (customAudioElement.paused) {
+                customAudioElement.play().catch(err => {
+                    console.error('Resume failed:', err);
+                    showNotification('Playback failed', 'error');
+                });
+            }
+            return;
+        }
+
+        customAudioElement.pause();
+        customAudioElement.currentTime = 0;
+
         currentLoadedTrack = track;
 
         const player = document.getElementById('custom-music-player');
         const artworkMini = document.getElementById('player-artwork-mini');
         const trackName = document.getElementById('player-track-name');
         const artistName = document.getElementById('player-artist-name');
+        const progressFill = document.getElementById('player-progress-fill');
 
         if (player) player.style.display = 'flex';
+
+        if (progressFill) progressFill.style.width = '0%';
 
         if (artworkMini) {
             artworkMini.src = track.image_cropped || track.album?.image_cropped || '';
@@ -85,18 +109,27 @@
             artistName.textContent = artists;
         }
 
-        if (customAudioElement) {
-            customAudioElement.src = track.file;
-            customAudioElement.load();
+        customAudioElement.src = track.file;
+        customAudioElement.load();
 
-            customAudioElement.addEventListener('canplay', function onCanPlay() {
-                customAudioElement.removeEventListener('canplay', onCanPlay);
-                customAudioElement.play().catch(err => {
-                    console.error('Playback failed:', err);
-                    showNotification('Click play to start', 'info');
-                });
-            }, { once: true });
-        }
+        const handleCanPlay = () => {
+            customAudioElement.removeEventListener('canplay', handleCanPlay);
+            customAudioElement.removeEventListener('error', handleError);
+
+            customAudioElement.play().catch(err => {
+                console.error('Playback failed:', err);
+                showNotification('Click play to start', 'info');
+            });
+        };
+
+        const handleError = () => {
+            customAudioElement.removeEventListener('canplay', handleCanPlay);
+            customAudioElement.removeEventListener('error', handleError);
+            showNotification('Failed to load track', 'error');
+        };
+
+        customAudioElement.addEventListener('canplay', handleCanPlay, {once: true});
+        customAudioElement.addEventListener('error', handleError, {once: true});
 
         showNotification(`Loading: ${track.name}`, 'success');
     }
@@ -129,14 +162,16 @@
     }
 
     function updatePlayerProgress() {
-        if (!customAudioElement) return;
+        if (!customAudioElement || !currentLoadedTrack) return;
 
         const currentTime = customAudioElement.currentTime;
         const duration = customAudioElement.duration;
 
+        if (!isFinite(currentTime) || !isFinite(duration) || duration === 0) return;
+
         const progressFill = document.getElementById('player-progress-fill');
-        if (progressFill && duration > 0) {
-            const percent = (currentTime / duration) * 100;
+        if (progressFill) {
+            const percent = Math.min(100, (currentTime / duration) * 100);
             progressFill.style.width = percent + '%';
         }
 
@@ -147,11 +182,25 @@
     }
 
     function updatePlayerDuration() {
-        if (!customAudioElement) return;
+        if (!customAudioElement || !currentLoadedTrack) return;
+
+        const duration = customAudioElement.duration;
+
+        if (!isFinite(duration) || duration === 0) return;
 
         const durationEl = document.getElementById('player-duration');
         if (durationEl) {
-            durationEl.textContent = formatTime(customAudioElement.duration);
+            durationEl.textContent = formatTime(duration);
+        }
+
+        const currentTimeEl = document.getElementById('player-current-time');
+        if (currentTimeEl && customAudioElement.currentTime === 0) {
+            currentTimeEl.textContent = '0:00';
+        }
+
+        const progressFill = document.getElementById('player-progress-fill');
+        if (progressFill && customAudioElement.currentTime === 0) {
+            progressFill.style.width = '0%';
         }
     }
 
@@ -177,7 +226,28 @@
     function onCustomEnded() {
         isCustomPlaying = false;
         updatePlayPauseIcon(false);
+
+        const progressFill = document.getElementById('player-progress-fill');
+        if (progressFill) {
+            progressFill.style.width = '100%';
+        }
+
+        const currentTimeEl = document.getElementById('player-current-time');
+        const durationEl = document.getElementById('player-duration');
+        if (currentTimeEl && durationEl && customAudioElement) {
+            currentTimeEl.textContent = durationEl.textContent;
+        }
+
         showNotification('Track finished', 'info');
+
+        setTimeout(() => {
+            if (progressFill) {
+                progressFill.style.width = '0%';
+            }
+            if (currentTimeEl) {
+                currentTimeEl.textContent = '0:00';
+            }
+        }, 1000);
     }
 
     function updatePlayPauseIcon(playing) {
@@ -250,7 +320,21 @@
         isPlaying: () => isCustomPlaying,
         handleMusicUpdate: function(message) {
             if (message.type === 'music_play' && message.data) {
-                loadAndPlayCustomTrack(message.data);
+                const track = {
+                    name: message.data.name || 'Unknown Track',
+                    file: message.data.file,
+                    image_cropped: message.data.image || '',
+                    album: {
+                        name: message.data.album || '',
+                        image_cropped: message.data.image || ''
+                    },
+                    authors: message.data.artists ?
+                        message.data.artists.map(name => ({name})) :
+                        [{name: 'Unknown Artist'}],
+                    length: message.data.length || 0
+                };
+
+                loadAndPlayCustomTrack(track);
             }
         }
     };

@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Alexander-D-Karpov/about/internal/storage"
@@ -29,6 +30,11 @@ type LastFMPlugin struct {
 	lastUpdateTime      time.Time
 	lastWebsocketUpdate time.Time
 	httpClient          *http.Client
+	pollTicker          *time.Ticker
+	stopPoll            chan struct{}
+	pollMutex           sync.Mutex
+	trackMutex          sync.RWMutex
+	pluginManager       interface{ GetClientCount() int }
 }
 
 type LastFMResponse struct {
@@ -124,161 +130,70 @@ func NewLastFMPlugin(storage *storage.Storage, hub *stream.Hub, apiKey string) *
 		hub:        hub,
 		apiKey:     apiKey,
 		httpClient: NewHTTPClientWithTimeout(15 * time.Second),
+		stopPoll:   make(chan struct{}),
 	}
 
-	go plugin.startWebSocketUpdates()
+	go plugin.startConstantPolling()
 
 	return plugin
 }
 
-func (p *LastFMPlugin) startWebSocketUpdates() {
-	ticker := time.NewTicker(30 * time.Second)
-	defer func() {
-		ticker.Stop()
-		if r := recover(); r != nil {
-			log.Printf("LastFM WebSocket updates panic recovered: %v", r)
-			time.Sleep(5 * time.Second)
-			go p.startWebSocketUpdates()
-		}
-	}()
+func (p *LastFMPlugin) SetPluginManager(pm interface{ GetClientCount() int }) {
+	p.pluginManager = pm
+}
+
+func (p *LastFMPlugin) startConstantPolling() {
+	ticker := time.NewTicker(15 * time.Second)
+	defer ticker.Stop()
 
 	for {
 		select {
 		case <-ticker.C:
-			if p.hub.GetClientCount() > 0 && p.apiKey != "" {
-				if time.Since(p.lastWebsocketUpdate) >= 30*time.Second {
-					config := p.storage.GetPluginConfig(p.Name())
-					username, ok := config.Settings["username"].(string)
-					if ok && strings.TrimSpace(username) != "" {
-						ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
-						if err := p.updateRecentTracksWebSocketWithContext(ctx, username); err != nil {
-							if !strings.Contains(err.Error(), "context canceled") {
-								log.Printf("WebSocket LastFM update failed: %v", err)
-							}
-						} else {
-							p.lastWebsocketUpdate = time.Now()
-						}
-						cancel()
-					}
-				}
+			if p.shouldPoll() {
+				p.pollAndBroadcast()
 			}
+		case <-p.stopPoll:
+			return
 		}
+	}
+}
+
+func (p *LastFMPlugin) shouldPoll() bool {
+	if p.apiKey == "" {
+		return false
+	}
+
+	if p.pluginManager == nil {
+		return false
+	}
+
+	clientCount := p.pluginManager.GetClientCount()
+	return clientCount > 0
+}
+
+func (p *LastFMPlugin) pollAndBroadcast() {
+	config := p.storage.GetPluginConfig(p.Name())
+	username, ok := config.Settings["username"].(string)
+	if !ok || strings.TrimSpace(username) == "" {
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
+	defer cancel()
+
+	changed, err := p.updateRecentTracksInternal(ctx, username)
+	if err != nil {
+		log.Printf("[LastFM] Poll error: %v", err)
+		return
+	}
+
+	if changed {
+		p.lastWebsocketUpdate = time.Now()
+		log.Printf("[LastFM] Track changed, broadcasted update")
 	}
 }
 
 func (p *LastFMPlugin) Name() string { return "lastfm" }
-
-func (p *LastFMPlugin) updateRecentTracksWebSocketWithContext(ctx context.Context, username string) error {
-	urlStr := fmt.Sprintf("https://ws.audioscrobbler.com/2.0/?method=user.getrecenttracks&user=%s&api_key=%s&format=json&limit=10",
-		url.QueryEscape(username), url.QueryEscape(p.apiKey))
-
-	reqCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
-	defer cancel()
-
-	req, err := http.NewRequest("GET", urlStr, nil)
-	if err != nil {
-		return fmt.Errorf("failed to create request: %w", err)
-	}
-
-	req = req.WithContext(reqCtx)
-	req.Header.Set("User-Agent", "AboutPage/1.0 (about.akarpov.ru)")
-	req.Header.Set("Accept", "application/json")
-	req.Header.Set("Cache-Control", "no-cache")
-
-	resp, err := p.httpClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("failed to fetch Last.fm data: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("Last.fm API returned status %d", resp.StatusCode)
-	}
-
-	limitedReader := io.LimitReader(resp.Body, 512*1024)
-	var response LastFMResponse
-	if err := json.NewDecoder(limitedReader).Decode(&response); err != nil {
-		return fmt.Errorf("failed to decode response: %w", err)
-	}
-
-	if len(response.RecentTracks.Track) > 0 {
-		return p.processTrackUpdate(response.RecentTracks.Track)
-	}
-
-	return nil
-}
-
-func (p *LastFMPlugin) processTrackUpdate(tracks []LastFMTrack) error {
-	if len(tracks) == 0 {
-		return nil
-	}
-
-	newCurrentTrack := &tracks[0]
-
-	trackChanged := p.currentTrack == nil ||
-		p.currentTrack.Name != newCurrentTrack.Name ||
-		p.currentTrack.Artist.Text != newCurrentTrack.Artist.Text ||
-		p.currentTrack.Attr.NowPlaying != newCurrentTrack.Attr.NowPlaying
-
-	if !trackChanged {
-		return nil
-	}
-
-	p.currentTrack = newCurrentTrack
-	p.recentTracks = tracks
-
-	go func() {
-		for i := range p.recentTracks {
-			if p.pickBestImage(&p.recentTracks[i]) == "" {
-				artCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-				p.tryArtworkFallbacks(artCtx, &p.recentTracks[i])
-				cancel()
-			}
-		}
-	}()
-
-	var recentTracksData []map[string]interface{}
-	nowPlaying := newCurrentTrack.Attr.NowPlaying == "true"
-
-	for i, track := range p.recentTracks {
-		if i == 0 && nowPlaying {
-			continue
-		}
-
-		if track.Name == newCurrentTrack.Name &&
-			track.Artist.Text == newCurrentTrack.Artist.Text &&
-			track.Album.Text == newCurrentTrack.Album.Text {
-			continue
-		}
-
-		if len(recentTracksData) >= 3 {
-			break
-		}
-
-		recentTracksData = append(recentTracksData, map[string]interface{}{
-			"name":         track.Name,
-			"artist":       track.Artist.Text,
-			"album":        track.Album.Text,
-			"image":        p.pickBestImage(&track),
-			"url":          track.URL,
-			"isPlaying":    track.Attr.NowPlaying == "true",
-			"relativeTime": p.getRelativeTimeForTrack(&track),
-		})
-	}
-
-	p.hub.Broadcast("lastfm_update", map[string]interface{}{
-		"name":         newCurrentTrack.Name,
-		"artist":       newCurrentTrack.Artist.Text,
-		"album":        newCurrentTrack.Album.Text,
-		"isPlaying":    nowPlaying,
-		"url":          newCurrentTrack.URL,
-		"image":        p.pickBestImage(newCurrentTrack),
-		"recentTracks": recentTracksData,
-		"timestamp":    time.Now().Unix(),
-	})
-
-	return nil
-}
 
 func (p *LastFMPlugin) Render(ctx context.Context) (string, error) {
 	select {
@@ -295,17 +210,23 @@ func (p *LastFMPlugin) Render(ctx context.Context) (string, error) {
 	showPlayButton := p.getConfigBool(settings, "ui.showPlayButton", true)
 	showRecentTracks := p.getConfigBool(settings, "ui.showRecentTracks", true)
 
-	if p.currentTrack == nil {
+	p.trackMutex.RLock()
+	currentTrack := p.currentTrack
+	recentTracks := p.recentTracks
+	userInfo := p.userInfo
+	p.trackMutex.RUnlock()
+
+	if currentTrack == nil {
 		return p.renderNoTrack(sectionTitle), nil
 	}
 
-	image := p.pickBestImage(p.currentTrack)
+	image := p.pickBestImage(currentTrack)
 	if image == "" && p.currentSong != nil && p.currentSong.ImageCropped != "" {
 		image = p.currentSong.ImageCropped
 	}
 
-	nowPlaying := p.currentTrack.Attr.NowPlaying == "true"
-	statusText := "Last played " + p.relativePlayedAt()
+	nowPlaying := currentTrack.Attr.NowPlaying == "true"
+	statusText := "Last played " + p.relativePlayedAt(currentTrack)
 	statusClass := ""
 	if nowPlaying {
 		statusText = "Now Playing"
@@ -313,22 +234,22 @@ func (p *LastFMPlugin) Render(ctx context.Context) (string, error) {
 	}
 
 	scrobblesText := ""
-	if showScrobbles && p.userInfo != nil && p.userInfo.PlayCount != "" {
-		scrobblesText = fmt.Sprintf("Total scrobbles: %s", formatScrobbles(p.userInfo.PlayCount))
+	if showScrobbles && userInfo != nil && userInfo.PlayCount != "" {
+		scrobblesText = fmt.Sprintf("Total scrobbles: %s", formatScrobbles(userInfo.PlayCount))
 	}
 
-	searchQuery := fmt.Sprintf("%s %s", p.currentTrack.Artist.Text, p.currentTrack.Name)
+	searchQuery := fmt.Sprintf("%s %s", currentTrack.Artist.Text, currentTrack.Name)
 
 	var recentTracksToShow []LastFMTrack
-	if showRecentTracks && len(p.recentTracks) > 0 {
-		for i, track := range p.recentTracks {
+	if showRecentTracks && len(recentTracks) > 0 {
+		for i, track := range recentTracks {
 			if i == 0 && nowPlaying {
 				continue
 			}
 
-			if track.Name == p.currentTrack.Name &&
-				track.Artist.Text == p.currentTrack.Artist.Text &&
-				track.Album.Text == p.currentTrack.Album.Text {
+			if track.Name == currentTrack.Name &&
+				track.Artist.Text == currentTrack.Artist.Text &&
+				track.Album.Text == currentTrack.Album.Text {
 				continue
 			}
 
@@ -481,9 +402,9 @@ func (p *LastFMPlugin) Render(ctx context.Context) (string, error) {
 		RecentTracks     []map[string]interface{}
 	}{
 		SectionTitle:     sectionTitle,
-		Name:             p.currentTrack.Name,
-		Artist:           p.currentTrack.Artist.Text,
-		Album:            p.currentTrack.Album.Text,
+		Name:             currentTrack.Name,
+		Artist:           currentTrack.Artist.Text,
+		Album:            currentTrack.Album.Text,
 		Image:            image,
 		ShowScrobbles:    showScrobbles,
 		ShowPlayButton:   showPlayButton,
@@ -493,7 +414,7 @@ func (p *LastFMPlugin) Render(ctx context.Context) (string, error) {
 		StatusClass:      statusClass,
 		CanPlay:          true,
 		SearchQuery:      searchQuery,
-		TrackURL:         p.currentTrack.URL,
+		TrackURL:         currentTrack.URL,
 		RecentTracks:     processedRecentTracks,
 	}
 
@@ -538,7 +459,7 @@ func (p *LastFMPlugin) UpdateData(ctx context.Context) error {
 		return nil
 	}
 
-	if time.Since(p.lastUpdateTime) < 90*time.Second {
+	if time.Since(p.lastUpdateTime) < 15*time.Second {
 		return nil
 	}
 
@@ -551,7 +472,7 @@ func (p *LastFMPlugin) UpdateData(ctx context.Context) error {
 	updateCtx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
 
-	changed, err := p.updateRecentTracks(updateCtx, username)
+	_, err := p.updateRecentTracksInternal(updateCtx, username)
 	if err != nil {
 		log.Printf("LastFM recent tracks update failed: %v", err)
 		return err
@@ -565,18 +486,10 @@ func (p *LastFMPlugin) UpdateData(ctx context.Context) error {
 
 	p.lastUpdateTime = time.Now()
 
-	if changed && p.currentTrack != nil {
-		if p.pickBestImage(p.currentTrack) == "" {
-			artCtx, artCancel := context.WithTimeout(context.Background(), 15*time.Second)
-			_ = p.tryArtworkFallbacks(artCtx, p.currentTrack)
-			artCancel()
-		}
-	}
-
 	return nil
 }
 
-func (p *LastFMPlugin) updateRecentTracks(ctx context.Context, username string) (bool, error) {
+func (p *LastFMPlugin) updateRecentTracksInternal(ctx context.Context, username string) (bool, error) {
 	urlStr := fmt.Sprintf("https://ws.audioscrobbler.com/2.0/?method=user.getrecenttracks&user=%s&api_key=%s&format=json&limit=10",
 		url.QueryEscape(username), url.QueryEscape(p.apiKey))
 
@@ -585,71 +498,90 @@ func (p *LastFMPlugin) updateRecentTracks(ctx context.Context, username string) 
 		return false, fmt.Errorf("failed to fetch Last.fm data: %w", err)
 	}
 
-	if len(response.RecentTracks.Track) > 0 {
-		newCurrentTrack := &response.RecentTracks.Track[0]
-
-		trackChanged := p.currentTrack == nil ||
-			p.currentTrack.Name != newCurrentTrack.Name ||
-			p.currentTrack.Artist.Text != newCurrentTrack.Artist.Text ||
-			p.currentTrack.Attr.NowPlaying != newCurrentTrack.Attr.NowPlaying
-
-		p.currentTrack = newCurrentTrack
-		p.recentTracks = response.RecentTracks.Track
-
-		go func() {
-			for i := range p.recentTracks {
-				if p.pickBestImage(&p.recentTracks[i]) == "" {
-					artCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-					_ = p.tryArtworkFallbacks(artCtx, &p.recentTracks[i])
-					cancel()
-				}
-			}
-		}()
-
-		if trackChanged {
-			var recentTracksData []map[string]interface{}
-			nowPlaying := newCurrentTrack.Attr.NowPlaying == "true"
-
-			for i, track := range p.recentTracks {
-				if i == 0 && nowPlaying {
-					continue
-				}
-
-				if track.Name == newCurrentTrack.Name &&
-					track.Artist.Text == newCurrentTrack.Artist.Text &&
-					track.Album.Text == newCurrentTrack.Album.Text {
-					continue
-				}
-
-				if len(recentTracksData) >= 3 {
-					break
-				}
-
-				recentTracksData = append(recentTracksData, map[string]interface{}{
-					"name":         track.Name,
-					"artist":       track.Artist.Text,
-					"album":        track.Album.Text,
-					"image":        p.pickBestImage(&track),
-					"url":          track.URL,
-					"isPlaying":    track.Attr.NowPlaying == "true",
-					"relativeTime": p.getRelativeTimeForTrack(&track),
-				})
-			}
-
-			p.hub.Broadcast("lastfm_update", map[string]interface{}{
-				"name":         newCurrentTrack.Name,
-				"artist":       newCurrentTrack.Artist.Text,
-				"album":        newCurrentTrack.Album.Text,
-				"isPlaying":    nowPlaying,
-				"url":          newCurrentTrack.URL,
-				"image":        p.pickBestImage(newCurrentTrack),
-				"recentTracks": recentTracksData,
-			})
-			return true, nil
-		}
+	if len(response.RecentTracks.Track) == 0 {
+		return false, nil
 	}
 
-	return false, nil
+	newCurrentTrack := &response.RecentTracks.Track[0]
+
+	p.trackMutex.RLock()
+	oldTrack := p.currentTrack
+	p.trackMutex.RUnlock()
+
+	trackChanged := oldTrack == nil ||
+		oldTrack.Name != newCurrentTrack.Name ||
+		oldTrack.Artist.Text != newCurrentTrack.Artist.Text ||
+		oldTrack.Attr.NowPlaying != newCurrentTrack.Attr.NowPlaying
+
+	if !trackChanged {
+		return false, nil
+	}
+
+	p.trackMutex.Lock()
+	p.currentTrack = newCurrentTrack
+	p.recentTracks = response.RecentTracks.Track
+	p.trackMutex.Unlock()
+
+	go func() {
+		for i := range response.RecentTracks.Track {
+			if p.pickBestImage(&response.RecentTracks.Track[i]) == "" {
+				artCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+				_ = p.tryArtworkFallbacks(artCtx, &response.RecentTracks.Track[i])
+				cancel()
+			}
+		}
+	}()
+
+	p.broadcastTrackUpdate(newCurrentTrack, response.RecentTracks.Track)
+
+	return true, nil
+}
+
+func (p *LastFMPlugin) broadcastTrackUpdate(track *LastFMTrack, recentTracks []LastFMTrack) {
+	var recentTracksData []map[string]interface{}
+	nowPlaying := track.Attr.NowPlaying == "true"
+
+	seen := make(map[string]bool)
+	currentKey := fmt.Sprintf("%s|%s", track.Name, track.Artist.Text)
+	seen[currentKey] = true
+
+	for _, t := range recentTracks {
+		trackKey := fmt.Sprintf("%s|%s", t.Name, t.Artist.Text)
+
+		if trackKey == currentKey {
+			continue
+		}
+
+		if seen[trackKey] {
+			continue
+		}
+		seen[trackKey] = true
+
+		if len(recentTracksData) >= 5 {
+			break
+		}
+
+		recentTracksData = append(recentTracksData, map[string]interface{}{
+			"name":         t.Name,
+			"artist":       t.Artist.Text,
+			"album":        t.Album.Text,
+			"image":        p.pickBestImage(&t),
+			"url":          t.URL,
+			"isPlaying":    t.Attr.NowPlaying == "true",
+			"relativeTime": p.getRelativeTimeForTrack(&t),
+		})
+	}
+
+	p.hub.Broadcast("lastfm_update", map[string]interface{}{
+		"name":         track.Name,
+		"artist":       track.Artist.Text,
+		"album":        track.Album.Text,
+		"isPlaying":    nowPlaying,
+		"url":          track.URL,
+		"image":        p.pickBestImage(track),
+		"recentTracks": recentTracksData,
+		"timestamp":    time.Now().Unix(),
+	})
 }
 
 func (p *LastFMPlugin) updateUserInfo(ctx context.Context, username string) error {
@@ -661,7 +593,10 @@ func (p *LastFMPlugin) updateUserInfo(ctx context.Context, username string) erro
 		return fmt.Errorf("failed to fetch Last.fm user info: %w", err)
 	}
 
+	p.trackMutex.Lock()
 	p.userInfo = &response.User
+	p.trackMutex.Unlock()
+
 	return nil
 }
 
@@ -793,7 +728,7 @@ func (p *LastFMPlugin) getJSONWithRetry(ctx context.Context, urlStr string, targ
 			return ctx.Err()
 		}
 
-		reqCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
+		reqCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 
 		req, err := http.NewRequest("GET", urlStr, nil)
 		if err != nil {
@@ -963,11 +898,11 @@ func formatScrobbles(count string) string {
 	return string(result)
 }
 
-func (p *LastFMPlugin) relativePlayedAt() string {
-	if p.currentTrack == nil || p.currentTrack.Attr.NowPlaying == "true" {
+func (p *LastFMPlugin) relativePlayedAt(track *LastFMTrack) string {
+	if track == nil || track.Attr.NowPlaying == "true" {
 		return "just now"
 	}
-	uts := p.currentTrack.Date.Uts
+	uts := track.Date.Uts
 	sec, err := strconv.ParseInt(uts, 10, 64)
 	if err != nil {
 		return ""
@@ -991,26 +926,30 @@ func (p *LastFMPlugin) RenderText(ctx context.Context) (string, error) {
 		return "Music: API key not configured", nil
 	}
 
-	if p.currentTrack == nil {
+	p.trackMutex.RLock()
+	currentTrack := p.currentTrack
+	userInfo := p.userInfo
+	p.trackMutex.RUnlock()
+
+	if currentTrack == nil {
 		return "Music: No recent tracks", nil
 	}
 
 	status := "Last played"
-	if p.currentTrack.Attr.NowPlaying == "true" {
+	if currentTrack.Attr.NowPlaying == "true" {
 		status = "Now playing"
 	}
 
-	artist := p.currentTrack.Artist.Text
+	artist := currentTrack.Artist.Text
 	if artist == "" {
 		artist = "Unknown Artist"
 	}
 
-	track := p.currentTrack.Name
+	track := currentTrack.Name
 	if track == "" {
 		track = "Unknown Track"
 	}
 
-	// Truncate artist and track names to prevent overflow
 	maxArtistLen := 20
 	maxTrackLen := 25
 
@@ -1023,14 +962,13 @@ func (p *LastFMPlugin) RenderText(ctx context.Context) (string, error) {
 	}
 
 	scrobbles := ""
-	if p.userInfo != nil && p.userInfo.PlayCount != "" {
-		count := formatScrobbles(p.userInfo.PlayCount)
+	if userInfo != nil && userInfo.PlayCount != "" {
+		count := formatScrobbles(userInfo.PlayCount)
 		scrobbles = fmt.Sprintf(" (%s scrobbles)", count)
 
-		// Truncate scrobbles if the whole line would be too long
-		totalLen := len(status) + len(track) + len(artist) + len(scrobbles) + 10 // +10 for " - " and " by "
-		if totalLen > 55 {                                                       // Leave some margin for the box borders
-			scrobbles = "" // Skip scrobbles if line too long
+		totalLen := len(status) + len(track) + len(artist) + len(scrobbles) + 10
+		if totalLen > 55 {
+			scrobbles = ""
 		}
 	}
 

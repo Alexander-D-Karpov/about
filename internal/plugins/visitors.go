@@ -186,45 +186,54 @@ func (p *VisitorsPlugin) Render(ctx context.Context) (string, error) {
 	todayVisits := p.todayCount
 	p.mutex.RUnlock()
 
+	totalFormatted := formatNumber(totalVisits)
+	totalExact := formatNumberWithCommas(totalVisits)
+	todayFormatted := formatNumber(todayVisits)
+	todayExact := formatNumberWithCommas(todayVisits)
+
 	sectionTitle := p.getConfigValue(settings, "ui.sectionTitle", "Visitors")
 	showTotal := p.getConfigBool(settings, "ui.showTotal", true)
 	showToday := p.getConfigBool(settings, "ui.showToday", true)
 
 	tmpl := `
-	<div class="visitors-section section">
-		<div class="plugin-header">
-			<h3 class="plugin-title">{{.SectionTitle}}</h3>
-		</div>
-		<div class="plugin__inner">
-			<div class="visitors-stats">
-				{{if .ShowTotal}}
-				<div class="visitor-stat">
-					<div class="visitor-number" data-stat="total">{{.TotalVisits}}</div>
-					<div class="visitor-label">Total</div>
-				</div>
-				{{end}}
-				{{if .ShowToday}}
-				<div class="visitor-stat">
-					<div class="visitor-number" data-stat="today">{{.TodayVisits}}</div>
-					<div class="visitor-label">Today</div>
-				</div>
-				{{end}}
-			</div>
-		</div>
-	</div>`
+    <div class="visitors-section section">
+        <div class="plugin-header">
+            <h3 class="plugin-title">{{.SectionTitle}}</h3>
+        </div>
+        <div class="plugin__inner">
+            <div class="visitors-stats">
+                {{if .ShowTotal}}
+                <div class="visitor-stat" data-tooltip="Exact: {{.TotalExact}}">
+                    <div class="visitor-number" data-stat="total">{{.TotalFormatted}}</div>
+                    <div class="visitor-label">Total</div>
+                </div>
+                {{end}}
+                {{if .ShowToday}}
+                <div class="visitor-stat" data-tooltip="Exact: {{.TodayExact}}">
+                    <div class="visitor-number" data-stat="today">{{.TodayFormatted}}</div>
+                    <div class="visitor-label">Today</div>
+                </div>
+                {{end}}
+            </div>
+        </div>
+    </div>`
 
 	data := struct {
-		SectionTitle string
-		ShowTotal    bool
-		ShowToday    bool
-		TotalVisits  string
-		TodayVisits  string
+		SectionTitle   string
+		ShowTotal      bool
+		ShowToday      bool
+		TotalFormatted string
+		TotalExact     string
+		TodayFormatted string
+		TodayExact     string
 	}{
-		SectionTitle: sectionTitle,
-		ShowTotal:    showTotal,
-		ShowToday:    showToday,
-		TotalVisits:  formatNumber(totalVisits),
-		TodayVisits:  formatNumber(todayVisits),
+		SectionTitle:   sectionTitle,
+		ShowTotal:      showTotal,
+		ShowToday:      showToday,
+		TotalFormatted: totalFormatted,
+		TotalExact:     totalExact,
+		TodayFormatted: todayFormatted,
+		TodayExact:     todayExact,
 	}
 
 	t, err := template.New("visitors").Parse(tmpl)

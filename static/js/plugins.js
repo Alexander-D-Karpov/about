@@ -5,92 +5,6 @@
     const $$ = (q, c = document) => Array.from(c.querySelectorAll(q));
     const on = (el, ev, fn, opts) => el && el.addEventListener(ev, fn, opts);
 
-    function initCodeSectionToggles(){
-        const codeSection = $('.code-section');
-        if (!codeSection) return;
-
-        // If another initializer already wired the toggles, reuse it.
-        if (typeof window.initCodeToggles === 'function') {
-            window.initCodeToggles();
-            return;
-        }
-
-        const toggles = $$('.section-toggle', codeSection);
-        toggles.forEach(toggle => {
-            if (toggle.dataset.listenerAttached === '1') return;
-            toggle.dataset.listenerAttached = '1';
-
-            toggle.addEventListener('click', () => {
-                const target = toggle.dataset.target;
-                const content = codeSection.querySelector('#' + target);
-                const icon = toggle.querySelector('.toggle-icon');
-                if (!content || !icon) return;
-
-                const isCollapsed = content.classList.contains('collapsed');
-                content.classList.toggle('collapsed', !isCollapsed);
-                icon.textContent = isCollapsed ? '▼' : '▶';
-                toggle.setAttribute('aria-expanded', isCollapsed ? 'true' : 'false');
-
-                setTimeout(() => {
-                    if (window.mosaicUtils) window.mosaicUtils.resizeAll();
-                }, 300);
-            }, { passive: true });
-        });
-    }
-
-    function initProjectTechFiltering(){
-        const projectsSection = $('.projects-section');
-        if (!projectsSection) return;
-
-        $$('.tech-tag', projectsSection).forEach(tag => {
-            if (tag.dataset.listenerAttached === '1') return;
-            tag.dataset.listenerAttached = '1';
-
-            tag.style.cursor = 'pointer';
-            tag.addEventListener('click', (e) => {
-                e.stopPropagation();
-                const name = tag.textContent.trim();
-                projectsSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                setTimeout(() => {
-                    if (typeof window.applyTechFilter === 'function') window.applyTechFilter(name);
-                }, 450);
-            }, { passive: false });
-        });
-    }
-
-    function initCodeSectionToggles(){
-        const codeSection = $('.code-section');
-        if (!codeSection) return;
-
-        // If another initializer already wired the toggles, reuse it.
-        if (typeof window.initCodeToggles === 'function') {
-            window.initCodeToggles();
-            return;
-        }
-
-        const toggles = $$('.section-toggle', codeSection);
-        toggles.forEach(toggle => {
-            if (toggle.dataset.listenerAttached === '1') return;
-            toggle.dataset.listenerAttached = '1';
-
-            toggle.addEventListener('click', () => {
-                const target = toggle.dataset.target;
-                const content = codeSection.querySelector('#' + target);
-                const icon = toggle.querySelector('.toggle-icon');
-                if (!content || !icon) return;
-
-                const isCollapsed = content.classList.contains('collapsed');
-                content.classList.toggle('collapsed', !isCollapsed);
-                icon.textContent = isCollapsed ? '▼' : '▶';
-                toggle.setAttribute('aria-expanded', isCollapsed ? 'true' : 'false');
-
-                setTimeout(() => {
-                    if (window.mosaicUtils) window.mosaicUtils.resizeAll();
-                }, 300);
-            }, { passive: true });
-        });
-    }
-
     function initSteamGameInteractions() {
         const steamSection = $('.steam-section');
         if (!steamSection) return;
@@ -116,18 +30,6 @@
         const beatLeaderSection = $('.beatleader-section');
         if (!beatLeaderSection) return;
 
-        $$('.map-item', beatLeaderSection).forEach(mapItem => {
-            mapItem.addEventListener('click', () => {
-                const mapName = $('.map-name', mapItem)?.textContent;
-                if (mapName) {
-                    const searchUrl = `https://beatsaver.com/search?q=${encodeURIComponent(mapName)}`;
-                    window.open(searchUrl, '_blank');
-                }
-            });
-
-            mapItem.style.cursor = 'pointer';
-        });
-
         $$('.stat-item', beatLeaderSection).forEach(statItem => {
             statItem.style.cursor = 'pointer';
         });
@@ -137,18 +39,66 @@
         const lastFMSection = $('.lastfm-section');
         if (!lastFMSection) return;
 
-        $$('.recent-track-item', lastFMSection).forEach(trackItem => {
-            trackItem.addEventListener('click', () => {
-                const trackName = $('.recent-track-name', trackItem)?.textContent;
-                const artistName = $('.recent-track-artist', trackItem)?.textContent;
+        let isUpdating = false;
 
-                if (trackName && artistName && window.playTrack) {
-                    const searchQuery = `${artistName} ${trackName}`;
-                    window.playTrack(searchQuery);
-                }
+        const observer = new MutationObserver(() => {
+            if (isUpdating) return;
+            isUpdating = true;
+            setupRecentTracksHandlers(lastFMSection);
+            setTimeout(() => {
+                isUpdating = false;
+            }, 100);
+        });
+
+        const recentTracksList = lastFMSection.querySelector('.recent-tracks-list');
+        if (recentTracksList) {
+            observer.observe(recentTracksList, {
+                childList: true,
+                subtree: false
             });
+        }
+
+        setupRecentTracksHandlers(lastFMSection);
+    }
+
+    function setupRecentTracksHandlers(lastFMSection) {
+        if (!lastFMSection) return;
+
+        const trackItems = lastFMSection.querySelectorAll('.recent-track-item');
+
+        trackItems.forEach(trackItem => {
+            if (trackItem.dataset.handlerAttached === 'true') {
+                return;
+            }
+
+            if (trackItem.classList.contains('now-playing')) {
+                trackItem.style.cursor = 'default';
+                trackItem.dataset.handlerAttached = 'true';
+                return;
+            }
 
             trackItem.style.cursor = 'pointer';
+
+            const trackNameEl = trackItem.querySelector('.recent-track-name');
+            const trackArtistEl = trackItem.querySelector('.recent-track-artist');
+
+            if (!trackNameEl || !trackArtistEl) return;
+
+            const trackName = trackNameEl.textContent.replace(' 🎵', '').trim();
+            const trackArtist = trackArtistEl.textContent.trim();
+
+            const clickHandler = function (e) {
+                e.preventDefault();
+                e.stopPropagation();
+
+                if (trackName && trackArtist && window.playTrack) {
+                    const searchQuery = `${trackArtist} ${trackName}`;
+                    window.playTrack(searchQuery);
+                }
+            };
+
+            trackItem.addEventListener('click', clickHandler);
+
             trackItem.addEventListener('mouseenter', () => {
                 trackItem.style.background = 'rgba(255,255,255,.024)';
             });
@@ -156,78 +106,9 @@
             trackItem.addEventListener('mouseleave', () => {
                 trackItem.style.background = '';
             });
+
+            trackItem.dataset.handlerAttached = 'true';
         });
-    }
-    function initTechStackFiltering(){
-        const techSection = $('.tech-section');
-        const projectsSection = $('.projects-section');
-        if (!techSection || !projectsSection) return;
-
-        const go = (name) => {
-            projectsSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
-            setTimeout(() => {
-                if (typeof window.applyTechFilter === 'function') {
-                    window.applyTechFilter(name);
-                } else {
-                    // graceful fallback: dim non-matching cards
-                    $$('.project-card', projectsSection).forEach(card => {
-                        const tags = $$('.tech-tag', card);
-                        const hit = tags.some(t => t.textContent.trim().toLowerCase() === name.toLowerCase());
-                        card.style.opacity = hit ? '1' : '0.2';
-                        card.style.transform = hit ? 'scale(1)' : 'scale(0.95)';
-                    });
-                }
-            }, 450);
-        };
-
-        $$('.tech-item', techSection).forEach(item => {
-            if (item.dataset.listenerAttached === '1') return;
-            item.dataset.listenerAttached = '1';
-
-            const name = item.querySelector('.tech-name')?.textContent || item.title || item.querySelector('img')?.alt || '';
-            if (!name) return;
-
-            item.style.cursor = 'pointer';
-            item.addEventListener('click', () => go(name), { passive: true });
-        });
-    }
-
-    function initMemeRefresh(){
-        const memeSection = document.querySelector('.meme-section');
-        if (!memeSection) return;
-
-        let refreshBtn = memeSection.querySelector('.meme-refresh-btn');
-        if (!refreshBtn){
-            const header = memeSection.querySelector('.meme-header');
-            if (header){
-                refreshBtn = document.createElement('button');
-                refreshBtn.className = 'btn btn-sm meme-refresh-btn';
-                refreshBtn.type = 'button';
-                refreshBtn.textContent = '🎲';
-                header.appendChild(refreshBtn);
-            }
-        }
-
-        if (refreshBtn){
-            if (refreshBtn.hasAttribute('onclick')) refreshBtn.removeAttribute('onclick');
-            if (refreshBtn.dataset.listenerAttached !== '1'){
-                refreshBtn.dataset.listenerAttached = '1';
-                refreshBtn.addEventListener('click', (e) => {
-                    e.preventDefault();
-                    if (typeof window.refreshMeme === 'function') window.refreshMeme();
-                }, { passive: false });
-            }
-        }
-
-        const memeContent = memeSection.querySelector('.meme-content');
-        if (memeContent && memeContent.dataset.listenerAttached !== '1'){
-            memeContent.dataset.listenerAttached = '1';
-            memeContent.style.cursor = 'pointer';
-            memeContent.addEventListener('click', (e) => {
-                if (e.target.closest('button')) return;
-                refreshBtn && refreshBtn.click();
-            }, { passive: true });
-        }
     }
 
     function initVisitorsInteractions() {
@@ -308,28 +189,34 @@
     }
 
     function initAnimatedCounters() {
-        $$('.visitor-number, .stat-value').forEach(counter => {
-            const observer = new IntersectionObserver((entries) => {
-                entries.forEach(entry => {
-                    if (entry.isIntersecting) {
-                        animateCounter(entry.target);
-                        observer.unobserve(entry.target);
-                    }
-                });
-            });
-            observer.observe(counter);
-        });
+        return;
     }
 
     function animateCounter(element) {
-        const text = element.textContent;
-        const number = parseFloat(text.replace(/[^\d.]/g, ''));
+        if (element.dataset.animated === 'true' || element.dataset.animating === 'true') {
+            return;
+        }
 
-        if (isNaN(number)) return;
+        element.dataset.animating = 'true';
+
+        const text = element.textContent;
+        const rawValue = element.dataset.rawValue;
+
+        let number;
+        if (rawValue) {
+            number = parseFloat(rawValue);
+        } else {
+            number = parseFloat(text.replace(/[^\d.]/g, ''));
+        }
+
+        if (isNaN(number) || number === 0) {
+            element.dataset.animating = '';
+            return;
+        }
 
         const suffix = text.replace(/[\d.,]/g, '');
-        const duration = 1000;
-        const steps = 30;
+        const duration = 800;
+        const steps = 20;
         const increment = number / steps;
         let current = 0;
         let step = 0;
@@ -341,11 +228,26 @@
             if (step >= steps) {
                 current = number;
                 clearInterval(timer);
+                element.dataset.animating = '';
             }
 
-            const formatted = Math.floor(current).toLocaleString();
-            element.textContent = formatted + suffix;
+            if (suffix.includes('K') || suffix.includes('M')) {
+                element.textContent = formatNumber(Math.floor(current));
+            } else {
+                const formatted = Math.floor(current).toLocaleString();
+                element.textContent = formatted + suffix;
+            }
         }, duration / steps);
+    }
+
+    function formatNumber(n) {
+        if (n < 1000) {
+            return n.toString();
+        } else if (n < 1000000) {
+            return (n / 1000).toFixed(1) + 'K';
+        } else {
+            return (n / 1000000).toFixed(1) + 'M';
+        }
     }
 
     if (document.readyState === 'loading') {
@@ -356,13 +258,9 @@
 
     function init() {
         setTimeout(() => {
-            initTechStackFiltering();
-            initProjectTechFiltering();
-            initCodeSectionToggles();
             initSteamGameInteractions();
             initBeatLeaderInteractions();
             initLastFMTrackActions();
-            initMemeRefresh();
             initVisitorsInteractions();
             initServicesInteractions();
             initWebringInteractions();

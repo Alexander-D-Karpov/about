@@ -72,14 +72,14 @@ func main() {
 	r := mux.NewRouter()
 
 	staticHandler := http.FileServer(http.FS(staticFiles))
-	r.PathPrefix("/static/").Handler(addCacheHeaders(staticHandler))
+	r.PathPrefix("/static/").Handler(disableDirectoryListing(addCacheHeaders(staticHandler)))
 
 	if err := os.MkdirAll(cfg.MediaPath, 0755); err != nil {
 		log.Fatal("Failed to create media directory:", err)
 	}
 
 	mediaHandler := http.StripPrefix("/media/", http.FileServer(http.Dir(cfg.MediaPath)))
-	r.PathPrefix("/media/").Handler(addCacheHeaders(mediaHandler))
+	r.PathPrefix("/media/").Handler(disableDirectoryListing(addCacheHeaders(mediaHandler)))
 
 	r.HandleFunc("/upload", handlers.NewUploadHandler(cfg).ServeHTTP).Methods("POST")
 
@@ -221,6 +221,16 @@ func addCacheHeaders(next http.Handler) http.Handler {
 	})
 }
 
+func disableDirectoryListing(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/") {
+			http.NotFound(w, r)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 func startBackgroundTasks(store *storage.Storage, pm *plugins.Manager) {
 	quit := make(chan struct{})
 
@@ -274,7 +284,7 @@ func startBackgroundTasks(store *storage.Storage, pm *plugins.Manager) {
 			}
 		}()
 
-		lastFMTicker := time.NewTicker(5 * time.Minute)
+		lastFMTicker := time.NewTicker(20 * time.Second)
 		generalTicker := time.NewTicker(10 * time.Minute)
 		systemTicker := time.NewTicker(30 * time.Second)
 
@@ -301,7 +311,7 @@ func startBackgroundTasks(store *storage.Storage, pm *plugins.Manager) {
 					}
 					defer updateMutex.Unlock()
 
-					_, cancel := context.WithTimeout(context.Background(), 25*time.Second)
+					_, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 					defer cancel()
 
 					if err := pm.UpdatePlugin("lastfm"); err != nil {

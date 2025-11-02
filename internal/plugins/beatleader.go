@@ -409,8 +409,8 @@ func (p *BeatLeaderPlugin) Render(ctx context.Context) (string, error) {
 		}
 
 		replayURL := ""
-		if scoreID := p.extractScoreID(score.Replay); scoreID != "" {
-			replayURL = fmt.Sprintf("https://replay.beatleader.com/?scoreId=%s", scoreID)
+		if score.ID != 0 {
+			replayURL = fmt.Sprintf("https://replay.beatleader.com/?scoreId=%d", score.ID)
 		}
 
 		processedScore := map[string]interface{}{
