@@ -422,6 +422,7 @@ func (s *Storage) applyEnvOverrides() {
 	}
 
 	s.setPluginNestedString("code", []string{"github", "username"}, os.Getenv("GITHUB_USERNAME"))
+	s.setPluginNestedString("code", []string{"github", "token"}, os.Getenv("GITHUB_TOKEN"))
 	s.setPluginNestedString("code", []string{"wakatime", "api_key"}, os.Getenv("WAKATIME_API_KEY"))
 
 	s.setPluginString("lastfm", "username", os.Getenv("LASTFM_USERNAME"))

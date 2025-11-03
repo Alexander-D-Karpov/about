@@ -21,6 +21,12 @@ type CodePlugin struct {
 	lastUpdate   time.Time
 }
 
+type RepoLanguageBreakdown struct {
+	Name       string
+	Percentage float64
+	Color      string
+}
+
 type GitHubUserData struct {
 	Login        string            `json:"login"`
 	Name         string            `json:"name"`
@@ -39,11 +45,13 @@ type GitHubUserData struct {
 }
 
 type GitHubRepo struct {
-	Name        string    `json:"name"`
-	Stars       int       `json:"stargazers_count"`
-	Language    string    `json:"language"`
-	UpdatedAt   time.Time `json:"updated_at"`
-	Description string    `json:"description"`
+	Name         string                  `json:"name"`
+	Stars        int                     `json:"stargazers_count"`
+	Language     string                  `json:"language"`
+	UpdatedAt    time.Time               `json:"updated_at"`
+	Description  string                  `json:"description"`
+	LanguagesURL string                  `json:"languages_url"`
+	Languages    []RepoLanguageBreakdown `json:"-"`
 }
 
 type GitHubCommitStats struct {
@@ -302,8 +310,26 @@ func (p *CodePlugin) Render(ctx context.Context) (string, error) {
 				<div class="collapsible-content collapsed" id="repos">
 					<div class="repo-list">
 						{{range .GitHubData.RecentRepos}}
-						<div class="repo-item" onclick="window.open('https://github.com/{{$.GitHubUsername}}/{{.Name}}', '_blank')" style="cursor: pointer;">
-							<span class="repo-name">{{.Name}}</span>
+						<div class="repo-item" onclick="window.open('https://github.com/{{$.GitHubUsername}}/{{.Name}}', '_blank')">
+							<div class="repo-content">
+								<div class="repo-name">{{.Name}}</div>
+								{{if .Languages}}
+								{{$total := 0.0}}
+								{{range .Languages}}{{$total = add $total .Percentage}}{{end}}
+								<div class="repo-lang-bar">
+									{{range .Languages}}
+									<div style="flex: {{.Percentage}}; background-color: {{.Color}};" title="{{.Name}} {{printf "%.1f" .Percentage}}%"></div>
+									{{end}}
+									{{if lt $total 100.0}}
+									<div style="flex: {{printf "%.6f" (sub 100.0 $total)}}; background-color: #8b949e;" title="Other {{printf "%.1f" (sub 100.0 $total)}}%"></div>
+									{{end}}
+								</div>
+								{{else if .Language}}
+								<div class="repo-lang-bar">
+									<div style="flex: 100; background-color: {{$.GetLanguageColor .Language}};" title="{{.Language}} 100%"></div>
+								</div>
+								{{end}}
+							</div>
 							<div class="repo-tags">
 								{{if .Language}}<span class="repo-lang">{{.Language}}</span>{{end}}
 								{{if gt .Stars 0}}<span class="repo-stars">★{{.Stars}}</span>{{end}}
@@ -342,6 +368,7 @@ func (p *CodePlugin) Render(ctx context.Context) (string, error) {
 		WakatimeData     *WakatimeData
 		MaxWeeklyCommits int
 		GitHubUsername   string
+		GetLanguageColor func(string) string
 	}{
 		SectionTitle:     sectionTitle,
 		ShowGitHub:       showGitHub,
@@ -352,11 +379,13 @@ func (p *CodePlugin) Render(ctx context.Context) (string, error) {
 		WakatimeData:     p.wakatimeData,
 		MaxWeeklyCommits: maxWeeklyCommits,
 		GitHubUsername:   githubUsername,
+		GetLanguageColor: p.getLanguageColor,
 	}
 
 	funcMap := template.FuncMap{
 		"printf": fmt.Sprintf,
-		"add":    func(a, b int) int { return a + b },
+		"add":    func(a, b float64) float64 { return a + b },
+		"sub":    func(a, b float64) float64 { return a - b },
 		"div": func(a, b int) int {
 			if b == 0 {
 				return 0
@@ -364,6 +393,7 @@ func (p *CodePlugin) Render(ctx context.Context) (string, error) {
 			return a / b
 		},
 		"mul": func(a, b int) int { return a * b },
+		"lt":  func(a, b float64) bool { return a < b },
 	}
 
 	t, err := template.New("code").Funcs(funcMap).Parse(tmpl)
@@ -378,6 +408,41 @@ func (p *CodePlugin) Render(ctx context.Context) (string, error) {
 	}
 
 	return buf.String(), nil
+}
+
+func (p *CodePlugin) checkRecentCommits(client *http.Client, username, repoName string, since time.Time) bool {
+	commitsURL := fmt.Sprintf("https://api.github.com/repos/%s/%s/commits?since=%s&author=%s&per_page=1",
+		username, repoName, since.Format(time.RFC3339), username)
+
+	req, err := http.NewRequest("GET", commitsURL, nil)
+	if err != nil {
+		return false
+	}
+
+	config := p.storage.GetPluginConfig(p.Name())
+	if token := p.getConfigValue(config.Settings, "github.token", ""); token != "" {
+		req.Header.Set("Authorization", "token "+token)
+	}
+
+	req.Header.Set("User-Agent", "AboutPage/1.0")
+	req.Header.Set("Accept", "application/vnd.github.v3+json")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		return false
+	}
+
+	var commits []interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&commits); err != nil {
+		return false
+	}
+
+	return len(commits) > 0
 }
 
 func (p *CodePlugin) UpdateData(ctx context.Context) error {
@@ -412,37 +477,63 @@ func (p *CodePlugin) updateGitHubData(username string) error {
 	if err != nil {
 		return err
 	}
+
+	config := p.storage.GetPluginConfig(p.Name())
+	if token := p.getConfigValue(config.Settings, "github.token", ""); token != "" {
+		req.Header.Set("Authorization", "token "+token)
+	}
+
 	req.Header.Set("User-Agent", "AboutPage/1.0")
 	req.Header.Set("Accept", "application/vnd.github.v3+json")
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to fetch user data: %w", err)
 	}
 	defer resp.Body.Close()
 
+	if resp.StatusCode != 200 {
+		return fmt.Errorf("GitHub API returned status %d for user %s", resp.StatusCode, username)
+	}
+
 	var userData GitHubUserData
 	if err := json.NewDecoder(resp.Body).Decode(&userData); err != nil {
-		return err
+		return fmt.Errorf("failed to decode user data: %w", err)
 	}
 
 	reposURL := fmt.Sprintf("https://api.github.com/users/%s/repos?sort=updated&per_page=100", username)
 	req, err = http.NewRequest("GET", reposURL, nil)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to create repos request: %w", err)
 	}
+
+	if token := p.getConfigValue(config.Settings, "github.token", ""); token != "" {
+		req.Header.Set("Authorization", "token "+token)
+	}
+
 	req.Header.Set("User-Agent", "AboutPage/1.0")
 	req.Header.Set("Accept", "application/vnd.github.v3+json")
 
 	resp, err = client.Do(req)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to fetch repos: %w", err)
 	}
 	defer resp.Body.Close()
 
+	if resp.StatusCode != 200 {
+		var errorResp struct {
+			Message          string `json:"message"`
+			DocumentationURL string `json:"documentation_url"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&errorResp); err == nil {
+			return fmt.Errorf("GitHub API error (status %d): %s", resp.StatusCode, errorResp.Message)
+		}
+		return fmt.Errorf("GitHub API returned status %d", resp.StatusCode)
+	}
+
 	var repos []GitHubRepo
 	if err := json.NewDecoder(resp.Body).Decode(&repos); err != nil {
-		return err
+		return fmt.Errorf("failed to decode repos (status %d): %w", resp.StatusCode, err)
 	}
 
 	totalStars := 0
@@ -487,21 +578,39 @@ func (p *CodePlugin) updateGitHubData(username string) error {
 		topLanguages = topLanguages[:8]
 	}
 
-	recentRepos := repos
-	if len(recentRepos) > 5 {
-		recentRepos = recentRepos[:5]
+	timeSince := time.Now().AddDate(0, -3, 0)
+	var recentActiveRepos []GitHubRepo
+
+	for _, repo := range repos {
+		if repo.UpdatedAt.After(timeSince) {
+			hasRecentCommits := p.checkRecentCommits(client, username, repo.Name, timeSince)
+			if hasRecentCommits {
+				recentActiveRepos = append(recentActiveRepos, repo)
+			}
+		}
 	}
 
-	weeklyCommits := []int{12, 8, 15, 22, 18, 7, 3}
+	for i := 0; i < len(recentActiveRepos); i++ {
+		for j := i + 1; j < len(recentActiveRepos); j++ {
+			if recentActiveRepos[i].UpdatedAt.Before(recentActiveRepos[j].UpdatedAt) {
+				recentActiveRepos[i], recentActiveRepos[j] = recentActiveRepos[j], recentActiveRepos[i]
+			}
+		}
+	}
+
+	for i := range recentActiveRepos {
+		if recentActiveRepos[i].LanguagesURL != "" {
+			recentActiveRepos[i].Languages = p.fetchRepoLanguages(client, recentActiveRepos[i].LanguagesURL)
+		}
+	}
+
+	commitStats := p.fetchCommitStats(client, username, repos)
 
 	userData.TotalStars = totalStars
 	userData.TopLanguages = topLanguages
-	userData.RecentRepos = recentRepos
-	userData.TotalCommits = 847
-	userData.CommitStats = GitHubCommitStats{
-		TotalCommits:  847,
-		WeeklyCommits: weeklyCommits,
-	}
+	userData.RecentRepos = recentActiveRepos
+	userData.TotalCommits = commitStats.TotalCommits
+	userData.CommitStats = commitStats
 
 	p.githubData = &userData
 
@@ -715,4 +824,194 @@ func (p *CodePlugin) RenderText(ctx context.Context) (string, error) {
 	}
 
 	return fmt.Sprintf("Code: %s", strings.Join(parts, ", ")), nil
+}
+
+func (p *CodePlugin) fetchRepoLanguages(client *http.Client, languagesURL string) []RepoLanguageBreakdown {
+	req, err := http.NewRequest("GET", languagesURL, nil)
+	if err != nil {
+		return nil
+	}
+
+	config := p.storage.GetPluginConfig(p.Name())
+	if token := p.getConfigValue(config.Settings, "github.token", ""); token != "" {
+		req.Header.Set("Authorization", "token "+token)
+	}
+
+	req.Header.Set("User-Agent", "AboutPage/1.0")
+	req.Header.Set("Accept", "application/vnd.github.v3+json")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		return nil
+	}
+
+	var languages map[string]int
+	if err := json.NewDecoder(resp.Body).Decode(&languages); err != nil {
+		return nil
+	}
+
+	total := 0
+	for _, bytes := range languages {
+		total += bytes
+	}
+
+	if total == 0 {
+		return nil
+	}
+
+	var breakdown []RepoLanguageBreakdown
+	for lang, bytes := range languages {
+		percentage := float64(bytes) / float64(total) * 100
+		if percentage >= 0.5 {
+			breakdown = append(breakdown, RepoLanguageBreakdown{
+				Name:       lang,
+				Percentage: percentage,
+				Color:      p.getLanguageColor(lang),
+			})
+		}
+	}
+
+	// Sort by percentage
+	for i := 0; i < len(breakdown); i++ {
+		for j := i + 1; j < len(breakdown); j++ {
+			if breakdown[i].Percentage < breakdown[j].Percentage {
+				breakdown[i], breakdown[j] = breakdown[j], breakdown[i]
+			}
+		}
+	}
+
+	return breakdown
+}
+
+func (p *CodePlugin) fetchCommitStats(client *http.Client, username string, repos []GitHubRepo) GitHubCommitStats {
+	stats := GitHubCommitStats{
+		WeeklyCommits: make([]int, 7),
+	}
+
+	oneWeekAgo := time.Now().AddDate(0, 0, -7)
+
+	// Limit to first 20 repos to avoid rate limiting
+	maxRepos := len(repos)
+	if maxRepos > 20 {
+		maxRepos = 20
+	}
+
+	config := p.storage.GetPluginConfig(p.Name())
+	token := p.getConfigValue(config.Settings, "github.token", "")
+
+	for _, repo := range repos[:maxRepos] {
+		commitsURL := fmt.Sprintf("https://api.github.com/repos/%s/%s/commits?since=%s&author=%s",
+			username, repo.Name, oneWeekAgo.Format(time.RFC3339), username)
+
+		req, err := http.NewRequest("GET", commitsURL, nil)
+		if err != nil {
+			continue
+		}
+
+		if token != "" {
+			req.Header.Set("Authorization", "token "+token)
+		}
+
+		req.Header.Set("User-Agent", "AboutPage/1.0")
+		req.Header.Set("Accept", "application/vnd.github.v3+json")
+
+		resp, err := client.Do(req)
+		if err != nil {
+			continue
+		}
+
+		if resp.StatusCode != 200 {
+			resp.Body.Close()
+			continue
+		}
+
+		var commits []struct {
+			Commit struct {
+				Author struct {
+					Date time.Time `json:"date"`
+				} `json:"author"`
+			} `json:"commit"`
+		}
+
+		if err := json.NewDecoder(resp.Body).Decode(&commits); err != nil {
+			resp.Body.Close()
+			continue
+		}
+		resp.Body.Close()
+
+		// Count commits by day of week
+		for _, commit := range commits {
+			daysSince := int(time.Since(commit.Commit.Author.Date).Hours() / 24)
+			if daysSince >= 0 && daysSince < 7 {
+				stats.WeeklyCommits[6-daysSince]++
+			}
+		}
+
+		// Small delay to avoid rate limiting
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	for _, count := range stats.WeeklyCommits {
+		stats.TotalCommits += count
+	}
+
+	if stats.TotalCommits == 0 {
+		stats.TotalCommits = p.estimateTotalCommits(client, username, repos[:maxRepos])
+	}
+
+	return stats
+}
+
+func (p *CodePlugin) estimateTotalCommits(client *http.Client, username string, repos []GitHubRepo) int {
+	totalCommits := 0
+
+	for _, repo := range repos {
+		statsURL := fmt.Sprintf("https://api.github.com/repos/%s/%s/stats/contributors", username, repo.Name)
+
+		req, err := http.NewRequest("GET", statsURL, nil)
+		if err != nil {
+			continue
+		}
+		req.Header.Set("User-Agent", "AboutPage/1.0")
+		req.Header.Set("Accept", "application/vnd.github.v3+json")
+
+		resp, err := client.Do(req)
+		if err != nil {
+			continue
+		}
+
+		if resp.StatusCode == 202 {
+			resp.Body.Close()
+			continue
+		}
+
+		var contributors []struct {
+			Author struct {
+				Login string `json:"login"`
+			} `json:"author"`
+			Total int `json:"total"`
+		}
+
+		if err := json.NewDecoder(resp.Body).Decode(&contributors); err != nil {
+			resp.Body.Close()
+			continue
+		}
+		resp.Body.Close()
+
+		for _, contrib := range contributors {
+			if contrib.Author.Login == username {
+				totalCommits += contrib.Total
+				break
+			}
+		}
+
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	return totalCommits
 }
