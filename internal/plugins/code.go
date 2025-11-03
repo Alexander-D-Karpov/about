@@ -1,6 +1,7 @@
 package plugins
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -471,6 +472,7 @@ func (p *CodePlugin) UpdateData(ctx context.Context) error {
 
 func (p *CodePlugin) updateGitHubData(username string) error {
 	client := &http.Client{Timeout: 15 * time.Second}
+	fmt.Println("Updating github info...")
 
 	userURL := fmt.Sprintf("https://api.github.com/users/%s", username)
 	req, err := http.NewRequest("GET", userURL, nil)
@@ -606,6 +608,11 @@ func (p *CodePlugin) updateGitHubData(username string) error {
 
 	commitStats := p.fetchCommitStats(client, username, repos)
 
+	totalCommitsLastYear := p.fetchTotalCommits(client, username)
+	if totalCommitsLastYear > 0 {
+		commitStats.TotalCommits = totalCommitsLastYear
+	}
+
 	userData.TotalStars = totalStars
 	userData.TopLanguages = topLanguages
 	userData.RecentRepos = recentActiveRepos
@@ -621,6 +628,7 @@ func (p *CodePlugin) updateGitHubData(username string) error {
 		"languages": len(topLanguages),
 	})
 
+	fmt.Println("Updating github info... done")
 	return nil
 }
 
@@ -1008,6 +1016,90 @@ func (p *CodePlugin) estimateTotalCommits(client *http.Client, username string, 
 				totalCommits += contrib.Total
 				break
 			}
+		}
+
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	return totalCommits
+}
+
+func (p *CodePlugin) fetchTotalCommits(client *http.Client, username string) int {
+	config := p.storage.GetPluginConfig(p.Name())
+	token := p.getConfigValue(config.Settings, "github.token", "")
+
+	if token == "" {
+		return 0
+	}
+
+	totalCommits := 0
+	now := time.Now()
+
+	for year := 0; year < 10; year++ {
+		yearStart := now.AddDate(-year-1, 0, 0)
+		yearEnd := now.AddDate(-year, 0, 0)
+
+		query := fmt.Sprintf(`{
+			user(login: "%s") {
+				contributionsCollection(from: "%s", to: "%s") {
+					contributionCalendar {
+						totalContributions
+					}
+				}
+			}
+		}`, username, yearStart.Format(time.RFC3339), yearEnd.Format(time.RFC3339))
+
+		requestBody := map[string]string{
+			"query": query,
+		}
+
+		jsonData, err := json.Marshal(requestBody)
+		if err != nil {
+			break
+		}
+
+		req, err := http.NewRequest("POST", "https://api.github.com/graphql", bytes.NewBuffer(jsonData))
+		if err != nil {
+			break
+		}
+
+		req.Header.Set("Authorization", "bearer "+token)
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("User-Agent", "AboutPage/1.0")
+
+		resp, err := client.Do(req)
+		if err != nil {
+			break
+		}
+
+		if resp.StatusCode != 200 {
+			resp.Body.Close()
+			break
+		}
+
+		var result struct {
+			Data struct {
+				User struct {
+					ContributionsCollection struct {
+						ContributionCalendar struct {
+							TotalContributions int `json:"totalContributions"`
+						} `json:"contributionCalendar"`
+					} `json:"contributionsCollection"`
+				} `json:"user"`
+			} `json:"data"`
+		}
+
+		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+			resp.Body.Close()
+			break
+		}
+		resp.Body.Close()
+
+		yearContributions := result.Data.User.ContributionsCollection.ContributionCalendar.TotalContributions
+		totalCommits += yearContributions
+
+		if yearContributions == 0 {
+			break
 		}
 
 		time.Sleep(100 * time.Millisecond)
