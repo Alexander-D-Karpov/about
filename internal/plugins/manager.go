@@ -48,7 +48,7 @@ func NewManager(storage *storage.Storage, hub *stream.Hub, config *config.Config
 }
 
 func (m *Manager) LoadAll() error {
-	beatLeaderPlugin := NewBeatLeaderPlugin(m.storage, m.hub)
+	beatLeaderPlugin := NewBeatLeaderPlugin(m.storage, m.hub, m.config.MediaPath)
 	beatLeaderPlugin.SetCacheInvalidator(func() {
 		m.InvalidatePluginCache("beatleader")
 	})

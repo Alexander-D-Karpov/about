@@ -5,13 +5,24 @@ import (
 	"encoding/json"
 	"fmt"
 	"html/template"
+	"image"
+	"image/color"
+	"image/jpeg"
 	"io"
 	"log"
 	"net/http"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
 	"time"
+
+	"golang.org/x/image/draw"
+	"golang.org/x/image/font"
+	"golang.org/x/image/font/basicfont"
+	"golang.org/x/image/font/opentype"
+	"golang.org/x/image/math/fixed"
 
 	"github.com/Alexander-D-Karpov/about/internal/storage"
 	"github.com/Alexander-D-Karpov/about/internal/stream"
@@ -28,6 +39,7 @@ type BeatLeaderPlugin struct {
 	lastCubesCalculated time.Time
 	cubesCalculating    bool
 	cubesMutex          sync.RWMutex
+	mediaPath           string
 }
 
 func (p *BeatLeaderPlugin) SetCacheInvalidator(fn func()) {
@@ -189,14 +201,14 @@ type BeatLeaderScore struct {
 	OffsetValues interface{} `json:"offsets"`
 }
 
-func NewBeatLeaderPlugin(storage *storage.Storage, hub *stream.Hub) *BeatLeaderPlugin {
+func NewBeatLeaderPlugin(storage *storage.Storage, hub *stream.Hub, mediaPath string) *BeatLeaderPlugin {
 	plugin := &BeatLeaderPlugin{
-		storage: storage,
-		hub:     hub,
+		storage:   storage,
+		hub:       hub,
+		mediaPath: mediaPath,
 	}
 
 	plugin.loadCachedCubes()
-
 	go plugin.calculateCubesSlicedBackground()
 
 	return plugin
@@ -495,6 +507,10 @@ func (p *BeatLeaderPlugin) renderLoading(settings map[string]interface{}) string
 }
 
 func (p *BeatLeaderPlugin) UpdateData(ctx context.Context) error {
+	err := p.generateCubesImage()
+	if err != nil {
+		log.Printf("BeatLeader: Failed to generate cubes image: %v", err)
+	}
 	if time.Since(p.lastUpdate) < 5*time.Minute {
 		return nil
 	}
@@ -796,6 +812,10 @@ func (p *BeatLeaderPlugin) performCubesCalculation() {
 
 	p.saveCachedCubes()
 
+	if err := p.generateCubesImage(); err != nil {
+		log.Printf("BeatLeader: Failed to generate cubes image: %v", err)
+	}
+
 	p.hub.Broadcast("beatleader_cubes_update", map[string]interface{}{
 		"cubes":     totalCubes,
 		"formatted": formatNumber(totalCubes),
@@ -887,4 +907,250 @@ func (p *BeatLeaderPlugin) fetchScoresPage(username string, page int, count int)
 	}
 
 	return response.Data, metadata, nil
+}
+
+func (p *BeatLeaderPlugin) generateCubesImage() error {
+	p.cubesMutex.RLock()
+	cubes := p.cachedCubesSliced
+	p.cubesMutex.RUnlock()
+
+	cubesText := formatNumberWithCommas(cubes)
+
+	line1 := "cubes sliced total:"
+	line2 := cubesText
+
+	imgWidth := 1400
+	imgHeight := 500
+
+	img := image.NewRGBA(image.Rect(0, 0, imgWidth, imgHeight))
+
+	black := color.RGBA{0, 0, 0, 255}
+	draw.Draw(img, img.Bounds(), &image.Uniform{black}, image.Point{}, draw.Src)
+
+	white := color.RGBA{255, 255, 255, 255}
+
+	fontSize := 64.0
+	lineSpacing := 30
+
+	face, err := loadMinecraftFont(fontSize)
+	if err != nil {
+		log.Printf("BeatLeader: Failed to load Minecraft font: %v, using fallback", err)
+		return p.generateCubesImageFallback()
+	}
+	defer face.Close()
+
+	d := &font.Drawer{
+		Dst:  img,
+		Src:  image.NewUniform(white),
+		Face: face,
+	}
+
+	line1Bounds, _ := d.BoundString(line1)
+	line1Width := (line1Bounds.Max.X - line1Bounds.Min.X).Ceil()
+	line1X := (imgWidth - line1Width) / 2
+
+	line2Bounds, _ := d.BoundString(line2)
+	line2Width := (line2Bounds.Max.X - line2Bounds.Min.X).Ceil()
+	line2X := (imgWidth - line2Width) / 2
+
+	metrics := face.Metrics()
+	ascent := metrics.Ascent.Ceil()
+	descent := metrics.Descent.Ceil()
+	lineHeight := ascent + descent
+
+	totalHeight := lineHeight*2 + lineSpacing
+	startY := (imgHeight-totalHeight)/2 + ascent
+
+	d.Dot = fixed.Point26_6{
+		X: fixed.I(line1X),
+		Y: fixed.I(startY),
+	}
+	d.DrawString(line1)
+
+	d.Dot = fixed.Point26_6{
+		X: fixed.I(line2X),
+		Y: fixed.I(startY + lineHeight + lineSpacing),
+	}
+	d.DrawString(line2)
+
+	imagePath := filepath.Join(p.mediaPath, "bs.jpg")
+
+	if err := os.MkdirAll(filepath.Dir(imagePath), 0755); err != nil {
+		return fmt.Errorf("failed to create directory: %w", err)
+	}
+
+	file, err := os.Create(imagePath)
+	if err != nil {
+		return fmt.Errorf("failed to create image file: %w", err)
+	}
+	defer file.Close()
+
+	if err := jpeg.Encode(file, img, &jpeg.Options{Quality: 95}); err != nil {
+		return fmt.Errorf("failed to encode JPEG: %w", err)
+	}
+
+	log.Printf("BeatLeader: Generated cubes image with Monocraft font at %s with %d cubes (size: %dx%d)",
+		imagePath, cubes, imgWidth, imgHeight)
+	return nil
+}
+
+func loadMinecraftFont(size float64) (font.Face, error) {
+	paths := []string{
+		"./static/fonts/Monocraft.ttf",
+		"./fonts/Monocraft.ttf",
+		"./static/fonts/Minecraft.ttf",
+		"./fonts/Minecraft.ttf",
+		"./static/fonts/Monocraft.ttc",
+		"./fonts/Monocraft.ttc",
+		"/usr/share/fonts/truetype/minecraft/Minecraft.ttf",
+	}
+
+	var b []byte
+	var p string
+	for _, path := range paths {
+		if bb, err := os.ReadFile(path); err == nil {
+			b, p = bb, path
+			log.Printf("BeatLeader: Loaded font bytes from %s", p)
+			break
+		}
+	}
+	if b == nil {
+		return nil, fmt.Errorf("no Minecraft/Monocraft font found")
+	}
+
+	if strings.HasSuffix(strings.ToLower(p), ".ttc") {
+		coll, err := opentype.ParseCollection(b)
+		if err != nil {
+			return nil, fmt.Errorf("parse ttc: %w", err)
+		}
+		for i := 0; i < coll.NumFonts(); i++ {
+			fnt, err := coll.Font(i)
+			if err != nil {
+				continue
+			}
+			face, err := opentype.NewFace(fnt, &opentype.FaceOptions{
+				Size: size, DPI: 96, Hinting: font.HintingFull,
+			})
+			if err != nil {
+				continue
+			}
+			d := font.Drawer{Face: face}
+			if d.MeasureString("000000") == d.MeasureString("111111") { // monospaced
+				log.Printf("BeatLeader: Using TTC face #%d from %s", i, p)
+				return face, nil
+			}
+			face.Close()
+		}
+		return nil, fmt.Errorf("no suitable face in %s", p)
+	}
+
+	tt, err := opentype.Parse(b)
+	if err != nil {
+		return nil, fmt.Errorf("parse ttf: %w", err)
+	}
+	return opentype.NewFace(tt, &opentype.FaceOptions{Size: size, DPI: 96, Hinting: font.HintingFull})
+}
+
+func (p *BeatLeaderPlugin) generateCubesImageFallback() error {
+	p.cubesMutex.RLock()
+	cubes := p.cachedCubesSliced
+	p.cubesMutex.RUnlock()
+
+	cubesText := formatNumberWithCommas(cubes)
+
+	line1 := "cubes sliced total:"
+	line2 := cubesText
+
+	imgWidth := 1200
+	imgHeight := 400
+
+	img := image.NewRGBA(image.Rect(0, 0, imgWidth, imgHeight))
+
+	black := color.RGBA{0, 0, 0, 255}
+	draw.Draw(img, img.Bounds(), &image.Uniform{black}, image.Point{}, draw.Src)
+
+	white := color.RGBA{255, 255, 255, 255}
+
+	scale := 5
+	charWidth := 7
+	charHeight := 13
+	lineSpacing := 40
+
+	scaledCharWidth := charWidth * scale
+	scaledCharHeight := charHeight * scale
+
+	line1Width := len(line1) * scaledCharWidth
+	line1X := (imgWidth - line1Width) / 2
+	line1Y := (imgHeight-(scaledCharHeight*2+lineSpacing))/2 + scaledCharHeight
+
+	drawLargeTextFallback(img, line1, line1X, line1Y, scale, white)
+
+	line2Width := len(line2) * scaledCharWidth
+	line2X := (imgWidth - line2Width) / 2
+	line2Y := line1Y + scaledCharHeight + lineSpacing
+
+	drawLargeTextFallback(img, line2, line2X, line2Y, scale, white)
+
+	imagePath := filepath.Join(p.mediaPath, "bs.jpg")
+
+	if err := os.MkdirAll(filepath.Dir(imagePath), 0755); err != nil {
+		return fmt.Errorf("failed to create directory: %w", err)
+	}
+
+	file, err := os.Create(imagePath)
+	if err != nil {
+		return fmt.Errorf("failed to create image file: %w", err)
+	}
+	defer file.Close()
+
+	if err := jpeg.Encode(file, img, &jpeg.Options{Quality: 95}); err != nil {
+		return fmt.Errorf("failed to encode JPEG: %w", err)
+	}
+
+	log.Printf("BeatLeader: Generated cubes image (fallback) at %s with %d cubes", imagePath, cubes)
+	return nil
+}
+
+func drawLargeTextFallback(img *image.RGBA, text string, startX, startY, scale int, col color.RGBA) {
+	face := basicfont.Face7x13
+
+	baseWidth := len(text) * 7
+	baseHeight := 13
+
+	tempImg := image.NewRGBA(image.Rect(0, 0, baseWidth, baseHeight))
+	draw.Draw(tempImg, tempImg.Bounds(), &image.Uniform{color.RGBA{0, 0, 0, 0}}, image.Point{}, draw.Src)
+
+	d := &font.Drawer{
+		Dst:  tempImg,
+		Src:  image.NewUniform(col),
+		Face: face,
+		Dot:  fixed.P(0, 10),
+	}
+	d.DrawString(text)
+
+	for y := 0; y < baseHeight; y++ {
+		for x := 0; x < baseWidth; x++ {
+			pixel := tempImg.At(x, y)
+			r, g, b, a := pixel.RGBA()
+
+			if a > 0 {
+				for sy := 0; sy < scale; sy++ {
+					for sx := 0; sx < scale; sx++ {
+						targetX := startX + x*scale + sx
+						targetY := startY + y*scale + sy - (10 * scale)
+
+						if targetX >= 0 && targetX < img.Bounds().Dx() &&
+							targetY >= 0 && targetY < img.Bounds().Dy() {
+							img.Set(targetX, targetY, color.RGBA{
+								uint8(r >> 8),
+								uint8(g >> 8),
+								uint8(b >> 8),
+								255,
+							})
+						}
+					}
+				}
+			}
+		}
+	}
 }
