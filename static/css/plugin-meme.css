@@ -11,3 +11,37 @@
 
 /* keep toolbar tidy around narrow widths */
 .meme-section .plugin-toolbar{gap:6px;flex-wrap:nowrap;overflow:hidden}
+
+.meme-refresh-btn {
+    transition: all 0.2s ease;
+}
+
+.meme-refresh-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.meme-refresh-btn svg {
+    display: block;
+}
+
+.meme-refresh-btn .loading {
+    animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+    0% {
+        transform: rotate(0deg);
+    }
+    100% {
+        transform: rotate(360deg);
+    }
+}
+
+.meme-refresh-btn:not(:disabled):hover {
+    transform: translateY(-1px) scale(1.05);
+}
+
+.meme-refresh-btn:not(:disabled):active {
+    transform: translateY(0) scale(0.95);
+}

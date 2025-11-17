@@ -71,67 +71,103 @@ func (p *WebringPlugin) Render(ctx context.Context) (string, error) {
 	user := getString(settings, "username", "sanspie")
 
 	var prevName, nextName, prevURL, nextURL, prevFavicon, nextFavicon string
+	var hasPrevFavicon, hasNextFavicon bool
 
 	if p.webringData != nil {
 		prevName = p.webringData.Prev.Name
 		nextName = p.webringData.Next.Name
 		prevURL = p.webringData.Prev.URL
 		nextURL = p.webringData.Next.URL
-		prevFavicon = fmt.Sprintf("%s/media/%s", strings.TrimRight(base, "/"), p.webringData.Prev.Favicon)
-		nextFavicon = fmt.Sprintf("%s/media/%s", strings.TrimRight(base, "/"), p.webringData.Next.Favicon)
+
+		if p.webringData.Prev.Favicon != "" {
+			prevFavicon = fmt.Sprintf("%s/media/%s", strings.TrimRight(base, "/"), p.webringData.Prev.Favicon)
+			hasPrevFavicon = true
+		}
+		if p.webringData.Next.Favicon != "" {
+			nextFavicon = fmt.Sprintf("%s/media/%s", strings.TrimRight(base, "/"), p.webringData.Next.Favicon)
+			hasNextFavicon = true
+		}
 	} else {
-		prevName = "Previous Site"
-		nextName = "Next Site"
+		prevName = "Loading..."
+		nextName = "Loading..."
 		prevURL = fmt.Sprintf("%s/prev/%s", strings.TrimRight(base, "/"), user)
 		nextURL = fmt.Sprintf("%s/next/%s", strings.TrimRight(base, "/"), user)
-		prevFavicon = "https://webring.otomir23.me/static/images/favicon.ico"
-		nextFavicon = "https://webring.otomir23.me/static/images/favicon.ico"
 	}
 
 	homeURL := base
 
 	tmpl := `
-	<div class="webring-section section" data-base-url="{{.BaseURL}}" data-username="{{.Username}}">
+<section class="webring-section plugin" data-base-url="{{.BaseURL}}" data-username="{{.Username}}">
+	<div class="plugin__inner">
 		<div class="plugin-header">
-			<h3 class="plugin-title">webring</h3>
+			<h3 class="plugin-title">Webring</h3>
 		</div>
-		<div class="plugin__inner">
-			<div class="webring-nav">
-				<a class="btn btn-ghost webring-prev" href="{{.PrevURL}}" rel="noopener" title="Previous site">
-					<img src="{{.PrevFavicon}}" width="16" height="16" alt="">
-					<span class="webring-text">← {{.PrevName}}</span>
-				</a>
-				<a class="btn webring-home" href="{{.HomeURL}}" rel="noopener" title="Ring home">
-					<span class="webring-text">webring</span>
-				</a>
-				<a class="btn btn-ghost webring-next" href="{{.NextURL}}" rel="noopener" title="Next site">
-					<span class="webring-text">{{.NextName}} →</span>
-					<img src="{{.NextFavicon}}" width="16" height="16" alt="">
-				</a>
-			</div>
-		</div>
-	</div>`
+		<nav class="webring-nav" role="navigation" aria-label="Webring navigation">
+			<a href="{{.PrevURL}}" 
+			   class="webring-prev" 
+			   rel="prev external nofollow noopener"
+			   title="Previous: {{.PrevName}}"
+			   aria-label="Previous site: {{.PrevName}}">
+				{{if .HasPrevFavicon}}
+				<img src="{{.PrevFavicon}}" alt="" width="18" height="18" loading="lazy">
+				{{else}}
+				<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+					<path d="M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z"/>
+				</svg>
+				{{end}}
+				<span class="webring-text">← {{.PrevName}}</span>
+			</a>
+			
+			<a href="{{.HomeURL}}" 
+			   class="webring-home" 
+			   rel="external nofollow noopener"
+			   title="Webring Home"
+			   aria-label="Webring home">
+				<span class="webring-text">webring</span>
+			</a>
+			
+			<a href="{{.NextURL}}" 
+			   class="webring-next" 
+			   rel="next external nofollow noopener"
+			   title="Next: {{.NextName}}"
+			   aria-label="Next site: {{.NextName}}">
+				<span class="webring-text">{{.NextName}} →</span>
+				{{if .HasNextFavicon}}
+				<img src="{{.NextFavicon}}" alt="" width="18" height="18" loading="lazy">
+				{{else}}
+				<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+					<path d="M8.59 16.59L10 18l6-6-6-6-1.41 1.41L13.17 12z"/>
+				</svg>
+				{{end}}
+			</a>
+		</nav>
+	</div>
+</section>`
 
 	data := struct {
-		PrevName    string
-		NextName    string
-		PrevURL     string
-		NextURL     string
-		PrevFavicon string
-		NextFavicon string
-		HomeURL     string
-		Username    string
-		BaseURL     string
+		PrevName       string
+		NextName       string
+		PrevURL        string
+		NextURL        string
+		PrevFavicon    string
+		NextFavicon    string
+		HasPrevFavicon bool
+		HasNextFavicon bool
+		HomeURL        string
+		Username       string
+		BaseURL        string
 	}{
-		PrevName:    prevName,
-		NextName:    nextName,
-		PrevURL:     prevURL,
-		NextURL:     nextURL,
-		PrevFavicon: prevFavicon,
-		NextFavicon: nextFavicon,
-		HomeURL:     homeURL,
-		Username:    user,
-		BaseURL:     strings.TrimRight(base, "/"),
+		PrevName:       prevName,
+		NextName:       nextName,
+		PrevURL:        prevURL,
+		NextURL:        nextURL,
+		PrevFavicon:    prevFavicon,
+		NextFavicon:    nextFavicon,
+		HasPrevFavicon: hasPrevFavicon,
+		HasNextFavicon: hasNextFavicon,
+		HomeURL:        homeURL,
+		Username:       user,
+		BaseURL:        strings.TrimRight(base, "/"),
 	}
 
 	t, err := template.New("webring").Parse(tmpl)

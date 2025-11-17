@@ -113,10 +113,14 @@
                 isConnected = false;
                 stopHeartbeat();
                 stopLastFMCheck();
-
                 if (clientCountRequestTimeout) {
                     clearTimeout(clientCountRequestTimeout);
                     clientCountRequestTimeout = null;
+                }
+
+                // Don't change status if we're showing goodbye
+                if (isGoodbye) {
+                    return;
                 }
 
                 if (event.code === 1000 || event.code === 1001) {
@@ -124,7 +128,6 @@
                     updateConnectionStatus('disconnected');
                     return;
                 }
-
                 if (shouldReconnect) {
                     updateConnectionStatus('disconnected');
                     attemptReconnect();
@@ -1105,23 +1108,22 @@
         }
     }
 
+    let isGoodbye = false;
+
     function disconnect() {
         shouldReconnect = false;
+        isGoodbye = true;
         stopHeartbeat();
         stopLastFMCheck();
-
         if (reconnectTimeout) {
             clearTimeout(reconnectTimeout);
             reconnectTimeout = null;
         }
-
         if (clientCountRequestTimeout) {
             clearTimeout(clientCountRequestTimeout);
             clientCountRequestTimeout = null;
         }
-
         updateConnectionStatus('goodbye');
-
         if (ws) {
             ws.close(1000, 'Client disconnect');
         }

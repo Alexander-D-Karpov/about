@@ -364,13 +364,27 @@
 
         let btn = sec.querySelector('.meme-refresh-btn');
         if (!btn){
-            const header = sec.querySelector('.meme-header');
+            const header = sec.querySelector('.plugin-header');
             if (header){
-                btn = document.createElement('button');
-                btn.className = 'btn btn-sm meme-refresh-btn';
-                btn.type = 'button';
-                btn.textContent = '🎲';
-                header.appendChild(btn);
+                const toolbar = header.querySelector('.plugin-toolbar');
+                if (toolbar) {
+                    btn = document.createElement('button');
+                    btn.className = 'icon-btn plugin-btn meme-refresh-btn';
+                    btn.type = 'button';
+                    btn.title = 'Random Meme';
+                    btn.setAttribute('aria-label', 'Get random meme');
+
+                    // Create SVG icon for dice
+                    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+                    svg.setAttribute('viewBox', '0 0 24 24');
+                    svg.setAttribute('width', '16');
+                    svg.setAttribute('height', '16');
+                    svg.setAttribute('fill', 'currentColor');
+                    svg.innerHTML = '<path d="M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2zm7 4a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3zm-4 4a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3zm8 0a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3zm-4 4a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3z"/>';
+
+                    btn.appendChild(svg);
+                    toolbar.appendChild(btn);
+                }
             }
         }
 
@@ -380,19 +394,28 @@
                 btn.dataset.listenerAttached = '1';
                 btn.addEventListener('click', (e) => {
                     e.preventDefault();
-                    if (typeof window.refreshMeme === 'function') window.refreshMeme();
+                    e.stopPropagation();
+
+                    // Add loading state
+                    const originalHTML = btn.innerHTML;
+                    btn.disabled = true;
+                    btn.innerHTML = '<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" class="loading"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2" fill="none" opacity="0.25"/><path d="M12 2a10 10 0 0 1 10 10" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/></svg>';
+
+                    if (typeof window.refreshMeme === 'function') {
+                        window.refreshMeme();
+
+                        setTimeout(() => {
+                            btn.disabled = false;
+                            btn.innerHTML = originalHTML;
+                        }, 1500);
+                    }
                 }, { passive: false });
             }
         }
 
         const content = sec.querySelector('.meme-content');
-        if (content && content.dataset.listenerAttached !== '1'){
-            content.dataset.listenerAttached = '1';
-            content.style.cursor = 'pointer';
-            content.addEventListener('click', (e) => {
-                if (e.target.closest('button')) return;
-                btn && btn.click();
-            }, { passive: true });
+        if (content) {
+            content.style.cursor = 'default';
         }
     }
 

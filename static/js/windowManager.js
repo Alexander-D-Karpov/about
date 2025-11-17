@@ -1,6 +1,9 @@
 (function(){
     'use strict';
 
+    // Mark that JS is loading
+    document.documentElement.classList.add('js-loading');
+
     // Ensure CSS rules gated by ".js" apply (grid layout next to profile)
     document.documentElement.classList.add('js');
 
@@ -849,6 +852,12 @@
             collapseExpanded,
             getMosaic: () => mosaic
         };
+
+        // Mark JS as loaded
+        setTimeout(() => {
+            document.documentElement.classList.remove('js-loading');
+            document.documentElement.classList.add('js-loaded');
+        }, 100);
     }
 
     initWindowManager();
