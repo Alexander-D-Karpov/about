@@ -1,4 +1,3 @@
-// Global variables
 let currentPluginData = {};
 let fileUploadQueue = new Map();
 
@@ -28,6 +27,12 @@ function renderPluginForm(container, pluginName, settings) {
     const formWrapper = document.createElement('div');
     formWrapper.className = 'plugin-settings-wrapper';
 
+    if (pluginName === 'places') {
+        renderPlacesPluginAdmin(formWrapper, pluginName, settings);
+        container.appendChild(formWrapper);
+        return;
+    }
+
     if (pluginType.type === 'array-based') {
         renderArrayBasedPlugin(formWrapper, pluginName, settings, pluginType);
     } else {
@@ -55,7 +60,16 @@ function createDefaultStructure(pluginName, pluginType) {
         'webring': { webring_url: '', username: '' },
         'code': { github: { username: '' }, wakatime: { api_key: '' } },
         'info': { sourceCodeURL: '' },
-        'profile': { name: '', title: '', subtitle: '', bio: '', profileImage: '' }
+        'profile': {name: '', title: '', subtitle: '', bio: '', profileImage: ''},
+        'places': {
+            ui: {
+                sectionTitle: 'Visited Places',
+                showStats: true,
+                defaultZoom: 2,
+                defaultLat: 25,
+                defaultLng: 0
+            }
+        }
     };
 
     if (specificDefaults[pluginName]) {
@@ -130,6 +144,19 @@ function getPluginType(pluginName) {
                 source: 'string',
                 category: 'string'
             }
+        },
+        'places': {
+            arrayField: 'places',
+            itemSchema: {
+                name: 'string',
+                lat: 'number',
+                lng: 'number',
+                country: 'string',
+                city: 'string',
+                description: 'text',
+                visited_date: 'string',
+                category: 'select'
+            }
         }
     };
 
@@ -140,7 +167,6 @@ function getPluginType(pluginName) {
 }
 
 function renderArrayBasedPlugin(container, pluginName, settings, pluginType) {
-    // Render non-array fields first
     Object.keys(settings).forEach(key => {
         if (key !== pluginType.arrayField) {
             createField(key, settings[key], container, '', pluginName);
@@ -213,6 +239,7 @@ function createField(key, value, parent = document.body, path = '', pluginName =
         const input = document.createElement('input');
         input.className = 'field-input';
         input.type = 'number';
+        input.step = 'any';
         input.value = value;
         input.name = currentPath;
         input.placeholder = getPlaceholder(key);
@@ -325,7 +352,6 @@ function createImageField(field, currentPath, currentValue, key, pluginName) {
         imgEl.className = 'image-preview' + (guessIcon ? ' image-preview--icon' : '');
     };
 
-    // Current image preview
     if (currentValue) {
         const preview = document.createElement('div');
         preview.className = 'current-image-preview';
@@ -333,7 +359,7 @@ function createImageField(field, currentPath, currentValue, key, pluginName) {
         const img = document.createElement('img');
         img.src = resolveIconURL(currentValue);
         img.alt = `Current ${key}`;
-        applyIconClass(img, currentValue);        // <-- apply small icon styling when appropriate
+        applyIconClass(img, currentValue);
         img.onerror = () => {
             img.style.display = 'none';
             preview.innerHTML += `<div style="color: var(--bad);">Image failed to load: ${resolveIconURL(currentValue)}</div>`;
@@ -364,7 +390,6 @@ function createImageField(field, currentPath, currentValue, key, pluginName) {
         ? 'telegram or /static/icons/telegram.svg or uploaded URL'
         : 'Enter image path or upload file';
 
-    // Live preview update
     textInput.addEventListener('input', () => {
         const preview = imageContainer.querySelector('.current-image-preview');
         if (!preview) return;
@@ -376,7 +401,7 @@ function createImageField(field, currentPath, currentValue, key, pluginName) {
         }
         img.style.display = '';
         img.src = resolveIconURL(textInput.value);
-        applyIconClass(img, textInput.value);     // <-- keep icon size when typing
+        applyIconClass(img, textInput.value);
 
         const meta = preview.querySelector('div[style*="font-size: 12px"]');
         if (meta) {
@@ -432,7 +457,7 @@ function createImageField(field, currentPath, currentValue, key, pluginName) {
             const newImg = document.createElement('img');
             newImg.src = result.url;
             newImg.alt = `Current ${key}`;
-            applyIconClass(newImg, result.url);   // <-- apply small icon styling to uploaded icon too
+            applyIconClass(newImg, result.url);
 
             const meta = document.createElement('div');
             meta.style.fontSize = '12px';
@@ -516,12 +541,41 @@ function renderManagedArrayItem(container, pluginName, fieldName, item, index, i
     const itemContent = document.createElement('div');
     itemContent.className = 'managed-array-item-content';
 
+    let latInput = null;
+    let lngInput = null;
+    let nameInput = null;
+
     Object.keys(itemSchema).forEach(key => {
         const value = item[key] !== undefined ? item[key] : getDefaultValueForType(itemSchema[key]);
         renderSchemaField(itemContent, `${fieldName}[${index}].${key}`, key, value, itemSchema[key], pluginName, `${fieldName}[${index}]`);
+
+        if (pluginName === 'places') {
+            const input = itemContent.querySelector(`[name="${fieldName}[${index}].${key}"]`);
+            if (key === 'lat') latInput = input;
+            if (key === 'lng') lngInput = input;
+            if (key === 'name') nameInput = input;
+        }
     });
 
     itemDiv.appendChild(itemContent);
+
+    if (pluginName === 'places' && latInput && lngInput) {
+        const mapContainer = document.createElement('div');
+        mapContainer.className = 'admin-place-map-container';
+        mapContainer.innerHTML = `
+            <div class="admin-place-map-label">Click on map to set coordinates or search for a location:</div>
+            <div class="admin-place-map" id="admin-place-map-${index}" style="height: 250px; border-radius: 8px; margin-top: 8px;"></div>
+        `;
+        itemDiv.appendChild(mapContainer);
+
+        setTimeout(() => {
+            const mapEl = document.getElementById(`admin-place-map-${index}`);
+            if (mapEl) {
+                initPlacesMapPicker(mapEl, latInput, lngInput, nameInput);
+            }
+        }, 100);
+    }
+
     container.appendChild(itemDiv);
 }
 
@@ -567,6 +621,23 @@ function renderSchemaField(container, fieldPath, fieldName, value, fieldType, pl
             input.name = fieldPath;
             break;
 
+        case 'number':
+            input = document.createElement('input');
+            input.className = 'field-input';
+            input.type = 'number';
+            input.step = 'any';
+            input.value = value !== undefined && value !== null ? value : '';
+            input.name = fieldPath;
+            break;
+
+        case 'date':
+            input = document.createElement('input');
+            input.className = 'field-input';
+            input.type = 'date';
+            input.value = value || '';
+            input.name = fieldPath;
+            break;
+
         case 'image':
             createImageField(field, fieldPath, value, fieldName, pluginName);
             container.appendChild(field);
@@ -580,6 +651,14 @@ function renderSchemaField(container, fieldPath, fieldName, value, fieldType, pl
                     const opt = document.createElement('option');
                     opt.value = option;
                     opt.textContent = option;
+                    opt.selected = value === option;
+                    input.appendChild(opt);
+                });
+            } else if (fieldName === 'category') {
+                ['travel', 'home', 'work', 'vacation', 'adventure', 'food', 'culture', 'nature', 'other'].forEach(option => {
+                    const opt = document.createElement('option');
+                    opt.value = option;
+                    opt.textContent = option.charAt(0).toUpperCase() + option.slice(1);
                     opt.selected = value === option;
                     input.appendChild(opt);
                 });
@@ -811,7 +890,8 @@ function collectSettings(form) {
         let value = input.type === 'checkbox' ? input.checked : input.value;
 
         if (input.type === 'number') {
-            value = parseFloat(value) || 0;
+            value = input.value === '' ? 0 : parseFloat(input.value);
+            if (isNaN(value)) value = 0;
         } else if (input.tagName === 'TEXTAREA') {
             if (name.includes('ascii') || name.includes('colors')) {
                 value = value.split('\n').filter(line => line.trim() !== '');
@@ -833,7 +913,6 @@ function collectSettings(form) {
         setNestedValue(settings, name, value);
     });
 
-    // Handle managed arrays
     const managedArrays = form.querySelectorAll('.managed-array-items');
     managedArrays.forEach(arrayContainer => {
         const arrayName = arrayContainer.id.replace('managed-array-', '');
@@ -851,7 +930,10 @@ function collectSettings(form) {
                 const fieldName = input.name.split('.').pop();
                 let value = input.value;
 
-                if (input.tagName === 'TEXTAREA' && fieldName === 'technologies') {
+                if (input.type === 'number') {
+                    value = input.value === '' ? 0 : parseFloat(input.value);
+                    if (isNaN(value)) value = 0;
+                } else if (input.tagName === 'TEXTAREA' && fieldName === 'technologies') {
                     value = value.split(',').map(tech => tech.trim()).filter(tech => tech !== '');
                 }
 
@@ -863,6 +945,16 @@ function collectSettings(form) {
             }
         });
     });
+
+    const pluginName = form.dataset.plugin;
+    if (pluginName === 'places') {
+        const fromState =
+            (currentPluginData[pluginName] && Array.isArray(currentPluginData[pluginName].places))
+                ? currentPluginData[pluginName].places
+                : (Array.isArray(placesData) ? placesData : []);
+
+        settings.places = fromState;
+    }
 
     return settings;
 }
@@ -899,7 +991,6 @@ function setNestedValue(obj, path, value) {
     }
 }
 
-// Helper functions
 function isImageField(key, value) {
     const imageKeys = ['image', 'profileimage', 'avatar', 'cover', 'icon', 'logo', 'photo', 'picture', 'imagecropped', 'favicon'];
     const keyLower = key.toLowerCase();
@@ -924,6 +1015,8 @@ function getDefaultValueForType(fieldType) {
         case 'boolean': return false;
         case 'text': return '';
         case 'image': return '';
+        case 'date':
+            return '';
         default: return '';
     }
 }
@@ -962,7 +1055,12 @@ function getPlaceholder(key) {
         text: 'Enter text...',
         source: 'Source...',
         category: 'Category',
-        refreshInterval: '300'
+        refreshInterval: '300',
+        lat: 'Latitude (e.g. 51.5074)',
+        lng: 'Longitude (e.g. -0.1278)',
+        country: 'Country name',
+        city: 'City name',
+        visited_date: 'YYYY-MM-DD'
     };
 
     const keyLower = key.toLowerCase();
@@ -989,13 +1087,13 @@ function getDefaultSectionTitle(pluginName) {
         'code': 'Coding Stats',
         'info': 'Page Info',
         'personal': 'Personal Info',
-        'meme': 'Random Meme'
+        'meme': 'Random Meme',
+        'places': 'Visited Places'
     };
 
     return titles[pluginName] || formatFieldName(pluginName);
 }
 
-// Initialize functions
 function initSortable() {
     new Sortable(document.getElementById('plugins-container'), {
         animation: 150,
@@ -1061,9 +1159,7 @@ function updatePluginOrder() {
         });
 }
 
-// Form submission handlers
 document.addEventListener('DOMContentLoaded', function() {
-    // Handle individual plugin form submissions
     document.querySelectorAll('.plugin-form').forEach(form => {
         form.addEventListener('submit', async function(e) {
             e.preventDefault();
@@ -1095,10 +1191,8 @@ document.addEventListener('DOMContentLoaded', function() {
                     const result = await response.json();
                     showNotification(result.message, 'success');
 
-                    // Update the settings in memory
                     currentPluginData[pluginName] = result.settings || settings;
 
-                    // Refresh the form with new data
                     const container = document.getElementById(`settings-${pluginName}`);
                     if (container) {
                         container.innerHTML = '';
@@ -1117,7 +1211,6 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     });
 
-    // Handle toggle changes
     document.querySelectorAll('.plugin-toggle').forEach(toggle => {
         toggle.addEventListener('change', function() {
             const form = document.querySelector(`.plugin-form[data-plugin="${this.dataset.plugin}"]`);
@@ -1127,7 +1220,6 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     });
 
-    // Handle order changes
     document.querySelectorAll('.order-input').forEach(input => {
         input.addEventListener('change', function() {
             const plugin = this.closest('.plugin');
@@ -1141,7 +1233,6 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 });
 
-// Utility functions
 function showNotification(message, type) {
     const notification = document.createElement('div');
     notification.className = `notification ${type}`;
@@ -1232,17 +1323,14 @@ async function reloadPlugin(pluginName) {
         if (response.ok) {
             const data = await response.json();
 
-            // Update the plugin data
             currentPluginData[pluginName] = data.settings;
 
-            // Refresh the form
             const container = document.getElementById(`settings-${pluginName}`);
             if (container) {
                 container.innerHTML = '';
                 initSettingsEditor(pluginName, data.settings);
             }
 
-            // Update toggle and order
             const toggle = document.querySelector(`.plugin-toggle[data-plugin="${pluginName}"]`);
             if (toggle) {
                 toggle.checked = data.enabled;
@@ -1282,14 +1370,480 @@ async function reloadConfig() {
 }
 
 function isBareIconName(val) {
-    return typeof val === 'string' && val.trim() !== '' && !/[\/.]/.test(val); // no slash, no dot
+    return typeof val === 'string' && val.trim() !== '' && !/[\/.]/.test(val);
 }
 function resolveIconURL(val) {
     if (!val) return '';
     return isBareIconName(val) ? `/static/icons/${val}.svg` : val;
 }
 
-// Export functions for global access
+let placesAdminMap = null;
+let placesMarkers = new Map();
+let selectedPlaceIndex = null;
+let placesData = [];
+
+function initPlacesAdminMap(pluginName) {
+    const container = document.getElementById(`places-admin-map-${pluginName}`);
+    if (!container) return;
+
+    if (placesAdminMap) {
+        placesAdminMap.remove();
+        placesAdminMap = null;
+    }
+
+    placesMarkers.clear();
+
+    placesAdminMap = L.map(container, {
+        center: [25, 0],
+        zoom: 2,
+        zoomControl: true
+    });
+
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; OpenStreetMap',
+        maxZoom: 18,
+        errorTileUrl: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png'
+    }).on('tileerror', function () {
+        this.setUrl('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png');
+    }).addTo(placesAdminMap);
+
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; OSM &copy; CARTO',
+        maxZoom: 18
+    }).addTo(placesAdminMap);
+
+    loadPlacesFromSettings(pluginName);
+
+    placesAdminMap.on('click', function (e) {
+        addNewPlace(e.latlng, pluginName);
+    });
+
+    const searchInput = document.getElementById(`places-search-${pluginName}`);
+    const searchBtn = document.getElementById(`places-search-btn-${pluginName}`);
+
+    if (searchInput && searchBtn) {
+        const doSearch = () => {
+            const query = searchInput.value.trim();
+            if (!query) return;
+
+            searchBtn.disabled = true;
+            searchBtn.textContent = '...';
+
+            fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=1`)
+                .then(r => r.json())
+                .then(results => {
+                    if (results && results.length > 0) {
+                        const result = results[0];
+                        const lat = parseFloat(result.lat);
+                        const lng = parseFloat(result.lon);
+
+                        placesAdminMap.setView([lat, lng], 12);
+
+                        addNewPlace({lat, lng}, pluginName, result.display_name.split(',')[0]);
+                    } else {
+                        showNotification('Location not found', 'error');
+                    }
+                })
+                .catch(() => showNotification('Search failed', 'error'))
+                .finally(() => {
+                    searchBtn.disabled = false;
+                    searchBtn.textContent = 'Search';
+                });
+        };
+
+        searchBtn.onclick = doSearch;
+        searchInput.onkeypress = (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                doSearch();
+            }
+        };
+    }
+}
+
+function loadPlacesFromSettings(pluginName) {
+    const settings = currentPluginData[pluginName] || {};
+    placesData = settings.places || [];
+
+    updatePlacesSettings(pluginName);
+
+    renderPlacesList(pluginName);
+    renderPlacesOnMap(pluginName);
+
+    if (placesData.length > 0) {
+        const bounds = L.latLngBounds(placesData.map(p => [p.lat, p.lng]));
+        placesAdminMap.fitBounds(bounds, {padding: [50, 50], maxZoom: 10});
+    }
+}
+
+
+function renderPlacesOnMap(pluginName) {
+    placesMarkers.forEach(marker => marker.remove());
+    placesMarkers.clear();
+
+    placesData.forEach((place, index) => {
+        if (place.lat && place.lng) {
+            const marker = L.circleMarker([place.lat, place.lng], {
+                radius: 10,
+                fillColor: selectedPlaceIndex === index ? '#3ad38b' : '#7aa2ff',
+                color: '#ffffff',
+                weight: 3,
+                opacity: 1,
+                fillOpacity: 0.9
+            }).addTo(placesAdminMap);
+
+            marker.on('click', () => {
+                selectPlace(index, pluginName);
+            });
+
+            marker.bindTooltip(place.name || `Place ${index + 1}`, {
+                permanent: false,
+                direction: 'top'
+            });
+
+            placesMarkers.set(index, marker);
+        }
+    });
+}
+
+function renderPlacesList(pluginName) {
+    const listContainer = document.getElementById(`places-list-${pluginName}`);
+    if (!listContainer) return;
+
+    if (placesData.length === 0) {
+        listContainer.innerHTML = `
+            <div style="padding: 20px; text-align: center; color: var(--muted);">
+                <p>No places added yet.</p>
+                <p style="font-size: 12px;">Click on the map to add a place.</p>
+            </div>
+        `;
+        return;
+    }
+
+    listContainer.innerHTML = placesData.map((place, index) => `
+        <div class="places-list-item ${selectedPlaceIndex === index ? 'selected' : ''}" 
+             data-index="${index}" onclick="selectPlace(${index}, '${pluginName}')">
+            <div class="places-list-item-info">
+                <div class="places-list-item-name">${place.name || `Place ${index + 1}`}</div>
+                <div class="places-list-item-location">
+                    ${[place.city, place.country].filter(Boolean).join(', ') || `${place.lat?.toFixed(4)}, ${place.lng?.toFixed(4)}`}
+                </div>
+            </div>
+            <div class="places-list-item-actions">
+                <button type="button" class="btn btn-sm btn-secondary" 
+                        onclick="event.stopPropagation(); focusPlaceOnMap(${index})">📍</button>
+                <button type="button" class="btn btn-sm btn-danger" 
+                        onclick="event.stopPropagation(); deletePlace(${index}, '${pluginName}')">✕</button>
+            </div>
+        </div>
+    `).join('');
+}
+
+function selectPlace(index, pluginName) {
+    selectedPlaceIndex = index;
+
+    renderPlacesList(pluginName);
+    renderPlacesOnMap(pluginName);
+    renderPlaceEditForm(pluginName);
+
+    focusPlaceOnMap(index);
+}
+
+function focusPlaceOnMap(index) {
+    const place = placesData[index];
+    if (place && place.lat && place.lng && placesAdminMap) {
+        placesAdminMap.setView([place.lat, place.lng], 12);
+
+        const marker = placesMarkers.get(index);
+        if (marker) {
+            marker.openTooltip();
+        }
+    }
+}
+
+function addNewPlace(latlng, pluginName, suggestedName = '') {
+    const newPlace = {
+        name: suggestedName || '',
+        lat: parseFloat(latlng.lat.toFixed(6)),
+        lng: parseFloat(latlng.lng.toFixed(6)),
+        country: '',
+        city: '',
+        description: '',
+        visited_date: '',
+        category: 'travel'
+    };
+
+    placesData.push(newPlace);
+    selectedPlaceIndex = placesData.length - 1;
+
+    renderPlacesList(pluginName);
+    renderPlacesOnMap(pluginName);
+    renderPlaceEditForm(pluginName);
+
+    if (!suggestedName) {
+        reverseGeocodePlace(selectedPlaceIndex, pluginName);
+    }
+
+    updatePlacesSettings(pluginName);
+}
+
+function reverseGeocodePlace(index, pluginName) {
+    const place = placesData[index];
+    if (!place) return;
+
+    fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${place.lat}&lon=${place.lng}`)
+        .then(r => r.json())
+        .then(result => {
+            if (result && result.address) {
+                const addr = result.address;
+
+                if (!place.name) {
+                    place.name = addr.tourism || addr.amenity || addr.building ||
+                        addr.city || addr.town || addr.village ||
+                        addr.suburb || addr.county || '';
+                }
+
+                place.country = addr.country || '';
+                place.city = addr.city || addr.town || addr.village || '';
+
+                if (selectedPlaceIndex === index) {
+                    renderPlaceEditForm(pluginName);
+                }
+                renderPlacesList(pluginName);
+                updatePlacesSettings(pluginName);
+            }
+        })
+        .catch(() => {
+        });
+}
+
+function renderPlaceEditForm(pluginName) {
+    const formContainer = document.getElementById(`place-edit-form-${pluginName}`);
+    if (!formContainer) return;
+
+    if (selectedPlaceIndex === null || !placesData[selectedPlaceIndex]) {
+        formContainer.innerHTML = `
+            <div style="padding: 20px; text-align: center; color: var(--muted);">
+                Select a place from the list or click on the map to add one.
+            </div>
+        `;
+        return;
+    }
+
+    const place = placesData[selectedPlaceIndex];
+    const categories = ['travel', 'home', 'work', 'vacation', 'adventure', 'food', 'culture', 'nature', 'other'];
+
+    formContainer.innerHTML = `
+        <div class="place-edit-panel">
+            <h4>Edit Place #${selectedPlaceIndex + 1}</h4>
+            
+            <div class="coord-display">
+                <span>📍</span>
+                <span>Lat: ${place.lat?.toFixed(6) || '0'}</span>
+                <span>Lng: ${place.lng?.toFixed(6) || '0'}</span>
+                <button type="button" class="btn btn-sm btn-secondary" 
+                        onclick="updatePlaceFromMapClick('${pluginName}')"
+                        title="Click to update coordinates from map">
+                    Update from map
+                </button>
+            </div>
+            
+            <div class="place-edit-grid" style="margin-top: 12px;">
+                <div class="place-edit-field full-width">
+                    <label>Name</label>
+                    <input type="text" id="place-name-${pluginName}" value="${escapeHtml(place.name || '')}" 
+                           placeholder="Place name" onchange="updatePlaceField('${pluginName}', 'name', this.value)">
+                </div>
+                
+                <div class="place-edit-field">
+                    <label>Country</label>
+                    <input type="text" id="place-country-${pluginName}" value="${escapeHtml(place.country || '')}" 
+                           placeholder="Country" onchange="updatePlaceField('${pluginName}', 'country', this.value)">
+                </div>
+                
+                <div class="place-edit-field">
+                    <label>City</label>
+                    <input type="text" id="place-city-${pluginName}" value="${escapeHtml(place.city || '')}" 
+                           placeholder="City" onchange="updatePlaceField('${pluginName}', 'city', this.value)">
+                </div>
+                
+                <div class="place-edit-field">
+                    <label>Category</label>
+                    <select id="place-category-${pluginName}" onchange="updatePlaceField('${pluginName}', 'category', this.value)">
+                        ${categories.map(cat => `
+                            <option value="${cat}" ${place.category === cat ? 'selected' : ''}>
+                                ${cat.charAt(0).toUpperCase() + cat.slice(1)}
+                            </option>
+                        `).join('')}
+                    </select>
+                </div>
+                
+                <div class="place-edit-field">
+                    <label>Visited Date</label>
+                    <input type="date" id="place-date-${pluginName}" value="${place.visited_date || ''}" 
+                           onchange="updatePlaceField('${pluginName}', 'visited_date', this.value)">
+                </div>
+                
+                <div class="place-edit-field full-width">
+                    <label>Description</label>
+                    <textarea id="place-desc-${pluginName}" placeholder="Description..." 
+                              onchange="updatePlaceField('${pluginName}', 'description', this.value)">${escapeHtml(place.description || '')}</textarea>
+                </div>
+            </div>
+            
+            <div class="place-edit-actions">
+                <button type="button" class="btn btn-secondary" onclick="deselectPlace('${pluginName}')">
+                    Done
+                </button>
+                <button type="button" class="btn btn-danger" onclick="deletePlace(${selectedPlaceIndex}, '${pluginName}')">
+                    Delete Place
+                </button>
+            </div>
+        </div>
+    `;
+}
+
+function updatePlaceField(pluginName, field, value) {
+    if (selectedPlaceIndex === null || !placesData[selectedPlaceIndex]) return;
+
+    placesData[selectedPlaceIndex][field] = value;
+    renderPlacesList(pluginName);
+    updatePlacesSettings(pluginName);
+}
+
+function updatePlaceFromMapClick(pluginName) {
+    if (selectedPlaceIndex === null) return;
+
+    showNotification('Click on the map to set new coordinates', 'info');
+
+    const handler = (e) => {
+        placesData[selectedPlaceIndex].lat = parseFloat(e.latlng.lat.toFixed(6));
+        placesData[selectedPlaceIndex].lng = parseFloat(e.latlng.lng.toFixed(6));
+
+        renderPlaceEditForm(pluginName);
+        renderPlacesOnMap(pluginName);
+        updatePlacesSettings(pluginName);
+
+        placesAdminMap.off('click', handler);
+
+        reverseGeocodePlace(selectedPlaceIndex, pluginName);
+    };
+
+    placesAdminMap.once('click', handler);
+}
+
+function deletePlace(index, pluginName) {
+    if (!confirm('Delete this place?')) return;
+
+    placesData.splice(index, 1);
+
+    if (selectedPlaceIndex === index) {
+        selectedPlaceIndex = null;
+    } else if (selectedPlaceIndex > index) {
+        selectedPlaceIndex--;
+    }
+
+    renderPlacesList(pluginName);
+    renderPlacesOnMap(pluginName);
+    renderPlaceEditForm(pluginName);
+    updatePlacesSettings(pluginName);
+}
+
+function deselectPlace(pluginName) {
+    selectedPlaceIndex = null;
+    renderPlacesList(pluginName);
+    renderPlacesOnMap(pluginName);
+    renderPlaceEditForm(pluginName);
+}
+
+function updatePlacesSettings(pluginName) {
+    if (!currentPluginData[pluginName]) {
+        currentPluginData[pluginName] = {};
+    }
+    currentPluginData[pluginName].places = placesData;
+}
+
+function escapeHtml(text) {
+    if (!text) return '';
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+function renderPlacesPluginAdmin(container, pluginName, settings) {
+    container.innerHTML = '';
+
+    Object.keys(settings).forEach(key => {
+        if (key !== 'places') {
+            createField(key, settings[key], container, '', pluginName);
+        }
+    });
+
+    const placesContainer = document.createElement('div');
+    placesContainer.className = 'places-admin-container';
+    placesContainer.innerHTML = `
+        <div class="places-admin-instructions">
+            <p><strong>Places Editor</strong></p>
+            <ul>
+                <li>Click on the map to add a new place</li>
+                <li>Click on a marker or list item to edit</li>
+                <li>Use the search to find locations</li>
+                <li>Drag markers to reposition (coming soon)</li>
+            </ul>
+        </div>
+        
+        <div class="places-admin-search">
+            <input type="text" id="places-search-${pluginName}" placeholder="Search for a location...">
+            <button type="button" class="btn btn-secondary" id="places-search-btn-${pluginName}">Search</button>
+        </div>
+        
+        <div class="places-admin-map-wrapper">
+            <div class="places-admin-map" id="places-admin-map-${pluginName}"></div>
+        </div>
+        
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 16px;">
+            <div>
+                <h4 style="margin: 0 0 8px 0; font-size: 13px; font-weight: 700;">Places List</h4>
+                <div class="places-list-panel" id="places-list-${pluginName}"></div>
+            </div>
+            <div id="place-edit-form-${pluginName}"></div>
+        </div>
+    `;
+
+    container.appendChild(placesContainer);
+
+    setTimeout(() => {
+        loadLeafletAndInit(pluginName);
+    }, 100);
+}
+
+function loadLeafletAndInit(pluginName) {
+    if (window.L) {
+        initPlacesAdminMap(pluginName);
+        return;
+    }
+
+    const cssLink = document.createElement('link');
+    cssLink.rel = 'stylesheet';
+    cssLink.href = '/static/libs/leaflet/leaflet.css';
+    document.head.appendChild(cssLink);
+
+    const script = document.createElement('script');
+    script.src = '/static/libs/leaflet/leaflet.js';
+    script.onload = () => initPlacesAdminMap(pluginName);
+    script.onerror = () => {
+        script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+        cssLink.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+    };
+    document.head.appendChild(script);
+}
+
+window.selectPlace = selectPlace;
+window.focusPlaceOnMap = focusPlaceOnMap;
+window.deletePlace = deletePlace;
+window.deselectPlace = deselectPlace;
+window.updatePlaceField = updatePlaceField;
+window.updatePlaceFromMapClick = updatePlaceFromMapClick;
 window.addManagedArrayItem = addManagedArrayItem;
 window.removeManagedArrayItem = removeManagedArrayItem;
 window.saveAllPlugins = saveAllPlugins;

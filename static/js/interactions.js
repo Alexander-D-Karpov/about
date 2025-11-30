@@ -159,7 +159,7 @@
             const tagTexts = tags.map(t => t.textContent.trim().toLowerCase());
             const searchName = name.toLowerCase();
 
-            const isMatch = tagTexts.some(tag => tag === searchName || tag.includes(searchName));
+            const isMatch = tagTexts.some(tag => tag === searchName);
 
             card.style.transition = 'all 0.3s ease';
 

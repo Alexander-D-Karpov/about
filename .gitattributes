@@ -1,0 +1,2 @@
+# Hide local Leaflet etc. from language stats
+static/libs/** linguist-vendored

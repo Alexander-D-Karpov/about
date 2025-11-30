@@ -146,12 +146,15 @@ func (h *Hub) Run() {
 							}
 							close(client.send)
 						}
-						if client.conn != nil {
-							client.conn.Close()
-						}
 					}
 				}
 				h.mutex.Unlock()
+
+				for _, client := range deadClients {
+					if client.conn != nil {
+						client.conn.Close()
+					}
+				}
 			}
 
 		case <-ticker.C:
@@ -164,33 +167,48 @@ func (h *Hub) Run() {
 }
 
 func (h *Hub) forceCleanupStaleConnections() {
-	h.mutex.Lock()
-	defer h.mutex.Unlock()
+	h.mutex.RLock()
+	clients := make([]*Client, 0, len(h.clients))
+	for client := range h.clients {
+		clients = append(clients, client)
+	}
+	h.mutex.RUnlock()
 
 	deadClients := make([]*Client, 0)
-	for client := range h.clients {
+	for _, client := range clients {
 		if client.conn == nil {
 			deadClients = append(deadClients, client)
 			continue
 		}
 
-		client.conn.SetReadDeadline(time.Now().Add(time.Second))
+		client.conn.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
 		if _, _, err := client.conn.NextReader(); err != nil {
 			deadClients = append(deadClients, client)
 		}
 	}
 
+	if len(deadClients) == 0 {
+		return
+	}
+
+	h.mutex.Lock()
 	for _, client := range deadClients {
-		delete(h.clients, client)
+		if _, ok := h.clients[client]; ok {
+			delete(h.clients, client)
+			if client.send != nil {
+				select {
+				case <-client.send:
+				default:
+				}
+				close(client.send)
+			}
+		}
+	}
+	h.mutex.Unlock()
+
+	for _, client := range deadClients {
 		if client.conn != nil {
 			client.conn.Close()
-		}
-		if client.send != nil {
-			select {
-			case <-client.send:
-			default:
-			}
-			close(client.send)
 		}
 	}
 

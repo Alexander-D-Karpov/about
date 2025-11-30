@@ -74,6 +74,9 @@ func main() {
 	staticHandler := http.FileServer(http.FS(staticFiles))
 	r.PathPrefix("/static/").Handler(disableDirectoryListing(addCacheHeaders(staticHandler)))
 
+	libsHandler := http.StripPrefix("/static/libs/", http.FileServer(http.Dir("static/libs")))
+	r.PathPrefix("/static/libs/").Handler(addCacheHeaders(libsHandler))
+
 	if err := os.MkdirAll(cfg.MediaPath, 0755); err != nil {
 		log.Fatal("Failed to create media directory:", err)
 	}

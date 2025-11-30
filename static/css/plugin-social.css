@@ -1,9 +1,62 @@
-.social-links{display:flex;gap:8px;flex-wrap:wrap;padding:2px}
-.social-link{width:40px;height:40px;border-radius:10px;display:grid;place-items:center;background:linear-gradient(135deg, rgba(255,255,255,.06), rgba(255,255,255,.03));box-shadow:0 1px 3px rgba(0,0,0,.15);transition:transform .15s ease, box-shadow .2s ease, background .2s ease;color:var(--ink-2)}
-.social-link:hover{transform:translateY(-2px);background:linear-gradient(135deg, rgba(255,255,255,.1), rgba(255,255,255,.06));box-shadow:0 3px 12px rgba(0,0,0,.25);color:var(--accent)}
-.social-link img{width:20px;height:20px;object-fit:contain}
-@media (prefers-color-scheme: light){
-    .social-link{background:#111 !important;color:#fff;box-shadow:0 2px 6px rgba(0,0,0,.25);border:1px solid rgba(0,0,0,.15)}
-    .social-link:hover{background:#000 !important;box-shadow:0 4px 14px rgba(0,0,0,.28)}
-    .social-link img{filter:brightness(0) invert(1)}
+.social-links {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    padding: 2px;
+}
+
+.social-link {
+    width: 40px;
+    height: 40px;
+    border-radius: 10px;
+    display: grid;
+    place-items: center;
+    background: linear-gradient(135deg, rgba(255, 255, 255, .06), rgba(255, 255, 255, .03));
+    box-shadow: 0 1px 3px rgba(0, 0, 0, .15);
+    transition: transform .15s ease, box-shadow .2s ease, background .2s ease;
+    color: var(--ink-2);
+    text-decoration: none;
+}
+
+.social-link:hover {
+    transform: translateY(-2px);
+    background: linear-gradient(135deg, rgba(255, 255, 255, .1), rgba(255, 255, 255, .06));
+    box-shadow: 0 3px 12px rgba(0, 0, 0, .25);
+    color: var(--accent);
+}
+
+.social-link img {
+    width: 20px;
+    height: 20px;
+    object-fit: contain;
+    opacity: 0.85;
+    transition: filter .2s ease, opacity .2s ease;
+}
+
+.social-link:hover img {
+    opacity: 1;
+}
+
+/* Dark theme - keep icons as-is (they're designed for dark) */
+@media (prefers-color-scheme: dark) {
+    .social-link img {
+        filter: none;
+    }
+}
+
+@media (prefers-color-scheme: light) {
+    .social-link {
+        background: linear-gradient(135deg, rgba(0, 0, 0, .04), rgba(0, 0, 0, .02));
+        border: 1px solid var(--edge-1);
+        box-shadow: 0 1px 3px rgba(0, 0, 0, .08);
+    }
+
+    .social-link:hover {
+        background: linear-gradient(135deg, rgba(0, 0, 0, .08), rgba(0, 0, 0, .04));
+        box-shadow: 0 3px 10px rgba(0, 0, 0, .12);
+    }
+
+    .social-link:hover img {
+        opacity: 0.9;
+    }
 }

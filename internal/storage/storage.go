@@ -382,6 +382,22 @@ func (s *Storage) getDefaultConfig() map[string]interface{} {
 					},
 				},
 			},
+			"places": map[string]interface{}{
+				"enabled": true,
+				"order":   6,
+				"settings": map[string]interface{}{
+					"ui": map[string]interface{}{
+						"sectionTitle":     "Visited Places",
+						"defaultZoom":      2,
+						"defaultLat":       25.0,
+						"defaultLng":       0.0,
+						"heatmapIntensity": 0.8,
+						"heatmapRadius":    30,
+						"markerRadius":     8,
+					},
+					"places": []interface{}{},
+				},
+			},
 			"info": map[string]interface{}{
 				"enabled": true,
 				"order":   99,

@@ -134,3 +134,23 @@
     .webring-prev::after{ content:"←"; font-weight:900; }
     .webring-next::after{ content:"→"; font-weight:900; }
 }
+
+@media (prefers-color-scheme: light) {
+    .webring-prev,
+    .webring-next {
+        background: linear-gradient(135deg, rgba(0, 0, 0, .04), rgba(0, 0, 0, .02));
+        border-color: var(--edge-1);
+        color: var(--ink);
+    }
+
+    .webring-prev:hover,
+    .webring-next:hover {
+        background: linear-gradient(135deg, rgba(0, 0, 0, .08), rgba(0, 0, 0, .04));
+        color: var(--accent);
+    }
+
+    .webring-home {
+        background: linear-gradient(135deg, var(--accent) 0%, color-mix(in oklch, var(--accent) 85%, black) 100%);
+        color: #fff;
+    }
+}

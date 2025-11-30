@@ -120,6 +120,7 @@ func (h *Handler) dashboard(w http.ResponseWriter, r *http.Request) {
 		"info":       "Page information and server status",
 		"personal":   "Personal information with markdown support",
 		"meme":       "Random meme display for entertainment",
+		"places":     "Map of visited places with coordinates and details",
 	}
 
 	for name := range allPlugins {

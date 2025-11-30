@@ -69,6 +69,7 @@ func (m *Manager) LoadAll() error {
 		NewInfoPlugin(m.storage, m.hub, m.appStartTime),
 		NewPersonalPlugin(m.storage, m.hub),
 		NewMemePlugin(m.storage, m.hub),
+		NewPlacesPlugin(m.storage, m.hub),
 	}
 
 	m.mutex.Lock()

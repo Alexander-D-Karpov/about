@@ -8,8 +8,9 @@
     document.documentElement.classList.add('js');
 
     // --- tiny helpers ---
-    const $  = (q, c=document) => c.querySelector(q);
-    const $$ = (q, c=document) => Array.from(c.querySelectorAll(q));
+    const $ = (q, c = document) => c ? c.querySelector(q) : null;
+    const $$ = (q, c = document) => c ? Array.from(c.querySelectorAll(q)) : [];
+
     const on = (el, ev, fn, opts) => el && el.addEventListener(ev, fn, opts);
     const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
     const now = () => Date.now();
@@ -69,7 +70,8 @@
         'neofetch-section': 2, 'tech-section': 2,
         'code-section': 2, 'meme-section': 1, 'lastfm-section': 2,
         'webring-section': 2, 'social-section': 2, 'visitors-section': 1, 'info-section': 2,
-        'services-section': 2
+        'services-section': 2,
+        'places-section': 2
     };
 
     const preferredWidths = new Map();

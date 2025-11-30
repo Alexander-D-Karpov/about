@@ -772,3 +772,339 @@ input:checked + .slider:before {
     margin-top: 2px;
 }
 
+.schema-field input[type="number"] {
+    font-family: var(--mono);
+}
+
+.schema-field input[type="date"] {
+    font-family: var(--mono);
+}
+
+.managed-array-item-content {
+    display: grid;
+    gap: 10px;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+}
+
+.plugin[data-plugin="places"] .managed-array-item-content {
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+
+.plugin[data-plugin="places"] .schema-field[class*="lat"],
+.plugin[data-plugin="places"] .schema-field[class*="lng"] {
+    grid-column: span 1;
+}
+
+.plugin[data-plugin="places"] .schema-field:has(textarea) {
+    grid-column: 1 / -1;
+}
+
+.coord-helper {
+    font-size: 10px;
+    color: var(--muted);
+    margin-top: 4px;
+}
+
+.coord-helper a {
+    color: var(--accent);
+    text-decoration: none;
+}
+
+.coord-helper a:hover {
+    text-decoration: underline;
+}
+
+.admin-place-map-container {
+    margin-top: 12px;
+    padding: 12px;
+    background: var(--bg-3);
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+}
+
+.admin-place-map-label {
+    font-size: 12px;
+    color: var(--muted);
+    margin-bottom: 8px;
+    font-weight: 600;
+}
+
+.admin-place-map {
+    border: 1px solid var(--border);
+}
+
+.admin-map-search {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 8px;
+}
+
+.admin-map-search-input {
+    flex: 1;
+    padding: 8px 12px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--bg);
+    color: var(--ink);
+    font-size: 13px;
+}
+
+.admin-map-search-input:focus {
+    outline: none;
+    border-color: var(--accent);
+}
+
+.plugin[data-plugin="places"] .managed-array-item {
+    display: flex;
+    flex-direction: column;
+}
+
+.plugin[data-plugin="places"] .managed-array-item-content {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+}
+
+.plugin[data-plugin="places"] .schema-field:has(textarea) {
+    grid-column: 1 / -1;
+}
+
+@media (max-width: 900px) {
+    .plugin[data-plugin="places"] .managed-array-item-content {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+
+@media (max-width: 600px) {
+    .plugin[data-plugin="places"] .managed-array-item-content {
+        grid-template-columns: 1fr;
+    }
+}
+
+.places-admin-container {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.places-admin-map-wrapper {
+    position: relative;
+    border-radius: var(--radius);
+    overflow: hidden;
+    border: 1px solid var(--border);
+}
+
+.places-admin-map {
+    height: 400px;
+    width: 100%;
+    background: var(--bg-2);
+}
+
+.places-admin-search {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 12px;
+}
+
+.places-admin-search input {
+    flex: 1;
+    padding: 10px 14px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--bg);
+    color: var(--ink);
+    font-size: 14px;
+}
+
+.places-admin-search input:focus {
+    outline: none;
+    border-color: var(--accent);
+}
+
+.places-admin-instructions {
+    padding: 12px;
+    background: var(--bg-3);
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+    margin-bottom: 12px;
+}
+
+.places-admin-instructions p {
+    margin: 0;
+    font-size: 13px;
+    color: var(--ink-2);
+}
+
+.places-admin-instructions ul {
+    margin: 8px 0 0 0;
+    padding-left: 20px;
+    font-size: 12px;
+    color: var(--muted);
+}
+
+.places-admin-instructions li {
+    margin: 4px 0;
+}
+
+.places-list-panel {
+    max-height: 300px;
+    overflow-y: auto;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--bg-2);
+}
+
+.places-list-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border);
+    cursor: pointer;
+    transition: background 0.15s ease;
+}
+
+.places-list-item:last-child {
+    border-bottom: none;
+}
+
+.places-list-item:hover {
+    background: var(--bg-3);
+}
+
+.places-list-item.selected {
+    background: var(--accent);
+    color: white;
+}
+
+.places-list-item-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.places-list-item-name {
+    font-weight: 600;
+    font-size: 13px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.places-list-item-location {
+    font-size: 11px;
+    color: var(--muted);
+    margin-top: 2px;
+}
+
+.places-list-item.selected .places-list-item-location {
+    color: rgba(255, 255, 255, 0.7);
+}
+
+.places-list-item-actions {
+    display: flex;
+    gap: 6px;
+}
+
+.place-edit-panel {
+    padding: 16px;
+    background: var(--bg-3);
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+}
+
+.place-edit-panel h4 {
+    margin: 0 0 12px 0;
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--ink);
+}
+
+.place-edit-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
+}
+
+.place-edit-grid .full-width {
+    grid-column: 1 / -1;
+}
+
+.place-edit-field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.place-edit-field label {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--ink-2);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.place-edit-field input,
+.place-edit-field textarea,
+.place-edit-field select {
+    padding: 8px 10px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--bg);
+    color: var(--ink);
+    font-size: 13px;
+}
+
+.place-edit-field input:focus,
+.place-edit-field textarea:focus,
+.place-edit-field select:focus {
+    outline: none;
+    border-color: var(--accent);
+}
+
+.place-edit-field textarea {
+    min-height: 60px;
+    resize: vertical;
+}
+
+.place-edit-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 16px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
+}
+
+.coord-display {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    padding: 8px 12px;
+    background: var(--bg);
+    border-radius: 8px;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--accent);
+}
+
+/* Leaflet popup customization for admin */
+.admin-place-popup .leaflet-popup-content-wrapper {
+    background: var(--paper);
+    border-radius: 8px;
+    box-shadow: var(--shadow);
+}
+
+.admin-place-popup .leaflet-popup-content {
+    margin: 8px 12px;
+    color: var(--ink);
+    font-size: 13px;
+}
+
+.admin-place-popup .leaflet-popup-tip {
+    background: var(--paper);
+}
+
+@media (max-width: 900px) {
+    .place-edit-grid {
+        grid-template-columns: 1fr;
+    }
+}
