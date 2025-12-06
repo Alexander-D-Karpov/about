@@ -1,11 +1,9 @@
 (function(){
     'use strict';
 
-    // mark JS state
     document.documentElement.classList.add('js-loading');
     document.documentElement.classList.add('js');
 
-    // --- tiny helpers ---
     const $ = (q, c = document) => c ? c.querySelector(q) : null;
     const $$ = (q, c = document) => c ? Array.from(c.querySelectorAll(q)) : [];
     const on = (el, ev, fn, opts) => el && el.addEventListener(ev, fn, opts);
@@ -27,10 +25,17 @@
         };
     };
 
+    const debounce = (fn, ms = 100) => {
+        let to;
+        return (...args) => {
+            clearTimeout(to);
+            to = setTimeout(() => fn(...args), ms);
+        };
+    };
+
     const isInteractive = (node) =>
         !!node.closest('button, a, input, select, textarea, [contenteditable], .plugin-btn');
 
-    // --- bootstrapping containers ---
     const root = $('.container');
     if (!root) return;
 
@@ -38,7 +43,6 @@
     if (!mosaic) {
         mosaic = document.createElement('section');
         mosaic.className = 'mosaic';
-        // put mosaic as the first child; we'll move everything else into it
         root.prepend(mosaic);
     }
 
@@ -76,6 +80,8 @@
         'services-section': 2,
         'places-section': 2,
         'profile-section': 2,
+        'health-section': 2,
+        'personal-section': 2,
     };
 
     const preferredWidths = new Map();
@@ -100,7 +106,6 @@
         if (el.classList.contains('profile-section')) el.dataset.pinned = '1';
     });
 
-    // --- scroll lock for overlay ---
     let _scrollLockY = 0;
 
     function lockBodyScroll(){
@@ -125,49 +130,31 @@
         window.scrollTo(0, _scrollLockY);
     }
 
-    // --- measurement helpers for masonry packer ---
-    const cssNumber = (el, prop) => {
-        const v = getComputedStyle(el).getPropertyValue(prop);
-        const m = /([0-9.+-]+)/.exec(v);
-        return m ? parseFloat(m[1]) : 0;
-    };
     const MIN_COL_FALLBACK = 280;
-    const EXTRA = 24;
+    const ROW_HEIGHT = 1;
+    const VERTICAL_GAP = 12;
 
-    function rowMetrics(){
-        return {rowSize: 1, rowGap: 0};
+    function getContentHeight(el) {
+        el.style.height = 'auto';
+        el.style.gridRowEnd = 'auto';
+
+        const rect = el.getBoundingClientRect();
+        return Math.ceil(rect.height);
     }
-
-    function rowSpanFromPx(h){
-        const { rowSize, rowGap } = rowMetrics();
-        return Math.max(1, Math.ceil((h + EXTRA + rowGap) / (rowSize + rowGap)));
-    }
-
-    function outerHeightPx(el){
-        const r = el.getBoundingClientRect();
-        const mb = parseFloat(getComputedStyle(el).marginBottom) || 0;
-        const inner = el.querySelector('.plugin__inner');
-        const innerH = inner ? inner.getBoundingClientRect().height : 0;
-        const header = el.querySelector('.plugin-header');
-        const headerH = header ? header.getBoundingClientRect().height : 0;
-        return Math.ceil(Math.max(r.height, innerH + headerH + 20) + mb);
-    }
-
 
     function colCount(){
         const style = getComputedStyle(mosaic);
-        const gapStr = style.columnGap || style.gap || '3px';
-        const gap = parseFloat(gapStr.split(/\s+/)[0]) || 3;
+        const gapStr = style.columnGap || style.gap || '12px';
+        const gap = parseFloat(gapStr.split(/\s+/)[0]) || 12;
 
-        const minColRoot = cssNumber(document.documentElement, '--col-min');
-        const minColMosaic = cssNumber(mosaic, '--col-min');
+        const minColRoot = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--col-min')) || 0;
+        const minColMosaic = parseFloat(getComputedStyle(mosaic).getPropertyValue('--col-min')) || 0;
         const minCol = minColRoot || minColMosaic || MIN_COL_FALLBACK;
 
         const w = mosaic.clientWidth;
         if (w <= 0) return 1;
 
-        const cols = Math.max(1, Math.floor((w + gap) / (minCol + gap)));
-        return cols;
+        return Math.max(1, Math.floor((w + gap) / (minCol + gap)));
     }
 
     function clampSpansToCols(){
@@ -179,118 +166,103 @@
         });
     }
 
-    // --- FLIP animation ---
-    function flip(update){
-        const items = $$('.plugin', mosaic);
-        const first = new Map(items.map(el => [el, el.getBoundingClientRect()]));
-
-        update();
-
-        const last  = new Map(items.map(el => [el, el.getBoundingClientRect()]));
-
-        items.forEach(el => {
-            const f = first.get(el), l = last.get(el);
-            if (!f || !l) return;
-
-            const dx = f.left - l.left;
-            const dy = f.top - l.top;
-            const sx = f.width ? f.width / l.width : 1;
-            const sy = f.height ? f.height / l.height : 1;
-
-            if (Math.abs(dx) < 1 && Math.abs(dy) < 1 &&
-                Math.abs(sx - 1) < 0.01 && Math.abs(sy - 1) < 0.01) return;
-
-            el.animate(
-                [
-                    {transform: `translate(${dx}px, ${dy}px) scale(${sx}, ${sy})`},
-                    {transform: 'translate(0, 0) scale(1, 1)'}
-                ],
-                {duration: 260, easing: 'cubic-bezier(.2,.7,.2,1)', fill: 'both'}
-            );
-        });
-    }
-
-    // --- packers ---
-    function measure(el){
-        const w = clamp(+el.dataset.w || 1, 1, Math.max(1, colCount()));
-        const hPx = outerHeightPx(el);
-        return { el, w, span: rowSpanFromPx(hPx) };
-    }
-
-
-    function packWithGivenSpans(spanGetter){
+    function packMasonry(animate = true) {
         clampSpansToCols();
         const cols = colCount();
         const items = $$('.plugin', mosaic);
 
-        const entries = items.map(el => ({
-            el,
-            w: Math.min(+el.dataset.w || 1, cols),
-            span: clamp(spanGetter(el) || 1, 1, 999)
-        }));
+        const style = getComputedStyle(mosaic);
+        const gap = parseFloat(style.columnGap || style.gap || '12px') || 12;
 
-        flip(() => {
-            const occ = new Array(cols).fill(0);
-
-            entries.forEach(x => {
-                const w = Math.min(x.w, cols);
-                let bestC = 0;
-                let bestH = Infinity;
-
-                for (let c = 0; c <= cols - w; c++) {
-                    const h = Math.max(...occ.slice(c, c + w));
-                    if (h < bestH) {
-                        bestH = h;
-                        bestC = c;
-                    }
-                }
-
-                const startRow = bestH + 1;
-                const endRow = startRow + x.span;
-
-                for (let i = bestC; i < bestC + w; i++) {
-                    occ[i] = endRow;
-                }
-
-                x.el.style.gridColumn = `${bestC + 1} / span ${w}`;
-                x.el.style.gridRow = `${startRow} / span ${x.span}`;
-            });
+        items.forEach(el => {
+            el.style.position = '';
+            el.style.top = '';
+            el.style.left = '';
+            el.style.width = '';
+            el.style.height = 'auto';
+            el.style.gridRowEnd = 'auto';
         });
-    }
 
+        void mosaic.offsetHeight;
 
-    function quickPackFromSaved(){
-        packWithGivenSpans((el) => savedSpans[el.id]);
-    }
+        const heights = new Map();
+        items.forEach(el => {
+            const h = getContentHeight(el);
+            heights.set(el, h);
+        });
 
-    function precisePack(){
+        const colHeights = new Array(cols).fill(0);
+
         const spansOut = {};
-        packWithGivenSpans((el) => {
-            const m = measure(el);
-            spansOut[el.id] = m.span;
-            return m.span;
+
+        items.forEach(el => {
+            const w = Math.min(+el.dataset.w || 1, cols);
+            const hPx = heights.get(el) || 100;
+
+            let bestCol = 0;
+            let bestHeight = Infinity;
+
+            for (let c = 0; c <= cols - w; c++) {
+                const maxH = Math.max(...colHeights.slice(c, c + w));
+                if (maxH < bestHeight) {
+                    bestHeight = maxH;
+                    bestCol = c;
+                }
+            }
+
+            const span = Math.ceil(hPx / ROW_HEIGHT) + Math.ceil(gap / ROW_HEIGHT);
+
+            el.style.gridColumn = `${bestCol + 1} / span ${w}`;
+            el.style.gridRowStart = String(Math.ceil(bestHeight / ROW_HEIGHT) + 1);
+            el.style.gridRowEnd = `span ${span}`;
+
+            const newHeight = bestHeight + hPx + gap;
+            for (let i = bestCol; i < bestCol + w; i++) {
+                colHeights[i] = newHeight;
+            }
+
+            spansOut[el.id] = span;
         });
+
         localStorage.setItem(spansStoreKey, JSON.stringify(spansOut));
     }
 
-    const packAll = throttle(() => {
+    function quickPackFromSaved() {
+        packMasonry(false);
+    }
+
+    let packScheduled = false;
+    let packAnimated = true;
+
+    function packAll(animate = true) {
         if (document.hidden) return;
-        precisePack();
-        fitNeofetch();
-    }, 80);
+        if (packScheduled) return;
+
+        packScheduled = true;
+        packAnimated = animate;
+
+        requestAnimationFrame(() => {
+            packScheduled = false;
+            packMasonry(packAnimated);
+            fitNeofetch();
+        });
+    }
+
+    const debouncedPack = debounce(() => packAll(true), 100);
 
     function settlePasses(){
-        [50, 100, 200, 400, 800, 1500].forEach(d => setTimeout(packAll, d));
+        setTimeout(() => packAll(false), 100);
+        setTimeout(() => packAll(false), 300);
+        setTimeout(() => packAll(false), 600);
     }
 
     function fullRepack(){
         clampSpansToCols();
-        precisePack();
+        packMasonry(true);
         fitNeofetch();
         settlePasses();
     }
 
-    // --- special ordering ---
     function getProjectPlugins(m) {
         return Array.from(m.querySelectorAll('.projects-section, .projects-section.plugin'))
             .map(n => n.closest('.plugin') || n)
@@ -332,7 +304,6 @@
         ensureProjectsLast(m);
     }
 
-    // --- initial layout ---
     (function initialLayout(){
         if (savedOrder.length){
             const byId = Object.fromEntries($$('.plugin', mosaic).map(n => [n.id, n]));
@@ -347,17 +318,17 @@
 
         setTimeout(() => {
             deferredProjects.forEach(n => mosaic.appendChild(n));
-            precisePack();
-            [120, 420].forEach(d => setTimeout(precisePack, d));
-        }, 120);
+            packMasonry(false);
+            settlePasses();
+        }, 50);
 
         window.addEventListener('load', () => {
-            packAll();
-            settlePasses();
+            setTimeout(() => packAll(false), 100);
+            setTimeout(() => packAll(false), 500);
+            setTimeout(() => packAll(false), 1000);
         });
     })();
 
-    // --- toolbar actions ---
     function setWidth(el, w){
         w = clamp(w, 1, 3);
         el.dataset.w = String(w);
@@ -365,14 +336,12 @@
         widths[el.id] = w;
         localStorage.setItem(widthsStoreKey, JSON.stringify(widths));
         preferredWidths.set(el.id, w);
-        packAll();
-        settlePasses();
+        packAll(true);
     }
 
     function toggleCollapse(el){
         el.classList.toggle('is-collapsed');
-        packAll();
-        settlePasses();
+        setTimeout(() => packAll(true), 50);
     }
 
     function pin(el){
@@ -388,8 +357,7 @@
 
         toast(el.dataset.pinned === '1' ? 'Pinned' : 'Unpinned');
         persistOrder();
-        packAll();
-        settlePasses();
+        packAll(true);
     }
 
     const ICONS = {collapse: '▾', 'w-dec': '–', 'w-inc': '+', expand: '⛶'};
@@ -474,7 +442,6 @@
         localStorage.setItem(orderStoreKey, JSON.stringify(order));
     }
 
-    // --- overlay expand / collapse ---
     let overlay, expanded = null;
 
     function ensureOverlay(){
@@ -501,7 +468,8 @@
         ph.className = 'plugin plugin-placeholder';
         ph.dataset.w = el.dataset.w || '1';
         ph.style.gridColumn = el.style.gridColumn;
-        ph.style.gridRow    = el.style.gridRow;
+        ph.style.gridRowStart = el.style.gridRowStart;
+        ph.style.gridRowEnd = el.style.gridRowEnd;
         mosaic.insertBefore(ph, el.nextSibling);
 
         ensureOverlay().classList.add('in');
@@ -510,7 +478,6 @@
         el.classList.add('plugin--expanded');
         overlay.appendChild(el);
         expanded = el;
-        setTimeout(() => { packAll(); }, 60);
 
         if (updateURL){
             const pluginName = (el.className.match(/([a-z0-9-]+)-section/i) || [, el.id])[1] || el.id;
@@ -532,12 +499,10 @@
 
         unlockBodyScroll();
 
-        packAll();
-        settlePasses();
+        packAll(true);
         if (updateURL) history.pushState({}, '', window.location.pathname);
     }
 
-    // --- dragging with autoscroll + hover-swap ---
     let pointerDown = false, startedDrag = false;
     let dragEl = null, placeholderEl = null, handleEl = null;
     let startX = 0, startY = 0, latestX = 0, latestY = 0;
@@ -591,7 +556,8 @@
         placeholderEl.style.height = rect.height + 'px';
         placeholderEl.dataset.w = dragEl.dataset.w || '1';
         placeholderEl.style.gridColumn = dragEl.style.gridColumn;
-        placeholderEl.style.gridRow    = dragEl.style.gridRow;
+        placeholderEl.style.gridRowStart = dragEl.style.gridRowStart;
+        placeholderEl.style.gridRowEnd = dragEl.style.gridRowEnd;
 
         mosaic.replaceChild(placeholderEl, dragEl);
 
@@ -704,10 +670,7 @@
         document.body.classList.remove('dragging-cursor');
 
         persistOrder();
-        packAll();
-        setTimeout(() => {
-            packAll();
-        }, 50);
+        packAll(true);
     }
 
     function startAutoScrollLoop(){
@@ -739,7 +702,6 @@
         }
     }
 
-    // --- cosmetics: ripple + toast ---
     function ripple(e){
         const el = e.currentTarget;
         el.classList.add('ripple-host');
@@ -771,7 +733,6 @@
         setTimeout(() => n.remove(), 1900);
     }
 
-    // --- observers ---
     const io = new IntersectionObserver(entries => {
         entries.forEach(e => e.target.classList.toggle('reveal', e.isIntersecting));
     }, { threshold: 0.08 });
@@ -779,40 +740,29 @@
 
     if ('fonts' in document && document.fonts.ready) {
         document.fonts.ready.then(() => {
-            packAll();
+            packAll(false);
         });
     }
 
-    const ro = new ResizeObserver(() => { packAll(); });
-    $$('.plugin', mosaic).forEach(n => ro.observe(n, { box: 'border-box' }));
-    $$('.plugin__inner', mosaic).forEach(n => ro.observe(n, { box: 'border-box' }));
-
-    const mo = new MutationObserver(muts => {
-        let needs = false;
-        muts.forEach(m => {
-            m.addedNodes && m.addedNodes.forEach(node => {
-                if (node.nodeType === 1){
-                    if (node.tagName === 'IMG') needs = true;
-                    node.querySelectorAll && node.querySelectorAll('img')
-                        .forEach(() => needs = true);
-                }
-            });
-            if (m.type === 'attributes' &&
-                m.target.tagName === 'IMG' &&
-                (m.attributeName === 'src' || m.attributeName === 'srcset')) {
-                needs = true;
-            }
-        });
-        if (needs) {
-            packAll();
-            setTimeout(packAll, 200);
-        }
+    let resizeTimeout = null;
+    const ro = new ResizeObserver((entries) => {
+        clearTimeout(resizeTimeout);
+        resizeTimeout = setTimeout(() => {
+            packAll(false);
+        }, 50);
     });
+
+    $$('.plugin', mosaic).forEach(n => ro.observe(n, { box: 'border-box' }));
+
+    const mo = new MutationObserver(debounce(() => {
+        packAll(false);
+    }, 150));
+
     mo.observe(mosaic, {
         childList: true,
         subtree: true,
         attributes: true,
-        attributeFilter: ['src', 'srcset']
+        attributeFilter: ['src', 'srcset', 'class']
     });
 
     function restorePreferredWidths(maxCols = colCount()){
@@ -823,22 +773,20 @@
     }
 
     let lastCols = colCount();
-    on(window, 'resize', () => {
+    on(window, 'resize', throttle(() => {
         const nextCols = colCount();
         clampSpansToCols();
         if (nextCols > lastCols) restorePreferredWidths(nextCols);
         lastCols = nextCols;
         fullRepack();
-    });
+    }, 200));
 
     on(document, 'visibilitychange', () => {
         if (!document.hidden) {
-            packAll();
-            settlePasses();
+            packAll(false);
         }
     });
 
-    // --- hash navigation / history ---
     let hashNavigationInitialized = false;
 
     function handleHashChange(){
@@ -868,7 +816,6 @@
         if (window.location.hash) setTimeout(handleHashChange, 400);
     }
 
-    // --- full window manager init ---
     let windowManagerInitialized = false;
 
     function initWindowManager() {
@@ -878,58 +825,10 @@
         initHashNavigation();
 
         if ('fonts' in document && document.fonts.ready) {
-            document.fonts.ready.then(() => { packAll(); });
-        }
-
-        const ro2 = new ResizeObserver(() => {
-            packAll();
-        });
-        $$('.plugin', mosaic).forEach(n => ro2.observe(n, {box: 'border-box'}));
-        $$('.plugin__inner', mosaic).forEach(n => ro2.observe(n, {box: 'border-box'}));
-
-        const mo2 = new MutationObserver(muts => {
-            let needs = false;
-            muts.forEach(m => {
-                m.addedNodes && m.addedNodes.forEach(node => {
-                    if (node.nodeType === 1){
-                        if (node.tagName === 'IMG') needs = true;
-                        node.querySelectorAll && node.querySelectorAll('img')
-                            .forEach(() => needs = true);
-                    }
-                });
-                if (m.type === 'attributes' &&
-                    m.target.tagName === 'IMG' &&
-                    (m.attributeName === 'src' || m.attributeName === 'srcset')) {
-                    needs = true;
-                }
+            document.fonts.ready.then(() => {
+                packAll(false);
             });
-            if (needs) {
-                packAll();
-                setTimeout(packAll, 200);
-            }
-        });
-        mo2.observe(mosaic, {
-            childList: true,
-            subtree: true,
-            attributes: true,
-            attributeFilter: ['src', 'srcset']
-        });
-
-        let lastCols2 = colCount();
-        on(window, 'resize', () => {
-            const nextCols = colCount();
-            clampSpansToCols();
-            if (nextCols > lastCols2) restorePreferredWidths(nextCols);
-            lastCols2 = nextCols;
-            fullRepack();
-        }, { once: false, passive: true });
-
-        on(document, 'visibilitychange', () => {
-            if (!document.hidden) {
-                packAll();
-                settlePasses();
-            }
-        }, { once: false, passive: true });
+        }
 
         on(document, 'keydown', (e) => {
             if (e.altKey && e.key >= '1' && e.key <= '9'){
@@ -943,32 +842,8 @@
             }
         }, { once: false });
 
-        // JS / storage status indicators (if present in DOM)
-        const jsStatus = $('#js-status');
-        if (jsStatus) jsStatus.classList.add('status-online');
-        const jsText = $('#js-text');
-        if (jsText) jsText.textContent = 'Enabled';
-
-        try {
-            localStorage.setItem('_t', '1');
-            localStorage.removeItem('_t');
-
-            const storageStatus = $('#storage-status');
-            if (storageStatus) storageStatus.classList.add('status-online');
-
-            const storageText = $('#storage-text');
-            if (storageText) storageText.textContent = 'Available';
-        } catch {
-            const storageStatus = $('#storage-status');
-            if (storageStatus) storageStatus.classList.add('status-offline');
-
-            const storageText = $('#storage-text');
-            if (storageText) storageText.textContent = 'Unavailable';
-        }
-
-        // helper API
         window.mosaicUtils = {
-            resizeAll: packAll,
+            resizeAll: () => packAll(false),
             fullRepack,
             expand,
             collapseExpanded,
@@ -983,7 +858,6 @@
 
     initWindowManager();
 
-    // --- neofetch height fit ---
     function fitNeofetch(){
         document.querySelectorAll('.neofetch-section .terminal').forEach(term => {
             const pre = term.querySelector('.neofetch-pre');
@@ -998,29 +872,16 @@
         });
     }
 
-    const expandObserver = new MutationObserver((mutations) => {
-        let needsRepack = false;
-        mutations.forEach(m => {
-            if (m.type === 'attributes' && m.attributeName === 'class') {
-                const el = m.target;
-                if (el.classList.contains('collapsible-content') ||
-                    el.classList.contains('collapsed') ||
-                    el.closest('.collapsible-content')) {
-                    needsRepack = true;
-                }
-            }
+    document.querySelectorAll('.section-toggle').forEach(toggle => {
+        toggle.addEventListener('click', () => {
+            setTimeout(() => packAll(false), 100);
         });
-        if (needsRepack) {
-            packAll();
-            setTimeout(packAll, 100);
-            setTimeout(packAll, 300);
-        }
     });
 
-    expandObserver.observe(mosaic, {
-        attributes: true,
-        attributeFilter: ['class'],
-        subtree: true
+    document.querySelectorAll('img').forEach(img => {
+        if (img.complete) return;
+        img.addEventListener('load', () => debouncedPack(), {once: true});
+        img.addEventListener('error', () => debouncedPack(), {once: true});
     });
 
 })();
