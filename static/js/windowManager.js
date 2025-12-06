@@ -74,7 +74,7 @@
         'meme-section': 1,
         'lastfm-section': 2,
         'webring-section': 2,
-        'social-section': 2,
+        'social-section': 1,
         'visitors-section': 1,
         'info-section': 2,
         'services-section': 2,
@@ -521,9 +521,23 @@
         win.style.zIndex = String(maxZ);
     }
 
+    function isMobileOrToolbarHidden() {
+        if (window.innerWidth <= 780) return true;
+
+        const toolbar = document.querySelector('.plugin-toolbar');
+        if (toolbar) {
+            const style = getComputedStyle(toolbar);
+            if (style.display === 'none') return true;
+        }
+        return false;
+    }
+
     function onHeaderPointerDown(e){
         if (e.button !== 0) return;
         if (isInteractive(e.target)) return;
+
+        if (isMobileOrToolbarHidden()) return;
+
         const win = e.currentTarget.closest('.plugin');
         if (!win) return;
         e.preventDefault();

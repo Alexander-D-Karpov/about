@@ -41,7 +41,7 @@ func (p *TechStackPlugin) Render(ctx context.Context) (string, error) {
 	// - icon: slug -> /static/icons/<slug>.svg
 	// - iconPath: direct path under static (e.g. /static/icons/tech/django.svg)
 	tmpl := `
-<section class="tech-section section plugin" data-w="2">
+<section class="tech-section section plugin" data-w="1">
 	<header class="plugin-header">
 		<h3 class="plugin-title">{{.SectionTitle}}</h3>
 	</header>

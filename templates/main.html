@@ -113,7 +113,7 @@
                 setTimeout(() => {
                     document.querySelectorAll('.meme-refresh-btn').forEach(btn => {
                         btn.disabled = false;
-                        btn.textContent = btn.dataset.originalText || '🎲 New Meme';
+                        btn.textContent = btn.dataset.originalText || '🎲';
                         delete btn.dataset.originalText;
                     });
                 }, 500);

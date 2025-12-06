@@ -67,7 +67,7 @@ func (p *WebringPlugin) Render(ctx context.Context) (string, error) {
 	cfg := p.storage.GetPluginConfig(p.Name())
 	settings := cfg.Settings
 
-	base := getString(settings, "webring_url", "https://sanspie.otor.ing")
+	base := getString(settings, "webring_url", "https://webring.otomir23.me")
 	user := getString(settings, "username", "sanspie")
 
 	var prevName, nextName, prevURL, nextURL, prevFavicon, nextFavicon string

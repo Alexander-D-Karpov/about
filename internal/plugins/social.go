@@ -37,7 +37,7 @@ func (p *SocialPlugin) Render(ctx context.Context) (string, error) {
 		return "", nil
 	}
 	tmpl := `
-<section class="social-section section plugin" data-w="2">
+<section class="social-section section plugin" data-w="1">
 	<header class="plugin-header">
 		<h3 class="plugin-title">{{.SectionTitle}}</h3>
 	</header>
