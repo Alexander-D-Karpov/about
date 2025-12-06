@@ -1,7 +1,37 @@
-.profile-content{display:flex;gap:14px;align-items:center}
-.profile-text{flex:1;min-width:0}
-.profile-bio{color:var(--ink-2)}
-@media (max-width:600px){
-    .profile-content{flex-direction:column;text-align:center}
-    .profile-image{order:-1}
+.profile-titles {
+    display: flex;
+    flex-direction: column; /* title on one line, subtitle on next */
+    gap: 4px;
+    margin: .25rem 0 .5rem;
+}
+
+/* title line */
+.profile-title {
+    font-weight: 700;
+}
+
+.profile-title-web {
+    color: var(--accent-2);
+}
+
+.profile-title-rest {
+    color: var(--ink-2);
+}
+
+/* DevSecOps line – single word with colored segments */
+.profile-subtitle {
+    font-weight: 700;
+    display: inline-block; /* no flex, so no gaps added */
+}
+
+.subtitle-dev {
+    color: var(--accent);
+}
+
+.subtitle-sec {
+    color: var(--good);
+}
+
+.subtitle-ops {
+    color: var(--warn);
 }

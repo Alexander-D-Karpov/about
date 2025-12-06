@@ -6,28 +6,34 @@ import (
 )
 
 type Config struct {
-	Port       string
-	DataPath   string
-	StaticPath string
-	MediaPath  string
-	AdminUser  string
-	AdminPass  string
-	LastFMKey  string
-	SteamKey   string
-	Debug      bool
+	Port              string
+	DataPath          string
+	StaticPath        string
+	MediaPath         string
+	AdminUser         string
+	AdminPass         string
+	LastFMKey         string
+	HCGatewayURL      string
+	HCGatewayUser     string
+	HCGatewayPassword string
+	SteamKey          string
+	Debug             bool
 }
 
 func Load() *Config {
 	return &Config{
-		Port:       getEnv("PORT", "8080"),
-		DataPath:   getEnv("DATA_PATH", "./data"),
-		StaticPath: getEnv("STATIC_PATH", "./static"),
-		MediaPath:  getEnv("MEDIA_PATH", "./media"),
-		AdminUser:  getEnv("ADMIN_USER", "admin"),
-		AdminPass:  getEnv("ADMIN_PASS", "password"),
-		LastFMKey:  getEnv("LASTFM_API_KEY", ""),
-		SteamKey:   getEnv("STEAM_API_KEY", ""),
-		Debug:      getEnvBool("DEBUG", false),
+		Port:              getEnv("PORT", "8080"),
+		DataPath:          getEnv("DATA_PATH", "./data"),
+		StaticPath:        getEnv("STATIC_PATH", "./static"),
+		MediaPath:         getEnv("MEDIA_PATH", "./media"),
+		AdminUser:         getEnv("ADMIN_USER", "admin"),
+		AdminPass:         getEnv("ADMIN_PASS", "password"),
+		LastFMKey:         getEnv("LASTFM_API_KEY", ""),
+		SteamKey:          getEnv("STEAM_API_KEY", ""),
+		HCGatewayURL:      getEnv("HCGATEWAY_URL", "https://api.hcgateway.shuchir.dev"),
+		HCGatewayUser:     getEnv("HCGATEWAY_USER", ""),
+		HCGatewayPassword: getEnv("HCGATEWAY_PASSWORD", ""),
+		Debug:             getEnvBool("DEBUG", false),
 	}
 }
 

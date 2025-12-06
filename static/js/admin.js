@@ -69,7 +69,23 @@ function createDefaultStructure(pluginName, pluginType) {
                 defaultLat: 25,
                 defaultLng: 0
             }
-        }
+        },
+        'health': {
+            api: {
+                baseUrl: 'https://api.hcgateway.shuchir.dev',
+                username: '',
+                password: ''
+            },
+            ui: {
+                sectionTitle: 'Health Stats',
+                showSteps: true,
+                showCalories: true,
+                showWorkouts: true,
+                showSleep: true,
+                showHeartRate: true,
+                showHydration: true
+            }
+        },
     };
 
     if (specificDefaults[pluginName]) {
@@ -1088,7 +1104,8 @@ function getDefaultSectionTitle(pluginName) {
         'info': 'Page Info',
         'personal': 'Personal Info',
         'meme': 'Random Meme',
-        'places': 'Visited Places'
+        'places': 'Visited Places',
+        'health': 'Health Stats',
     };
 
     return titles[pluginName] || formatFieldName(pluginName);

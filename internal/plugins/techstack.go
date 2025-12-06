@@ -28,26 +28,35 @@ func (p *TechStackPlugin) Name() string {
 
 func (p *TechStackPlugin) Render(ctx context.Context) (string, error) {
 	config := p.storage.GetPluginConfig(p.Name())
-	techs, ok := config.Settings["technologies"].([]interface{})
+	settings := config.Settings
+
+	techs, ok := settings["technologies"].([]interface{})
 	if !ok {
 		return "", nil
 	}
+
+	sectionTitle := p.getConfigValue(settings, "ui.sectionTitle", "Technologies")
 
 	// Icons are served from /static. Each entry can have:
 	// - icon: slug -> /static/icons/<slug>.svg
 	// - iconPath: direct path under static (e.g. /static/icons/tech/django.svg)
 	tmpl := `
-	<div class="tech-section section">
-		<h3>Technologies</h3>
+<section class="tech-section section plugin" data-w="2">
+	<header class="plugin-header">
+		<h3 class="plugin-title">{{.SectionTitle}}</h3>
+	</header>
+
+	<div class="plugin__inner">
 		<div class="tech-grid">
 			{{range .Technologies}}
 			<div class="tech-item" title="{{.Name}}">
-				<img src="{{.IconURL}}" alt="{{.Name}} logo" class="icon icon-tech" loading="lazy">
+				<img src="{{.IconURL}}" alt="{{.Name}} logo" class="icon icon-tech" loading="lazy" decoding="async">
 				<span class="tech-name">{{.Name}}</span>
 			</div>
 			{{end}}
 		</div>
-	</div>`
+	</div>
+</section>`
 
 	type tech struct {
 		Name    string
@@ -104,7 +113,13 @@ func (p *TechStackPlugin) Render(ctx context.Context) (string, error) {
 	}
 
 	var buf strings.Builder
-	err = tmplParsed.Execute(&buf, struct{ Technologies []tech }{Technologies: technologies})
+	err = tmplParsed.Execute(&buf, struct {
+		SectionTitle string
+		Technologies []tech
+	}{
+		SectionTitle: sectionTitle,
+		Technologies: technologies,
+	})
 	return buf.String(), err
 }
 
@@ -150,4 +165,27 @@ func (p *TechStackPlugin) RenderText(ctx context.Context) (string, error) {
 	}
 
 	return fmt.Sprintf("Tech: %s", strings.Join(techNames, ", ")), nil
+}
+
+func (p *TechStackPlugin) getConfigValue(settings map[string]interface{}, s string, s2 string) string {
+	keys := strings.Split(s, ".")
+	current := settings
+
+	for i, k := range keys {
+		if i == len(keys)-1 {
+			if value, ok := current[k]; ok {
+				if strValue, ok := value.(string); ok {
+					return strValue
+				}
+			}
+			return s2
+		} else {
+			if next, ok := current[k].(map[string]interface{}); ok {
+				current = next
+			} else {
+				return s2
+			}
+		}
+	}
+	return s2
 }

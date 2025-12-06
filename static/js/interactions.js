@@ -321,25 +321,34 @@
             if (toggle.dataset.listenerAttached === '1') return;
             toggle.dataset.listenerAttached = '1';
 
+            const id = toggle.dataset.target;
+            if (!id) return;
+
+            const content = sec.querySelector('#' + id);
+            const icon = toggle.querySelector('.toggle-icon');
+            if (!content || !icon) return;
+
+            if (id === 'wakatime-langs') {
+                content.classList.remove('collapsed');
+                icon.textContent = '▼';
+                toggle.setAttribute('aria-expanded', 'true');
+            }
+
             toggle.addEventListener('click', (e) => {
                 e.preventDefault();
                 e.stopPropagation();
-
-                const id = toggle.dataset.target;
-                if (!id) return;
-
-                const content = sec.querySelector('#' + id);
-                const icon = toggle.querySelector('.toggle-icon');
-                if (!content || !icon) return;
 
                 const willCollapse = !content.classList.contains('collapsed');
                 content.classList.toggle('collapsed', willCollapse);
                 icon.textContent = willCollapse ? '▶' : '▼';
                 toggle.setAttribute('aria-expanded', willCollapse ? 'false' : 'true');
 
-                setTimeout(() => {
-                    if (window.mosaicUtils) window.mosaicUtils.resizeAll();
-                }, 280);
+                if (window.mosaicUtils) {
+                    window.mosaicUtils.resizeAll();
+                    setTimeout(() => window.mosaicUtils.resizeAll(), 50);
+                    setTimeout(() => window.mosaicUtils.resizeAll(), 150);
+                    setTimeout(() => window.mosaicUtils.resizeAll(), 350);
+                }
             }, { passive: false });
         });
     }
@@ -355,6 +364,15 @@
                 const a = $('.recent-track-artist', item)?.textContent || '';
                 if (t && a && window.playTrack) window.playTrack(`${a} ${t}`);
             });
+        });
+    }
+
+    function initHealthInteractions() {
+        const healthSection = document.querySelector('.health-section');
+        if (!healthSection) return;
+
+        healthSection.querySelectorAll('.health-card').forEach(card => {
+            card.style.cursor = 'default';
         });
     }
 
@@ -569,6 +587,7 @@
                     initWebring();
                     initNeofetchSwitch();
                     initAnimatedCounters();
+                    initHealthInteractions();
 
                     setTimeout(() => {
                         ensureProjectsAlwaysLast();

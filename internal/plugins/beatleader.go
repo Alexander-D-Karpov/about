@@ -340,9 +340,12 @@ func (p *BeatLeaderPlugin) Render(ctx context.Context) (string, error) {
 	cubesExact := formatNumberWithCommas(cubesSliced)
 
 	tmpl := `
-	<div class="beatleader-section section">
-		<h3>{{.SectionTitle}}</h3>
+<section class="beatleader-section section plugin" data-w="2">
+	<header class="plugin-header">
+		<h3 class="plugin-title">{{.SectionTitle}}</h3>
+	</header>
 
+	<div class="plugin__inner">
 		{{if .ShowMainStats}}
 		<div class="stats-grid">
 			<div class="stat-item">
@@ -412,7 +415,8 @@ func (p *BeatLeaderPlugin) Render(ctx context.Context) (string, error) {
 			{{end}}
 		</div>
 		{{end}}
-	</div>`
+	</div>
+</section>`
 
 	var processedScores []map[string]interface{}
 	for i, score := range p.recentScores {
@@ -497,13 +501,17 @@ func (p *BeatLeaderPlugin) renderLoading(settings map[string]interface{}) string
 	sectionTitle := p.getConfigValue(settings, "ui.sectionTitle", "BeatLeader Stats")
 	loadingText := p.getConfigValue(settings, "ui.loadingText", "Loading BeatLeader data...")
 
-	return fmt.Sprintf(`<div class="beatleader-section section">
-		<h3>%s</h3>
-		<div class="loading-indicator">
-			<div class="loading"></div>
-			<p class="text-muted">%s</p>
+	return fmt.Sprintf(`<section class="beatleader-section section plugin" data-w="2">
+		<header class="plugin-header">
+			<h3 class="plugin-title">%s</h3>
+		</header>
+		<div class="plugin__inner">
+			<div class="loading-indicator">
+				<div class="loading"></div>
+				<p class="text-muted">%s</p>
+			</div>
 		</div>
-	</div>`, sectionTitle, loadingText)
+	</section>`, sectionTitle, loadingText)
 }
 
 func (p *BeatLeaderPlugin) UpdateData(ctx context.Context) error {

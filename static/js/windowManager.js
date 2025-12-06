@@ -1,53 +1,49 @@
 (function(){
     'use strict';
 
-    // Mark that JS is loading
+    // mark JS state
     document.documentElement.classList.add('js-loading');
-
-    // Ensure CSS rules gated by ".js" apply (grid layout next to profile)
     document.documentElement.classList.add('js');
 
     // --- tiny helpers ---
     const $ = (q, c = document) => c ? c.querySelector(q) : null;
     const $$ = (q, c = document) => c ? Array.from(c.querySelectorAll(q)) : [];
-
     const on = (el, ev, fn, opts) => el && el.addEventListener(ev, fn, opts);
     const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
     const now = () => Date.now();
 
-    const throttle = (fn, ms=100) => {
+    const throttle = (fn, ms = 100) => {
         let t = 0, to, last;
         return (...args) => {
             const n = now();
-            if (n - t > ms) { t = n; fn(...args); }
-            else { last = args; clearTimeout(to); to = setTimeout(() => { t = now(); fn(...(last||[])); }, ms); }
+            if (n - t > ms) { t = n; fn(...args); } else {
+                last = args;
+                clearTimeout(to);
+                to = setTimeout(() => {
+                    t = now();
+                    fn(...(last || []));
+                }, ms);
+            }
         };
     };
 
-    const isInteractive = (node) => !!node.closest('button, a, input, select, textarea, [contenteditable], .plugin-btn');
+    const isInteractive = (node) =>
+        !!node.closest('button, a, input, select, textarea, [contenteditable], .plugin-btn');
 
     // --- bootstrapping containers ---
     const root = $('.container');
     if (!root) return;
 
-    // Ensure profile section stays outside the mosaic and first
-    let profile = $('.profile-section', root);
-
-    // If no mosaic in DOM yet, create one and place it right after profile (when present)
     let mosaic = $('.mosaic', root);
     if (!mosaic) {
         mosaic = document.createElement('section');
         mosaic.className = 'mosaic';
-        if (profile && profile.parentNode === root) {
-            if (profile.nextSibling) root.insertBefore(mosaic, profile.nextSibling);
-            else root.appendChild(mosaic);
-        } else {
-            root.appendChild(mosaic);
-        }
+        // put mosaic as the first child; we'll move everything else into it
+        root.prepend(mosaic);
     }
 
-    // Move every child except profile + mosaic into the mosaic (these are plugin windows)
-    const toMove = [...root.children].filter(el => el !== mosaic && el !== profile);
+    const toMove = [...root.children].filter(el => el !== mosaic);
+
     toMove.forEach(el => {
         el.classList.add('plugin');
         if (!el.querySelector('.plugin__inner')) {
@@ -57,21 +53,29 @@
             el.appendChild(inner);
         }
         if (!el.id) {
-            const guess = (el.className.match(/([a-z0-9-]+)-section/i) || [,'tile'])[1];
-            el.id = `${guess}-${Math.random().toString(36).slice(2,7)}`;
+            const guess = (el.className.match(/([a-z0-9-]+)-section/i) || [, 'tile'])[1];
+            el.id = `${guess}-${Math.random().toString(36).slice(2, 7)}`;
         }
         el.style.gridColumn = el.style.gridRow = '';
         mosaic.appendChild(el);
     });
 
-    // --- defaults, storage ---
     const defaultWidths = {
-        'projects-section': 3, 'beatleader-section': 2, 'steam-section': 2,
-        'neofetch-section': 2, 'tech-section': 2,
-        'code-section': 2, 'meme-section': 1, 'lastfm-section': 2,
-        'webring-section': 2, 'social-section': 2, 'visitors-section': 1, 'info-section': 2,
+        'projects-section': 3,
+        'beatleader-section': 2,
+        'steam-section': 2,
+        'neofetch-section': 2,
+        'tech-section': 1,
+        'code-section': 2,
+        'meme-section': 1,
+        'lastfm-section': 2,
+        'webring-section': 2,
+        'social-section': 2,
+        'visitors-section': 1,
+        'info-section': 2,
         'services-section': 2,
-        'places-section': 2
+        'places-section': 2,
+        'profile-section': 2,
     };
 
     const preferredWidths = new Map();
@@ -93,8 +97,10 @@
         el.dataset.w = String(w);
         preferredWidths.set(el.id, w);
         if (savedPinned[el.id]) el.dataset.pinned = '1';
+        if (el.classList.contains('profile-section')) el.dataset.pinned = '1';
     });
 
+    // --- scroll lock for overlay ---
     let _scrollLockY = 0;
 
     function lockBodyScroll(){
@@ -116,42 +122,54 @@
         document.body.style.left = '';
         document.body.style.right = '';
         document.body.style.width = '';
-        // restore previous scroll position without animation
         window.scrollTo(0, _scrollLockY);
     }
 
-
-    // --- measurement helpers for packer ---
+    // --- measurement helpers for masonry packer ---
     const cssNumber = (el, prop) => {
         const v = getComputedStyle(el).getPropertyValue(prop);
-        const m = /([0-9.+-]+)/.exec(v); return m ? parseFloat(m[1]) : 0;
+        const m = /([0-9.+-]+)/.exec(v);
+        return m ? parseFloat(m[1]) : 0;
     };
     const MIN_COL_FALLBACK = 280;
     const EXTRA = 24;
 
     function rowMetrics(){
-        const rowSize = cssNumber(mosaic, 'grid-auto-rows') || 2;
-        const gapRaw = getComputedStyle(mosaic).gap || getComputedStyle(mosaic).gridRowGap;
-        const parts = (gapRaw || '3px').trim().split(/\s+/);
-        const rowGap = parseFloat(parts.length === 2 ? parts[1] : parts[0]) || 3;
-        return { rowSize, rowGap };
+        return {rowSize: 1, rowGap: 0};
     }
+
     function rowSpanFromPx(h){
         const { rowSize, rowGap } = rowMetrics();
         return Math.max(1, Math.ceil((h + EXTRA + rowGap) / (rowSize + rowGap)));
     }
+
     function outerHeightPx(el){
         const r = el.getBoundingClientRect();
         const mb = parseFloat(getComputedStyle(el).marginBottom) || 0;
-        return Math.ceil(r.height + mb);
+        const inner = el.querySelector('.plugin__inner');
+        const innerH = inner ? inner.getBoundingClientRect().height : 0;
+        const header = el.querySelector('.plugin-header');
+        const headerH = header ? header.getBoundingClientRect().height : 0;
+        return Math.ceil(Math.max(r.height, innerH + headerH + 20) + mb);
     }
+
+
     function colCount(){
         const style = getComputedStyle(mosaic);
-        const gap = parseFloat((style.columnGap || style.gap || '3px').split(/\s+/)[0]) || 3;
-        const minCol = cssNumber(document.documentElement, '--col-min') || cssNumber(mosaic, '--col-min') || MIN_COL_FALLBACK;
+        const gapStr = style.columnGap || style.gap || '3px';
+        const gap = parseFloat(gapStr.split(/\s+/)[0]) || 3;
+
+        const minColRoot = cssNumber(document.documentElement, '--col-min');
+        const minColMosaic = cssNumber(mosaic, '--col-min');
+        const minCol = minColRoot || minColMosaic || MIN_COL_FALLBACK;
+
         const w = mosaic.clientWidth;
-        return Math.max(1, Math.floor((w + gap) / (minCol + gap)));
+        if (w <= 0) return 1;
+
+        const cols = Math.max(1, Math.floor((w + gap) / (minCol + gap)));
+        return cols;
     }
+
     function clampSpansToCols(){
         const cols = colCount();
         $$('.plugin', mosaic).forEach(el => {
@@ -165,34 +183,46 @@
     function flip(update){
         const items = $$('.plugin', mosaic);
         const first = new Map(items.map(el => [el, el.getBoundingClientRect()]));
+
         update();
+
         const last  = new Map(items.map(el => [el, el.getBoundingClientRect()]));
+
         items.forEach(el => {
-            const f = first.get(el), l = last.get(el); if (!f || !l) return;
-            const dx = f.left - l.left, dy = f.top - l.top;
-            const sx = f.width ? f.width / l.width : 1, sy = f.height ? f.height / l.height : 1;
-            if (Math.abs(dx)<1 && Math.abs(dy)<1 && Math.abs(sx-1)<.01 && Math.abs(sy-1)<.01) return;
+            const f = first.get(el), l = last.get(el);
+            if (!f || !l) return;
+
+            const dx = f.left - l.left;
+            const dy = f.top - l.top;
+            const sx = f.width ? f.width / l.width : 1;
+            const sy = f.height ? f.height / l.height : 1;
+
+            if (Math.abs(dx) < 1 && Math.abs(dy) < 1 &&
+                Math.abs(sx - 1) < 0.01 && Math.abs(sy - 1) < 0.01) return;
+
             el.animate(
-                [{ transform:`translate(${dx}px,${dy}px) scale(${sx},${sy})` },
-                    { transform:'translate(0,0) scale(1,1)' }],
-                { duration:260, easing:'cubic-bezier(.2,.7,.2,1)', fill:'both' }
+                [
+                    {transform: `translate(${dx}px, ${dy}px) scale(${sx}, ${sy})`},
+                    {transform: 'translate(0, 0) scale(1, 1)'}
+                ],
+                {duration: 260, easing: 'cubic-bezier(.2,.7,.2,1)', fill: 'both'}
             );
         });
     }
 
-    // --- packers: quick (prebaked) + precise ---
+    // --- packers ---
     function measure(el){
         const w = clamp(+el.dataset.w || 1, 1, Math.max(1, colCount()));
         const hPx = outerHeightPx(el);
         return { el, w, span: rowSpanFromPx(hPx) };
     }
 
+
     function packWithGivenSpans(spanGetter){
         clampSpansToCols();
         const cols = colCount();
         const items = $$('.plugin', mosaic);
 
-        // Respect current DOM order; do not reorder here.
         const entries = items.map(el => ({
             el,
             w: Math.min(+el.dataset.w || 1, cols),
@@ -201,28 +231,38 @@
 
         flip(() => {
             const occ = new Array(cols).fill(0);
+
             entries.forEach(x => {
-                let bestC = 0, bestH = Infinity;
-                for (let c = 0; c <= cols - x.w; c++){
-                    const h = Math.max(...occ.slice(c, c + x.w));
-                    if (h < bestH) { bestH = h; bestC = c; }
+                const w = Math.min(x.w, cols);
+                let bestC = 0;
+                let bestH = Infinity;
+
+                for (let c = 0; c <= cols - w; c++) {
+                    const h = Math.max(...occ.slice(c, c + w));
+                    if (h < bestH) {
+                        bestH = h;
+                        bestC = c;
+                    }
                 }
+
                 const startRow = bestH + 1;
                 const endRow = startRow + x.span;
-                for (let i=bestC; i<bestC+x.w; i++) occ[i] = endRow;
-                x.el.style.gridColumn = `${bestC+1} / span ${x.w}`;
-                x.el.style.gridRow    = `${startRow} / span ${x.span}`;
+
+                for (let i = bestC; i < bestC + w; i++) {
+                    occ[i] = endRow;
+                }
+
+                x.el.style.gridColumn = `${bestC + 1} / span ${w}`;
+                x.el.style.gridRow = `${startRow} / span ${x.span}`;
             });
         });
     }
 
 
-    // quick boot: use last-known spans to avoid jumping
     function quickPackFromSaved(){
         packWithGivenSpans((el) => savedSpans[el.id]);
     }
 
-    // precise pass: measure actual heights and persist spans
     function precisePack(){
         const spansOut = {};
         packWithGivenSpans((el) => {
@@ -238,10 +278,10 @@
         precisePack();
         fitNeofetch();
     }, 80);
-    function settlePasses(){
-        [80, 220, 600, 1200].forEach(d => setTimeout(packAll, d));
-    }
 
+    function settlePasses(){
+        [50, 100, 200, 400, 800, 1500].forEach(d => setTimeout(packAll, d));
+    }
 
     function fullRepack(){
         clampSpansToCols();
@@ -250,54 +290,57 @@
         settlePasses();
     }
 
-    function getProjectPlugins(mosaic){
-        return Array.from(mosaic.querySelectorAll('.projects-section, .projects-section.plugin'))
+    // --- special ordering ---
+    function getProjectPlugins(m) {
+        return Array.from(m.querySelectorAll('.projects-section, .projects-section.plugin'))
             .map(n => n.closest('.plugin') || n)
             .filter(Boolean);
     }
 
-
-    function getWebringPlugins(mosaic){
-        return Array.from(mosaic.querySelectorAll('.webring-section, .webring-section.plugin'))
+    function getWebringPlugins(m) {
+        return Array.from(m.querySelectorAll('.webring-section, .webring-section.plugin'))
             .map(n => n.closest('.plugin') || n)
             .filter(Boolean);
     }
 
-    function ensureWebringFirst(mosaic){
-        const list = getWebringPlugins(mosaic);
+    function ensureWebringFirst(m) {
+        const list = getWebringPlugins(m);
         list.forEach(n => {
-            if (n.parentElement === mosaic && n !== mosaic.firstElementChild) {
-                mosaic.insertBefore(n, mosaic.firstElementChild);
+            if (n.parentElement === m && n !== m.firstElementChild) {
+                m.insertBefore(n, m.firstElementChild);
             }
         });
     }
 
-    function detachProjects(mosaic){
-        const list = getProjectPlugins(mosaic);
+    function detachProjects(m) {
+        const list = getProjectPlugins(m);
         list.forEach(n => n.remove());
         return list;
     }
 
-    function ensureProjectsLast(mosaic){
-        const list = getProjectPlugins(mosaic);
+    function ensureProjectsLast(m) {
+        const list = getProjectPlugins(m);
         list.forEach(n => {
-            if (n.parentElement === mosaic && n !== mosaic.lastElementChild) {
-                mosaic.appendChild(n);
+            if (n.parentElement === m && n !== m.lastElementChild) {
+                m.appendChild(n);
             }
         });
     }
 
+    function ensurePluginOrdering(m) {
+        ensureWebringFirst(m);
+        ensureProjectsLast(m);
+    }
 
+    // --- initial layout ---
     (function initialLayout(){
         if (savedOrder.length){
             const byId = Object.fromEntries($$('.plugin', mosaic).map(n => [n.id, n]));
             savedOrder.forEach(id => byId[id] && mosaic.appendChild(byId[id]));
         } else {
-            // initial-only constraints; after that user can move anything
-            ensurePluginOrdering(mosaic); // e.g. put webring first, projects last (or add neofetch here if you want it special at boot)
+            ensurePluginOrdering(mosaic);
         }
 
-        // optional defer
         const deferredProjects = detachProjects(mosaic);
 
         quickPackFromSaved();
@@ -308,35 +351,36 @@
             [120, 420].forEach(d => setTimeout(precisePack, d));
         }, 120);
 
-        settlePasses();
+        window.addEventListener('load', () => {
+            packAll();
+            settlePasses();
+        });
     })();
 
-
-    function ensurePluginOrdering(mosaic){
-        ensureWebringFirst(mosaic);
-        ensureProjectsLast(mosaic);
-    }
-
-    // --- actions / toolbar ---
+    // --- toolbar actions ---
     function setWidth(el, w){
         w = clamp(w, 1, 3);
         el.dataset.w = String(w);
         const widths = safeJSON(localStorage.getItem(widthsStoreKey)) || {};
-        widths[el.id] = w; localStorage.setItem(widthsStoreKey, JSON.stringify(widths));
+        widths[el.id] = w;
+        localStorage.setItem(widthsStoreKey, JSON.stringify(widths));
         preferredWidths.set(el.id, w);
-        packAll(); settlePasses();
+        packAll();
+        settlePasses();
     }
+
     function toggleCollapse(el){
         el.classList.toggle('is-collapsed');
-        packAll(); settlePasses();
+        packAll();
+        settlePasses();
     }
+
     function pin(el){
         el.dataset.pinned = el.dataset.pinned === '1' ? '0' : '1';
         const map = safeJSON(localStorage.getItem(pinnedStoreKey)) || {};
         map[el.id] = el.dataset.pinned === '1';
         localStorage.setItem(pinnedStoreKey, JSON.stringify(map));
 
-        // bring pinned to the top, preserving relative order among pinned/unpinned
         const items = $$('.plugin', mosaic);
         const pinned = items.filter(n => n.dataset.pinned === '1');
         const unpinned = items.filter(n => n.dataset.pinned !== '1');
@@ -348,35 +392,41 @@
         settlePasses();
     }
 
-
-    const ICONS = { collapse:'▾', 'w-dec':'–', 'w-inc':'+', expand:'⛶' };
+    const ICONS = {collapse: '▾', 'w-dec': '–', 'w-inc': '+', expand: '⛶'};
     const TITLES = { collapse:'Collapse', 'w-dec':'Narrower', 'w-inc':'Wider', expand:'Expand' };
 
     function makeDot(action, title){
         const b = document.createElement('button');
-        b.className = 'icon-btn plugin-btn'; b.type = 'button';
-        b.dataset.action = action; b.setAttribute('aria-label', title); b.title = title;
+        b.className = 'icon-btn plugin-btn';
+        b.type = 'button';
+        b.dataset.action = action;
+        b.setAttribute('aria-label', title);
+        b.title = title;
 
-        // show symbol on hover, hide when leaving
         on(b, 'mouseenter', () => { b.textContent = ICONS[action] || ''; });
         on(b, 'mouseleave', () => { b.textContent = ''; });
 
-        // prevent drag from starting when clicking buttons
-        ['pointerdown','mousedown','click'].forEach(ev => {
+        ['pointerdown', 'mousedown', 'click'].forEach(ev => {
             on(b, ev, (e) => { e.stopPropagation(); });
         });
 
-        on(b, 'click', (e) => { ripple(e); b.blur(); handleAction(b.closest('.plugin'), action); });
+        on(b, 'click', (e) => {
+            ripple(e);
+            b.blur();
+            handleAction(b.closest('.plugin'), action);
+        });
 
         return b;
     }
 
     function ensureToolbar(el){
+        if (el.classList.contains('profile-section')) return;
+
         let titleEl = $('h1,h2,h3,h4', el.querySelector('.plugin__inner'));
         if (!titleEl){
             titleEl = document.createElement('h3');
             titleEl.className = 'plugin-title';
-            titleEl.textContent = (el.className.match(/([a-z0-9-]+)-section/i) || [,'Block'])[1].replace(/-/g,' ');
+            titleEl.textContent = (el.className.match(/([a-z0-9-]+)-section/i) || [, 'Block'])[1].replace(/-/g, ' ');
         } else {
             titleEl.classList.add('plugin-title');
         }
@@ -394,19 +444,21 @@
             bar = document.createElement('div');
             bar.className = 'plugin-toolbar';
             headerRow.appendChild(bar);
-            ['collapse','w-dec','w-inc','expand'].forEach(action => bar.append(makeDot(action, TITLES[action])));
-            ['pointerdown','mousedown','click'].forEach(ev => bar.addEventListener(ev, e => e.stopPropagation()));
+            ['collapse', 'w-dec', 'w-inc', 'expand'].forEach(action => {
+                bar.append(makeDot(action, TITLES[action]));
+            });
+            ['pointerdown', 'mousedown', 'click'].forEach(ev =>
+                bar.addEventListener(ev, e => e.stopPropagation())
+            );
         }
 
         headerRow.classList.add('drag-handle');
         headerRow.removeAttribute('draggable');
-        headerRow.addEventListener('pointerdown', onHeaderPointerDown, { passive:false });
+        headerRow.addEventListener('pointerdown', onHeaderPointerDown, {passive: false});
         headerRow.addEventListener('mousedown', bringToFront);
     }
 
     $$('.plugin', mosaic).forEach(el => ensureToolbar(el));
-
-
 
     function handleAction(el, action){
         if (!el) return;
@@ -416,23 +468,30 @@
         if (action === 'w-inc')    setWidth(el, (+el.dataset.w || 1) + 1);
         if (action === 'w-dec')    setWidth(el, (+el.dataset.w || 1) - 1);
     }
+
     function persistOrder(){
         const order = $$('.plugin', mosaic).map(n => n.id);
-        localStorage.setItem('mosaic.order', JSON.stringify(order));
+        localStorage.setItem(orderStoreKey, JSON.stringify(order));
     }
 
-    // --- overlay expand/collapse ---
+    // --- overlay expand / collapse ---
     let overlay, expanded = null;
+
     function ensureOverlay(){
         if (overlay) return overlay;
         overlay = document.createElement('div');
         overlay.className = 'plugin-overlay';
-        overlay.style.zIndex = '99999'; // guarantee on top
-        overlay.addEventListener('click', (e) => { if (e.target === overlay) collapseExpanded(); });
-        document.addEventListener('keydown', (e) => { if (e.key === 'Escape') collapseExpanded(); });
+        overlay.style.zIndex = '99999';
+        overlay.addEventListener('click', (e) => {
+            if (e.target === overlay) collapseExpanded();
+        });
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') collapseExpanded();
+        });
         document.body.appendChild(overlay);
         return overlay;
     }
+
     function expand(el, updateURL = true){
         if (expanded === el) return collapseExpanded();
 
@@ -446,7 +505,7 @@
         mosaic.insertBefore(ph, el.nextSibling);
 
         ensureOverlay().classList.add('in');
-        lockBodyScroll();              // <— lock here
+        lockBodyScroll();
 
         el.classList.add('plugin--expanded');
         overlay.appendChild(el);
@@ -454,14 +513,15 @@
         setTimeout(() => { packAll(); }, 60);
 
         if (updateURL){
-            const pluginName = (el.className.match(/([a-z0-9-]+)-section/i)||[])[1] || el.id;
+            const pluginName = (el.className.match(/([a-z0-9-]+)-section/i) || [, el.id])[1] || el.id;
             history.pushState({ expanded: pluginName }, '', `#${pluginName}`);
         }
     }
+
     function collapseExpanded(updateURL = true){
         if (!expanded) {
             ensureOverlay().classList.remove('in');
-            unlockBodyScroll();          // <— ensure unlocked even if nothing expanded
+            unlockBodyScroll();
             return;
         }
         const ph = $('.plugin-placeholder', mosaic);
@@ -470,23 +530,23 @@
         ensureOverlay().classList.remove('in');
         expanded = null;
 
-        unlockBodyScroll();            // <— unlock here
+        unlockBodyScroll();
 
-        packAll(); settlePasses();
+        packAll();
+        settlePasses();
         if (updateURL) history.pushState({}, '', window.location.pathname);
     }
 
-
-    // --- real-WM style dragging with z-elevation + AUTOSCROLL + HOVER-SWAP ---
+    // --- dragging with autoscroll + hover-swap ---
     let pointerDown = false, startedDrag = false;
     let dragEl = null, placeholderEl = null, handleEl = null;
     let startX = 0, startY = 0, latestX = 0, latestY = 0;
     let dragOffsetX = 0, dragOffsetY = 0;
     let rafPending = false;
-    let latestClientY = 0; // viewport-based Y for autoscroll
+    let latestClientY = 0;
     let maxZ = 1000;
     let autoScrollRAF = null;
-    const DRAG_START_TOL = 6; // px movement before we actually start the drag
+    const DRAG_START_TOL = 6;
     let lastHoverTarget = null, lastSwapAt = 0;
 
     function bringToFront(e){
@@ -497,23 +557,27 @@
     }
 
     function onHeaderPointerDown(e){
-        if (e.button !== 0) return; // primary only
-        if (isInteractive(e.target)) return; // don't drag when clicking buttons/links/etc.
-        const win = e.currentTarget.closest('.plugin'); if (!win) return;
+        if (e.button !== 0) return;
+        if (isInteractive(e.target)) return;
+        const win = e.currentTarget.closest('.plugin');
+        if (!win) return;
         e.preventDefault();
 
-        pointerDown = true; startedDrag = false;
+        pointerDown = true;
+        startedDrag = false;
         handleEl = e.currentTarget;
         dragEl = win;
 
         const rect = dragEl.getBoundingClientRect();
-        startX = e.clientX; startY = e.clientY;
-        latestX = rect.left; latestY = rect.top;
+        startX = e.clientX;
+        startY = e.clientY;
+        latestX = rect.left;
+        latestY = rect.top;
         latestClientY = e.clientY;
 
-        document.addEventListener('pointermove', onDocPointerMove, { passive:false });
-        document.addEventListener('pointerup', onDocPointerUp, { passive:false });
-        document.addEventListener('pointercancel', onDocPointerUp, { passive:false });
+        document.addEventListener('pointermove', onDocPointerMove, {passive: false});
+        document.addEventListener('pointerup', onDocPointerUp, {passive: false});
+        document.addEventListener('pointercancel', onDocPointerUp, {passive: false});
     }
 
     function beginDrag(e){
@@ -522,7 +586,6 @@
 
         const rect = dragEl.getBoundingClientRect();
 
-        // create placeholder occupying grid space (original slot)
         placeholderEl = document.createElement('div');
         placeholderEl.className = dragEl.className + ' plugin-placeholder';
         placeholderEl.style.height = rect.height + 'px';
@@ -532,7 +595,6 @@
 
         mosaic.replaceChild(placeholderEl, dragEl);
 
-        // elevate and move to fixed coordinates
         dragOffsetX = e.clientX - rect.left;
         dragOffsetY = e.clientY - rect.top;
 
@@ -544,7 +606,7 @@
         dragEl.style.width  = rect.width  + 'px';
         dragEl.style.height = rect.height + 'px';
         dragEl.classList.add('dragging');
-        dragEl.style.pointerEvents = 'none'; // allow elementFromPoint to "see" what's beneath
+        dragEl.style.pointerEvents = 'none';
 
         document.body.appendChild(dragEl);
         document.body.classList.add('dragging-cursor');
@@ -581,7 +643,6 @@
         if (!pointerDown) return;
         latestClientY = e.clientY;
 
-        // start drag only after small movement (prevents "buttons not clickable" issue)
         if (!startedDrag){
             const dx = e.clientX - startX;
             const dy = e.clientY - startY;
@@ -605,11 +666,10 @@
             });
         }
 
-        // live swap with hovered plugin
         hoverSwapAt(e.clientX, e.clientY);
     }
 
-    function onDocPointerUp(e){
+    function onDocPointerUp() {
         document.removeEventListener('pointermove', onDocPointerMove);
         document.removeEventListener('pointerup', onDocPointerUp);
         document.removeEventListener('pointercancel', onDocPointerUp);
@@ -645,7 +705,6 @@
 
         persistOrder();
         packAll();
-
         setTimeout(() => {
             packAll();
         }, 50);
@@ -669,21 +728,30 @@
                 window.scrollBy(0, step(EDGE - toBottom));
             }
         }
+
         if (!autoScrollRAF) autoScrollRAF = requestAnimationFrame(loop);
     }
+
     function stopAutoScrollLoop(){
-        if (autoScrollRAF){ cancelAnimationFrame(autoScrollRAF); autoScrollRAF = null; }
+        if (autoScrollRAF) {
+            cancelAnimationFrame(autoScrollRAF);
+            autoScrollRAF = null;
+        }
     }
 
-    // --- cosmetics ---
+    // --- cosmetics: ripple + toast ---
     function ripple(e){
-        const el = e.currentTarget; el.classList.add('ripple-host');
-        const r = document.createElement('span'); r.className = 'ripple';
-        const rect = el.getBoundingClientRect(); const d = Math.max(rect.width, rect.height);
+        const el = e.currentTarget;
+        el.classList.add('ripple-host');
+        const r = document.createElement('span');
+        r.className = 'ripple';
+        const rect = el.getBoundingClientRect();
+        const d = Math.max(rect.width, rect.height);
         r.style.width = r.style.height = d + 'px';
-        r.style.left = (e.clientX - rect.left - d/2) + 'px';
-        r.style.top  = (e.clientY - rect.top  - d/2) + 'px';
-        el.appendChild(r); setTimeout(() => r.remove(), 600);
+        r.style.left = (e.clientX - rect.left - d / 2) + 'px';
+        r.style.top = (e.clientY - rect.top - d / 2) + 'px';
+        el.appendChild(r);
+        setTimeout(() => r.remove(), 600);
     }
 
     let toastRoot;
@@ -703,13 +771,17 @@
         setTimeout(() => n.remove(), 1900);
     }
 
-    // --- observers / utilities ---
+    // --- observers ---
     const io = new IntersectionObserver(entries => {
         entries.forEach(e => e.target.classList.toggle('reveal', e.isIntersecting));
     }, { threshold: 0.08 });
     $$('.plugin', mosaic).forEach(el => io.observe(el));
 
-    if ('fonts' in document && document.fonts.ready) document.fonts.ready.then(() => { packAll(); });
+    if ('fonts' in document && document.fonts.ready) {
+        document.fonts.ready.then(() => {
+            packAll();
+        });
+    }
 
     const ro = new ResizeObserver(() => { packAll(); });
     $$('.plugin', mosaic).forEach(n => ro.observe(n, { box: 'border-box' }));
@@ -721,16 +793,27 @@
             m.addedNodes && m.addedNodes.forEach(node => {
                 if (node.nodeType === 1){
                     if (node.tagName === 'IMG') needs = true;
-                    node.querySelectorAll && node.querySelectorAll('img').forEach(() => needs = true);
+                    node.querySelectorAll && node.querySelectorAll('img')
+                        .forEach(() => needs = true);
                 }
             });
-            if (m.type === 'attributes' && m.target.tagName === 'IMG' && (m.attributeName === 'src' || m.attributeName === 'srcset')) {
+            if (m.type === 'attributes' &&
+                m.target.tagName === 'IMG' &&
+                (m.attributeName === 'src' || m.attributeName === 'srcset')) {
                 needs = true;
             }
         });
-        if (needs){ packAll(); setTimeout(packAll, 200); }
+        if (needs) {
+            packAll();
+            setTimeout(packAll, 200);
+        }
     });
-    mo.observe(mosaic, { childList:true, subtree:true, attributes:true, attributeFilter:['src','srcset'] });
+    mo.observe(mosaic, {
+        childList: true,
+        subtree: true,
+        attributes: true,
+        attributeFilter: ['src', 'srcset']
+    });
 
     function restorePreferredWidths(maxCols = colCount()){
         $$('.plugin', mosaic).forEach(el => {
@@ -748,7 +831,14 @@
         fullRepack();
     });
 
-    on(document, 'visibilitychange', () => { if (!document.hidden) { packAll(); settlePasses(); } });
+    on(document, 'visibilitychange', () => {
+        if (!document.hidden) {
+            packAll();
+            settlePasses();
+        }
+    });
+
+    // --- hash navigation / history ---
     let hashNavigationInitialized = false;
 
     function handleHashChange(){
@@ -760,7 +850,6 @@
             collapseExpanded(false);
         }
     }
-
 
     function initHashNavigation() {
         if (hashNavigationInitialized) return;
@@ -779,7 +868,9 @@
         if (window.location.hash) setTimeout(handleHashChange, 400);
     }
 
+    // --- full window manager init ---
     let windowManagerInitialized = false;
+
     function initWindowManager() {
         if (windowManagerInitialized) return;
         windowManagerInitialized = true;
@@ -790,63 +881,92 @@
             document.fonts.ready.then(() => { packAll(); });
         }
 
-        const ro = new ResizeObserver(() => { packAll(); });
-        $$('.plugin', mosaic).forEach(n => ro.observe(n, { box: 'border-box' }));
-        $$('.plugin__inner', mosaic).forEach(n => ro.observe(n, { box: 'border-box' }));
+        const ro2 = new ResizeObserver(() => {
+            packAll();
+        });
+        $$('.plugin', mosaic).forEach(n => ro2.observe(n, {box: 'border-box'}));
+        $$('.plugin__inner', mosaic).forEach(n => ro2.observe(n, {box: 'border-box'}));
 
-        const mo = new MutationObserver(muts => {
+        const mo2 = new MutationObserver(muts => {
             let needs = false;
             muts.forEach(m => {
                 m.addedNodes && m.addedNodes.forEach(node => {
                     if (node.nodeType === 1){
                         if (node.tagName === 'IMG') needs = true;
-                        node.querySelectorAll && node.querySelectorAll('img').forEach(() => needs = true);
+                        node.querySelectorAll && node.querySelectorAll('img')
+                            .forEach(() => needs = true);
                     }
                 });
-                if (m.type === 'attributes' && m.target.tagName === 'IMG' && (m.attributeName === 'src' || m.attributeName === 'srcset')) {
+                if (m.type === 'attributes' &&
+                    m.target.tagName === 'IMG' &&
+                    (m.attributeName === 'src' || m.attributeName === 'srcset')) {
                     needs = true;
                 }
             });
-            if (needs){ packAll(); setTimeout(packAll, 200); }
+            if (needs) {
+                packAll();
+                setTimeout(packAll, 200);
+            }
         });
-        mo.observe(mosaic, { childList:true, subtree:true, attributes:true, attributeFilter:['src','srcset'] });
+        mo2.observe(mosaic, {
+            childList: true,
+            subtree: true,
+            attributes: true,
+            attributeFilter: ['src', 'srcset']
+        });
 
-        let lastCols = colCount();
+        let lastCols2 = colCount();
         on(window, 'resize', () => {
             const nextCols = colCount();
             clampSpansToCols();
-            if (nextCols > lastCols) restorePreferredWidths(nextCols);
-            lastCols = nextCols;
+            if (nextCols > lastCols2) restorePreferredWidths(nextCols);
+            lastCols2 = nextCols;
             fullRepack();
         }, { once: false, passive: true });
 
         on(document, 'visibilitychange', () => {
-            if (!document.hidden) { packAll(); settlePasses(); }
+            if (!document.hidden) {
+                packAll();
+                settlePasses();
+            }
         }, { once: false, passive: true });
 
         on(document, 'keydown', (e) => {
             if (e.altKey && e.key >= '1' && e.key <= '9'){
                 e.preventDefault();
-                const idx = parseInt(e.key) - 1;
+                const idx = parseInt(e.key, 10) - 1;
                 const plugins = $$('.plugin', mosaic);
                 if (plugins[idx]){
-                    plugins[idx].scrollIntoView({ behavior:'smooth', block:'center' });
+                    plugins[idx].scrollIntoView({behavior: 'smooth', block: 'center'});
                     setTimeout(() => expand(plugins[idx]), 300);
                 }
             }
         }, { once: false });
 
-        $('#js-status')?.classList.add('status-online');
-        if ($('#js-text')) $('#js-text').textContent = 'Enabled';
+        // JS / storage status indicators (if present in DOM)
+        const jsStatus = $('#js-status');
+        if (jsStatus) jsStatus.classList.add('status-online');
+        const jsText = $('#js-text');
+        if (jsText) jsText.textContent = 'Enabled';
+
         try {
-            localStorage.setItem('_t','1'); localStorage.removeItem('_t');
-            $('#storage-status')?.classList.add('status-online');
-            $('#storage-text') && ($('#storage-text').textContent = 'Available');
+            localStorage.setItem('_t', '1');
+            localStorage.removeItem('_t');
+
+            const storageStatus = $('#storage-status');
+            if (storageStatus) storageStatus.classList.add('status-online');
+
+            const storageText = $('#storage-text');
+            if (storageText) storageText.textContent = 'Available';
         } catch {
-            $('#storage-status')?.classList.add('status-offline');
-            $('#storage-text') && ($('#storage-text').textContent = 'Unavailable');
+            const storageStatus = $('#storage-status');
+            if (storageStatus) storageStatus.classList.add('status-offline');
+
+            const storageText = $('#storage-text');
+            if (storageText) storageText.textContent = 'Unavailable';
         }
 
+        // helper API
         window.mosaicUtils = {
             resizeAll: packAll,
             fullRepack,
@@ -855,7 +975,6 @@
             getMosaic: () => mosaic
         };
 
-        // Mark JS as loaded
         setTimeout(() => {
             document.documentElement.classList.remove('js-loading');
             document.documentElement.classList.add('js-loaded');
@@ -864,6 +983,7 @@
 
     initWindowManager();
 
+    // --- neofetch height fit ---
     function fitNeofetch(){
         document.querySelectorAll('.neofetch-section .terminal').forEach(term => {
             const pre = term.querySelector('.neofetch-pre');
@@ -877,5 +997,30 @@
             term.style.height = (headerH + bodyPadding + scaledPreH + paletteH + 8) + 'px';
         });
     }
+
+    const expandObserver = new MutationObserver((mutations) => {
+        let needsRepack = false;
+        mutations.forEach(m => {
+            if (m.type === 'attributes' && m.attributeName === 'class') {
+                const el = m.target;
+                if (el.classList.contains('collapsible-content') ||
+                    el.classList.contains('collapsed') ||
+                    el.closest('.collapsible-content')) {
+                    needsRepack = true;
+                }
+            }
+        });
+        if (needsRepack) {
+            packAll();
+            setTimeout(packAll, 100);
+            setTimeout(packAll, 300);
+        }
+    });
+
+    expandObserver.observe(mosaic, {
+        attributes: true,
+        attributeFilter: ['class'],
+        subtree: true
+    });
 
 })();

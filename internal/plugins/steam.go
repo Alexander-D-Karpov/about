@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"html/template"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -18,6 +19,7 @@ type SteamPlugin struct {
 	hub           *stream.Hub
 	apiKey        string
 	recentGames   []SteamGame
+	topGames      []SteamGame
 	playerSummary *SteamPlayerSummary
 	lastUpdate    time.Time
 }
@@ -66,6 +68,13 @@ type SteamResponse struct {
 	} `json:"response"`
 }
 
+type SteamOwnedGamesResponse struct {
+	Response struct {
+		GameCount int         `json:"game_count"`
+		Games     []SteamGame `json:"games"`
+	} `json:"response"`
+}
+
 type SteamPlayerSummaryResponse struct {
 	Response struct {
 		Players []SteamPlayerSummary `json:"players"`
@@ -85,18 +94,31 @@ func (p *SteamPlugin) Name() string {
 }
 
 func (p *SteamPlugin) Render(ctx context.Context) (string, error) {
+	config := p.storage.GetPluginConfig(p.Name())
+	settings := config.Settings
+
+	// Windows-style toggles
+	showSteam := p.getConfigBool(settings, "ui.showSteam", true)
+	if !showSteam {
+		return "", nil
+	}
+	sectionTitle := p.getConfigValue(settings, "ui.sectionTitle", "Gaming Activity")
+
 	if p.apiKey == "" {
-		return p.renderNoAPI(), nil
+		return p.renderNoAPI(sectionTitle), nil
 	}
 
-	if p.playerSummary == nil && len(p.recentGames) == 0 {
-		return p.renderLoading(), nil
+	if p.playerSummary == nil && len(p.recentGames) == 0 && len(p.topGames) == 0 {
+		return p.renderLoading(sectionTitle), nil
 	}
 
 	tmpl := `
-	<div class="steam-section" id="steam-section">
-		<h3>Gaming Activity</h3>
-		
+<section class="steam-section section plugin" data-w="2">
+	<header class="plugin-header">
+		<h3 class="plugin-title">{{.SectionTitle}}</h3>
+	</header>
+
+	<div class="plugin__inner">
 		{{if and .PlayerSummary .IsPlayingNow}}
 		<div class="current-game">
 			<div class="current-game-header">
@@ -126,7 +148,7 @@ func (p *SteamPlugin) Render(ctx context.Context) (string, error) {
 
 		{{if .RecentGames}}
 		<div class="recent-games">
-			<h4>Recent Games</h4>
+			<h4>Recently Played Games</h4>
 			<div class="games-list">
 				{{range .RecentGames}}
 				<div class="game-item" data-app-id="{{.AppID}}">
@@ -151,6 +173,32 @@ func (p *SteamPlugin) Render(ctx context.Context) (string, error) {
 		</div>
 		{{end}}
 
+		{{if .TopGames}}
+		<div class="recent-games">
+			<h4>Top Games by Playtime</h4>
+			<div class="games-list">
+				{{range .TopGames}}
+				<div class="game-item" data-app-id="{{.AppID}}">
+					{{if .Icon}}
+					<img src="{{.Icon}}" alt="{{.Name}}" class="game-icon" loading="lazy">
+					{{end}}
+					<div class="game-info">
+						<div class="game-name">{{.Name}}</div>
+						<div class="game-stats">
+							<span class="game-total">{{.TotalHours}}h total</span>
+						</div>
+					</div>
+					<div class="game-actions">
+						<button class="btn btn-sm" onclick="window.open('https://store.steampowered.com/app/{{.AppID}}', '_blank')">
+							View
+						</button>
+					</div>
+				</div>
+				{{end}}
+			</div>
+		</div>
+		{{end}}
+
 		{{if .PlayerSummary}}
 		<div class="steam-profile-link">
 			<a href="{{.PlayerSummary.ProfileURL}}" target="_blank" rel="noopener" class="view-profile-btn">
@@ -158,17 +206,49 @@ func (p *SteamPlugin) Render(ctx context.Context) (string, error) {
 			</a>
 		</div>
 		{{end}}
-	</div>`
+	</div>
+</section>`
 
 	type gameData struct {
-		Name        string
-		Icon        string
-		RecentHours string
-		TotalHours  string
-		AppID       int
+		Name           string
+		Icon           string
+		RecentHours    string
+		RecentHoursNum float64
+		TotalHours     string
+		AppID          int
 	}
 
-	var games []gameData
+	// Top games
+	var topGames []gameData
+	for i, game := range p.topGames {
+		if i >= 5 {
+			break
+		}
+
+		var icon string
+		if game.ImgIconURL != "" {
+			icon = fmt.Sprintf(
+				"https://media.steampowered.com/steamcommunity/public/images/apps/%d/%s.jpg",
+				game.AppID, game.ImgIconURL,
+			)
+		}
+
+		recentHoursNum := float64(game.Playtime2w) / 60.0
+		recentHours := fmt.Sprintf("%.1f", recentHoursNum)
+		totalHours := fmt.Sprintf("%.1f", float64(game.PlaytimeAll)/60.0)
+
+		topGames = append(topGames, gameData{
+			Name:           game.Name,
+			Icon:           icon,
+			RecentHours:    recentHours,
+			RecentHoursNum: recentHoursNum,
+			TotalHours:     totalHours,
+			AppID:          game.AppID,
+		})
+	}
+
+	// Recent games
+	var recentGames []gameData
 	for i, game := range p.recentGames {
 		if i >= 3 {
 			break
@@ -176,19 +256,23 @@ func (p *SteamPlugin) Render(ctx context.Context) (string, error) {
 
 		var icon string
 		if game.ImgIconURL != "" {
-			icon = fmt.Sprintf("https://media.steampowered.com/steamcommunity/public/images/apps/%d/%s.jpg",
-				game.AppID, game.ImgIconURL)
+			icon = fmt.Sprintf(
+				"https://media.steampowered.com/steamcommunity/public/images/apps/%d/%s.jpg",
+				game.AppID, game.ImgIconURL,
+			)
 		}
 
-		recentHours := fmt.Sprintf("%.1f", float64(game.Playtime2w)/60.0)
+		recentHoursNum := float64(game.Playtime2w) / 60.0
+		recentHours := fmt.Sprintf("%.1f", recentHoursNum)
 		totalHours := fmt.Sprintf("%.1f", float64(game.PlaytimeAll)/60.0)
 
-		games = append(games, gameData{
-			Name:        game.Name,
-			Icon:        icon,
-			RecentHours: recentHours,
-			TotalHours:  totalHours,
-			AppID:       game.AppID,
+		recentGames = append(recentGames, gameData{
+			Name:           game.Name,
+			Icon:           icon,
+			RecentHours:    recentHours,
+			RecentHoursNum: recentHoursNum,
+			TotalHours:     totalHours,
+			AppID:          game.AppID,
 		})
 	}
 
@@ -230,7 +314,9 @@ func (p *SteamPlugin) Render(ctx context.Context) (string, error) {
 	}
 
 	data := struct {
+		SectionTitle           string
 		RecentGames            []gameData
+		TopGames               []gameData
 		PlayerSummary          *SteamPlayerSummary
 		IsPlayingNow           bool
 		CurrentGameName        string
@@ -238,7 +324,9 @@ func (p *SteamPlugin) Render(ctx context.Context) (string, error) {
 		PlayerStatusClass      string
 		PlayerStatusText       string
 	}{
-		RecentGames:            games,
+		SectionTitle:           sectionTitle,
+		RecentGames:            recentGames,
+		TopGames:               topGames,
 		PlayerSummary:          p.playerSummary,
 		IsPlayingNow:           isPlayingNow,
 		CurrentGameName:        currentGameName,
@@ -257,21 +345,29 @@ func (p *SteamPlugin) Render(ctx context.Context) (string, error) {
 	return buf.String(), err
 }
 
-func (p *SteamPlugin) renderNoAPI() string {
-	return `<div class="steam-section">
-		<h3>Recent Gaming Activity</h3>
+func (p *SteamPlugin) renderNoAPI(sectionTitle string) string {
+	return `<section class="steam-section section plugin" data-w="2">
+	<header class="plugin-header">
+		<h3 class="plugin-title">` + sectionTitle + `</h3>
+	</header>
+	<div class="plugin__inner">
 		<p class="text-muted">Steam API key not configured</p>
-	</div>`
+	</div>
+</section>`
 }
 
-func (p *SteamPlugin) renderLoading() string {
-	return `<div class="steam-section">
-		<h3>Recent Gaming Activity</h3>
+func (p *SteamPlugin) renderLoading(sectionTitle string) string {
+	return `<section class="steam-section section plugin" data-w="2">
+	<header class="plugin-header">
+		<h3 class="plugin-title">` + sectionTitle + `</h3>
+	</header>
+	<div class="plugin__inner">
 		<div class="loading-indicator">
 			<div class="loading"></div>
 			<p class="text-muted">Loading Steam data...</p>
 		</div>
-	</div>`
+	</div>
+</section>`
 }
 
 func (p *SteamPlugin) UpdateData(ctx context.Context) error {
@@ -281,7 +377,7 @@ func (p *SteamPlugin) UpdateData(ctx context.Context) error {
 
 	config := p.storage.GetPluginConfig(p.Name())
 	steamID, ok := config.Settings["steamid"].(string)
-	if !ok {
+	if !ok || steamID == "" {
 		return fmt.Errorf("steamid not configured")
 	}
 
@@ -291,6 +387,10 @@ func (p *SteamPlugin) UpdateData(ctx context.Context) error {
 
 	if err := p.updateRecentGames(steamID); err != nil {
 		fmt.Printf("Warning: Failed to update Steam recent games: %v\n", err)
+	}
+
+	if err := p.updateTopGames(steamID); err != nil {
+		fmt.Printf("Warning: Failed to update Steam top games: %v\n", err)
 	}
 
 	p.lastUpdate = time.Now()
@@ -342,8 +442,10 @@ func (p *SteamPlugin) updatePlayerSummary(steamID string) error {
 		if oldGameStatus != newGameStatus || oldPersonaState != newPersonaState {
 			gameImage := ""
 			if p.playerSummary.GameID != "" {
-				gameImage = fmt.Sprintf("https://cdn.cloudflare.steamstatic.com/steam/apps/%s/header.jpg",
-					p.playerSummary.GameID)
+				gameImage = fmt.Sprintf(
+					"https://cdn.cloudflare.steamstatic.com/steam/apps/%s/header.jpg",
+					p.playerSummary.GameID,
+				)
 			}
 
 			p.hub.Broadcast("steam_status_update", map[string]interface{}{
@@ -362,8 +464,10 @@ func (p *SteamPlugin) updatePlayerSummary(steamID string) error {
 }
 
 func (p *SteamPlugin) updateRecentGames(steamID string) error {
-	url := fmt.Sprintf("http://api.steampowered.com/IPlayerService/GetRecentlyPlayedGames/v0001/?key=%s&steamid=%s&format=json&count=3",
-		p.apiKey, steamID)
+	url := fmt.Sprintf(
+		"http://api.steampowered.com/IPlayerService/GetRecentlyPlayedGames/v0001/?key=%s&steamid=%s&format=json&count=100",
+		p.apiKey, steamID,
+	)
 
 	client := &http.Client{Timeout: 15 * time.Second}
 	req, err := http.NewRequest("GET", url, nil)
@@ -395,14 +499,120 @@ func (p *SteamPlugin) updateRecentGames(steamID string) error {
 		return fmt.Errorf("failed to decode Steam data: %v", err)
 	}
 
-	if len(response.Response.Games) > 0 {
-		oldCount := len(p.recentGames)
-		p.recentGames = response.Response.Games
+	games := response.Response.Games
 
-		if oldCount != len(p.recentGames) {
-			p.hub.Broadcast("steam_games_update", map[string]interface{}{
-				"games": len(p.recentGames),
-			})
+	sort.Slice(games, func(i, j int) bool {
+		return games[i].Playtime2w > games[j].Playtime2w
+	})
+
+	if len(games) > 10 {
+		games = games[:10]
+	}
+
+	oldCount := len(p.recentGames)
+	p.recentGames = games
+
+	if oldCount != len(p.recentGames) {
+		p.hub.Broadcast("steam_games_update", map[string]interface{}{
+			"games": len(p.recentGames),
+		})
+	}
+
+	return nil
+}
+
+func (p *SteamPlugin) updateTopGames(steamID string) error {
+	url := fmt.Sprintf(
+		"http://api.steampowered.com/IPlayerService/GetOwnedGames/v0001/?key=%s&steamid=%s&format=json&include_appinfo=1&include_played_free_games=1",
+		p.apiKey, steamID,
+	)
+
+	client := &http.Client{Timeout: 15 * time.Second}
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return fmt.Errorf("failed to create request: %v", err)
+	}
+
+	req.Header.Set("User-Agent", "AboutPage/1.0 (aboutpage.akarpov.ru)")
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to fetch Steam data: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("steam API returned status %d", resp.StatusCode)
+	}
+
+	contentType := resp.Header.Get("Content-Type")
+	if !strings.Contains(contentType, "application/json") {
+		return fmt.Errorf("steam API returned non-JSON content: %s", contentType)
+	}
+
+	var response SteamOwnedGamesResponse
+	decoder := json.NewDecoder(resp.Body)
+	if err := decoder.Decode(&response); err != nil {
+		return fmt.Errorf("failed to decode Steam data: %v", err)
+	}
+
+	games := response.Response.Games
+
+	sort.Slice(games, func(i, j int) bool {
+		return games[i].PlaytimeAll > games[j].PlaytimeAll
+	})
+
+	if len(games) > 10 {
+		games = games[:10]
+	}
+
+	if err := p.updateRecentPlaytime(steamID, games); err != nil {
+		fmt.Printf("Warning: Failed to update recent playtime: %v\n", err)
+	}
+
+	p.topGames = games
+	return nil
+}
+
+func (p *SteamPlugin) updateRecentPlaytime(steamID string, games []SteamGame) error {
+	url := fmt.Sprintf(
+		"http://api.steampowered.com/IPlayerService/GetRecentlyPlayedGames/v0001/?key=%s&steamid=%s&format=json&count=100",
+		p.apiKey, steamID,
+	)
+
+	client := &http.Client{Timeout: 15 * time.Second}
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return err
+	}
+
+	req.Header.Set("User-Agent", "AboutPage/1.0 (aboutpage.akarpov.ru)")
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("steam API returned status %d", resp.StatusCode)
+	}
+
+	var response SteamResponse
+	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
+		return err
+	}
+
+	recentMap := make(map[int]int)
+	for _, game := range response.Response.Games {
+		recentMap[game.AppID] = game.Playtime2w
+	}
+
+	for i := range games {
+		if recent, ok := recentMap[games[i].AppID]; ok {
+			games[i].Playtime2w = recent
 		}
 	}
 
@@ -453,4 +663,46 @@ func (p *SteamPlugin) RenderText(ctx context.Context) (string, error) {
 	}
 
 	return fmt.Sprintf("Gaming: %s%s%s", status, currentGame, gamesInfo), nil
+}
+
+func (p *SteamPlugin) getConfigValue(settings map[string]interface{}, key, defaultValue string) string {
+	keys := strings.Split(key, ".")
+	current := settings
+
+	for i, k := range keys {
+		if i == len(keys)-1 {
+			if value, ok := current[k].(string); ok {
+				return value
+			}
+			return defaultValue
+		}
+		if next, ok := current[k].(map[string]interface{}); ok {
+			current = next
+		} else {
+			return defaultValue
+		}
+	}
+
+	return defaultValue
+}
+
+func (p *SteamPlugin) getConfigBool(settings map[string]interface{}, key string, defaultValue bool) bool {
+	keys := strings.Split(key, ".")
+	current := settings
+
+	for i, k := range keys {
+		if i == len(keys)-1 {
+			if value, ok := current[k].(bool); ok {
+				return value
+			}
+			return defaultValue
+		}
+		if next, ok := current[k].(map[string]interface{}); ok {
+			current = next
+		} else {
+			return defaultValue
+		}
+	}
+
+	return defaultValue
 }

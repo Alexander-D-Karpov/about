@@ -60,12 +60,13 @@ func (p *MemePlugin) Render(ctx context.Context) (string, error) {
 	sectionTitle := p.getConfigValue(settings, "ui.sectionTitle", "Random Meme")
 
 	tmpl := `
-	<div class="meme-section section" id="meme-section">
-		<div class="meme-header">
-			<h3>{{.SectionTitle}}</h3>
-			<button type="button" class="btn btn-sm meme-refresh-btn" onclick="refreshMeme()">🎲</button>
-		</div>
-		
+<section class="meme-section section plugin" id="meme-section" data-w="1">
+	<header class="plugin-header meme-header">
+		<h3 class="plugin-title">{{.SectionTitle}}</h3>
+		<button type="button" class="btn btn-sm meme-refresh-btn" onclick="refreshMeme()">🎲</button>
+	</header>
+	
+	<div class="plugin__inner">
 		<div class="meme-content">
 			{{if eq .Meme.Type "image"}}
 			<div class="meme-image">
@@ -84,7 +85,8 @@ func (p *MemePlugin) Render(ctx context.Context) (string, error) {
 			</div>
 			{{end}}
 		</div>
-	</div>`
+	</div>
+</section>`
 
 	data := struct {
 		SectionTitle string

@@ -163,6 +163,29 @@
         }
     }
 
+    function updateHealthDisplay(data) {
+        const section = document.querySelector('.health-section');
+        if (!section) return;
+
+        const updates = {
+            'steps-today': data.steps_today?.toLocaleString(),
+            'calories-today': Math.round(data.calories_today),
+            'workout-minutes': data.workout_minutes,
+            'sleep-hours': data.sleep_last_night?.toFixed(1) + 'h',
+            'heart-rate': data.avg_heart_rate + ' bpm',
+            'hydration': Math.round(data.hydration_today)
+        };
+
+        Object.entries(updates).forEach(([metric, value]) => {
+            const el = section.querySelector(`[data-metric="${metric}"]`);
+            if (el && value) {
+                el.textContent = value;
+                el.classList.add('updated');
+                setTimeout(() => el.classList.remove('updated'), 500);
+            }
+        });
+    }
+
     function attemptReconnect() {
         if (!shouldReconnect || reconnectTimeout) return;
 
@@ -348,6 +371,9 @@
                     break;
                 case 'plugin_update':
                     handlePluginUpdate(message.data);
+                    break;
+                case 'health_update':
+                    updateHealthDisplay(data);
                     break;
                 case 'plugins_updated':
                     setTimeout(() => {

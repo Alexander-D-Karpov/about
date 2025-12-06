@@ -196,27 +196,27 @@ func (p *VisitorsPlugin) Render(ctx context.Context) (string, error) {
 	showToday := p.getConfigBool(settings, "ui.showToday", true)
 
 	tmpl := `
-    <div class="visitors-section section">
-        <div class="plugin-header">
-            <h3 class="plugin-title">{{.SectionTitle}}</h3>
-        </div>
-        <div class="plugin__inner">
-            <div class="visitors-stats">
-                {{if .ShowTotal}}
-                <div class="visitor-stat" data-tooltip="Exact: {{.TotalExact}}">
-                    <div class="visitor-number" data-stat="total">{{.TotalFormatted}}</div>
-                    <div class="visitor-label">Total</div>
-                </div>
-                {{end}}
-                {{if .ShowToday}}
-                <div class="visitor-stat" data-tooltip="Exact: {{.TodayExact}}">
-                    <div class="visitor-number" data-stat="today">{{.TodayFormatted}}</div>
-                    <div class="visitor-label">Today</div>
-                </div>
-                {{end}}
-            </div>
-        </div>
-    </div>`
+<section class="visitors-section section plugin" data-w="1">
+	<header class="plugin-header">
+		<h3 class="plugin-title">{{.SectionTitle}}</h3>
+	</header>
+	<div class="plugin__inner">
+		<div class="visitors-stats">
+			{{if .ShowTotal}}
+			<div class="visitor-stat" data-tooltip="Exact: {{.TotalExact}}">
+				<div class="visitor-number" data-stat="total">{{.TotalFormatted}}</div>
+				<div class="visitor-label">Total</div>
+			</div>
+			{{end}}
+			{{if .ShowToday}}
+			<div class="visitor-stat" data-tooltip="Exact: {{.TodayExact}}">
+				<div class="visitor-number" data-stat="today">{{.TodayFormatted}}</div>
+				<div class="visitor-label">Today</div>
+			</div>
+			{{end}}
+		</div>
+	</div>
+</section>`
 
 	data := struct {
 		SectionTitle   string
@@ -242,8 +242,7 @@ func (p *VisitorsPlugin) Render(ctx context.Context) (string, error) {
 	}
 
 	var buf strings.Builder
-	err = t.Execute(&buf, data)
-	if err != nil {
+	if err := t.Execute(&buf, data); err != nil {
 		return "", err
 	}
 

@@ -109,26 +109,30 @@ func (p *PlacesPlugin) Render(ctx context.Context) (string, error) {
 	}
 
 	tmpl := `
-<section class="places-section section" id="places-plugin" data-w="2">
-    <h3>{{.SectionTitle}}</h3>
+<section class="places-section section plugin" id="places-plugin" data-w="2">
+    <header class="plugin-header">
+        <h3 class="plugin-title">{{.SectionTitle}}</h3>
+    </header>
 
-    <div class="places-map-container" id="places-map-container">
-        <div class="places-map" id="places-map"></div>
-        <div class="map-controls">
-            <button class="map-control-btn" id="toggle-heatmap" title="Toggle heatmap/markers">
-                <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
-                    <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/>
-                </svg>
-            </button>
-            <button class="map-control-btn" id="fit-bounds" title="Fit all places">
-                <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
-                    <path d="M15 3l2.3 2.3-2.89 2.87 1.42 1.42L18.7 6.7 21 9V3h-6zM3 9l2.3-2.3 2.87 2.89 1.42-1.42L6.7 5.3 9 3H3v6zm6 12l-2.3-2.3 2.89-2.87-1.42-1.42L5.3 17.3 3 15v6h6zm12-6l-2.3 2.3-2.87-2.89-1.42 1.42 2.89 2.87L15 21h6v-6z"/>
-                </svg>
-            </button>
-        </div>
-        <div class="map-loading" id="map-loading">
-            <div class="loading"></div>
-            <span>Loading map...</span>
+    <div class="plugin__inner">
+        <div class="places-map-container" id="places-map-container">
+            <div class="places-map" id="places-map"></div>
+            <div class="map-controls">
+                <button class="map-control-btn" id="toggle-heatmap" title="Toggle heatmap/markers">
+                    <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
+                        <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/>
+                    </svg>
+                </button>
+                <button class="map-control-btn" id="fit-bounds" title="Fit all places">
+                    <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
+                        <path d="M15 3l2.3 2.3-2.89 2.87 1.42 1.42L18.7 6.7 21 9V3h-6zM3 9l2.3-2.3 2.87 2.89 1.42-1.42L6.7 5.3 9 3H3v6zm6 12l-2.3-2.3 2.89-2.87-1.42-1.42L5.3 17.3 3 15v6h6zm12-6l-2.3 2.3-2.87-2.89-1.42 1.42 2.89 2.87L15 21h6v-6z"/>
+                    </svg>
+                </button>
+            </div>
+            <div class="map-loading" id="map-loading">
+                <div class="loading"></div>
+                <span>Loading map...</span>
+            </div>
         </div>
     </div>
 

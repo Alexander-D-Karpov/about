@@ -1,7 +1,11 @@
 .neofetch-section h3{margin:0}
 
 .machine-buttons{
-    display:flex;gap:8px;justify-content:center;margin:10px 0 14px;flex-wrap:wrap
+    display: flex;
+    gap: 8px;
+    justify-content: center;
+    margin: 0px 0 14px;
+    flex-wrap: wrap
 }
 .machine-btn{
     padding:8px 14px;border:none;border-radius:12px;background:var(--paper);color:var(--ink);

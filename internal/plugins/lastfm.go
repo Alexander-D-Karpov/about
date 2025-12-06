@@ -262,114 +262,114 @@ func (p *LastFMPlugin) Render(ctx context.Context) (string, error) {
 	}
 
 	tmpl := `
-	<div class="lastfm-section section" data-w="2">
-		<div class="plugin-header">
-			<h3 class="plugin-title">{{.SectionTitle}}</h3>
+<section class="lastfm-section section plugin" data-w="2">
+	<div class="plugin-header">
+		<h3 class="plugin-title">{{.SectionTitle}}</h3>
+	</div>
+	<div class="plugin__inner">
+		{{if .ShowScrobbles}}
+		<div class="lastfm-stats">
+			<span class="scrobbles-text">{{.ScrobblesText}}</span>
 		</div>
-		<div class="plugin__inner">
-			{{if .ShowScrobbles}}
-			<div class="lastfm-stats">
-				<span class="scrobbles-text">{{.ScrobblesText}}</span>
-			</div>
-			{{end}}
+		{{end}}
 
-			<div class="current-track">
-				<div class="track-main">
-					{{if .Image}}
-					<div class="track-cover-large">
-						<img src="{{.Image}}" alt="Album art" loading="lazy" id="lastfm-artwork">
-						<div class="track-overlay">
-							{{if and .ShowPlayButton .CanPlay}}
-							<button class="play-btn play-btn-large" onclick="playTrack('{{.SearchQuery}}')" title="Play track">
-								<svg viewBox="0 0 24 24" width="32" height="32">
-									<path fill="currentColor" d="M8 5v14l11-7z"/>
-								</svg>
-							</button>
-							{{end}}
-						</div>
+		<div class="current-track">
+			<div class="track-main">
+				{{if .Image}}
+				<div class="track-cover-large">
+					<img src="{{.Image}}" alt="Album art" loading="lazy" id="lastfm-artwork">
+					<div class="track-overlay">
+						{{if and .ShowPlayButton .CanPlay}}
+						<button class="play-btn play-btn-large" onclick="playTrack('{{.SearchQuery}}')" title="Play track">
+							<svg viewBox="0 0 24 24" width="32" height="32">
+								<path fill="currentColor" d="M8 5v14l11-7z"/>
+							</svg>
+						</button>
+						{{end}}
 					</div>
+				</div>
+				{{end}}
+				
+				<div class="track-info">
+					<div class="track-status">
+						<span class="status-indicator {{.StatusClass}}"></span>
+						<span class="status-text">{{.StatusText}}</span>
+					</div>
+					<div class="track-title">{{.Name}}</div>
+					<div class="track-artist">by {{.Artist}}</div>
+					{{if .Album}}
+					<div class="track-album">from {{.Album}}</div>
 					{{end}}
 					
-					<div class="track-info">
-						<div class="track-status">
-							<span class="status-indicator {{.StatusClass}}"></span>
-							<span class="status-text">{{.StatusText}}</span>
-						</div>
-						<div class="track-title">{{.Name}}</div>
-						<div class="track-artist">by {{.Artist}}</div>
-						{{if .Album}}
-						<div class="track-album">from {{.Album}}</div>
-						{{end}}
-						
-						<div class="track-actions">
-							<a class="btn btn-sm" href="{{.TrackURL}}" target="_blank" rel="noopener">
-								<img src="https://www.last.fm/static/images/favicon.ico" width="16" height="16" alt="Last.fm" style="margin-right: 4px;">
-								Last.fm
-							</a>
-						</div>
+					<div class="track-actions">
+						<a class="btn btn-sm" href="{{.TrackURL}}" target="_blank" rel="noopener">
+							<img src="https://www.last.fm/static/images/favicon.ico" width="16" height="16" alt="Last.fm" style="margin-right: 4px;">
+							Last.fm
+						</a>
 					</div>
 				</div>
 			</div>
+		</div>
 
-			<div class="custom-music-player" id="custom-music-player" style="display:none">
-				<div class="player-artwork-mini">
-					<img src="" alt="" id="player-artwork-mini">
+		<div class="custom-music-player" id="custom-music-player" style="display:none">
+			<div class="player-artwork-mini">
+				<img src="" alt="" id="player-artwork-mini">
+			</div>
+			<div class="player-info">
+				<div class="player-track-name" id="player-track-name"></div>
+				<div class="player-artist-name" id="player-artist-name"></div>
+			</div>
+			<div class="player-progress-container">
+				<div class="player-progress-bar" id="player-progress-bar">
+					<div class="player-progress-fill" id="player-progress-fill"></div>
 				</div>
-				<div class="player-info">
-					<div class="player-track-name" id="player-track-name"></div>
-					<div class="player-artist-name" id="player-artist-name"></div>
-				</div>
-				<div class="player-progress-container">
-					<div class="player-progress-bar" id="player-progress-bar">
-						<div class="player-progress-fill" id="player-progress-fill"></div>
-					</div>
-					<div class="player-time">
-						<span id="player-current-time">0:00</span>
-						<span id="player-duration">0:00</span>
-					</div>
-				</div>
-				<div class="player-controls">
-					<button class="player-btn" id="player-play-pause" onclick="toggleMusicPlayPause()" title="Play/Pause">
-						<svg viewBox="0 0 24 24" width="20" height="20" id="play-pause-icon">
-							<path fill="currentColor" d="M8 5v14l11-7z"/>
-						</svg>
-					</button>
-					<button class="player-btn" onclick="stopMusicPlayback()" title="Stop">
-						<svg viewBox="0 0 24 24" width="20" height="20">
-							<rect fill="currentColor" x="6" y="6" width="12" height="12"/>
-						</svg>
-					</button>
-					<input type="range" class="player-volume" id="player-volume" min="0" max="100" value="80" title="Volume">
+				<div class="player-time">
+					<span id="player-current-time">0:00</span>
+					<span id="player-duration">0:00</span>
 				</div>
 			</div>
+			<div class="player-controls">
+				<button class="player-btn" id="player-play-pause" onclick="toggleMusicPlayPause()" title="Play/Pause">
+					<svg viewBox="0 0 24 24" width="20" height="20" id="play-pause-icon">
+						<path fill="currentColor" d="M8 5v14l11-7z"/>
+					</svg>
+				</button>
+				<button class="player-btn" onclick="stopMusicPlayback()" title="Stop">
+					<svg viewBox="0 0 24 24" width="20" height="20">
+						<rect fill="currentColor" x="6" y="6" width="12" height="12"/>
+					</svg>
+				</button>
+				<input type="range" class="player-volume" id="player-volume" min="0" max="100" value="80" title="Volume">
+			</div>
+		</div>
 
-			<audio id="lastfm-audio-element" preload="metadata"></audio>
+		<audio id="lastfm-audio-element" preload="metadata"></audio>
 
-			{{if .ShowRecentTracks}}
-			{{if .RecentTracks}}
-			<div class="recent-tracks">
-				<h4>Recently played</h4>
-				<div class="recent-tracks-list">
-					{{range .RecentTracks}}
-					<div class="recent-track-item" data-track="{{.Name}}" data-artist="{{.Artist}}">
-						{{if .Image}}
-						<div class="recent-track-cover">
-							<img src="{{.Image}}" alt="{{.Name}}" loading="lazy">
-						</div>
-						{{end}}
-						<div class="recent-track-info">
-							<div class="recent-track-name">{{.Name}}</div>
-							<div class="recent-track-artist">{{.Artist}}</div>
-						</div>
-						<div class="recent-track-time">{{.RelativeTime}}</div>
+		{{if .ShowRecentTracks}}
+		{{if .RecentTracks}}
+		<div class="recent-tracks">
+			<h4>Recently played</h4>
+			<div class="recent-tracks-list">
+				{{range .RecentTracks}}
+				<div class="recent-track-item" data-track="{{.Name}}" data-artist="{{.Artist}}">
+					{{if .Image}}
+					<div class="recent-track-cover">
+						<img src="{{.Image}}" alt="{{.Name}}" loading="lazy">
 					</div>
 					{{end}}
+					<div class="recent-track-info">
+						<div class="recent-track-name">{{.Name}}</div>
+						<div class="recent-track-artist">{{.Artist}}</div>
+					</div>
+					<div class="recent-track-time">{{.RelativeTime}}</div>
 				</div>
+				{{end}}
 			</div>
-			{{end}}
-			{{end}}
 		</div>
-	</div>`
+		{{end}}
+		{{end}}
+	</div>
+</section>`
 
 	var processedRecentTracks []map[string]interface{}
 	for _, track := range recentTracksToShow {
@@ -434,24 +434,24 @@ func (p *LastFMPlugin) Render(ctx context.Context) (string, error) {
 
 func (p *LastFMPlugin) renderNoTrack(sectionTitle string) string {
 	if p.apiKey == "" {
-		return fmt.Sprintf(`<div class="lastfm-section section">
+		return fmt.Sprintf(`<section class="lastfm-section section plugin" data-w="2">
 			<div class="plugin-header">
 				<h3 class="plugin-title">%s</h3>
 			</div>
 			<div class="plugin__inner">
 				<p class="text-muted">Last.fm API key not configured</p>
 			</div>
-		</div>`, sectionTitle)
+		</section>`, sectionTitle)
 	}
 
-	return fmt.Sprintf(`<div class="lastfm-section section">
+	return fmt.Sprintf(`<section class="lastfm-section section plugin" data-w="2">
 		<div class="plugin-header">
 			<h3 class="plugin-title">%s</h3>
 		</div>
 		<div class="plugin__inner">
 			<p class="text-muted">No recent tracks found</p>
 		</div>
-	</div>`, sectionTitle)
+	</section>`, sectionTitle)
 }
 
 func (p *LastFMPlugin) UpdateData(ctx context.Context) error {

@@ -59,10 +59,12 @@ func (p *NeofetchPlugin) Render(ctx context.Context) (string, error) {
 	}
 
 	const tmpl = `
-<div class="neofetch-section section plugin" data-w="2">
-  <div class="plugin__inner">
+<section class="neofetch-section section plugin" data-w="2">
+  <header class="plugin-header">
     <h3 class="plugin-title">System Information</h3>
+  </header>
 
+  <div class="plugin__inner">
     {{if gt (len .Machines) 1}}
     <div class="machine-buttons">
       {{range $i, $m := .Machines}}
@@ -83,7 +85,7 @@ func (p *NeofetchPlugin) Render(ctx context.Context) (string, error) {
       {{end}}
     </div>
   </div>
-</div>`
+</section>`
 
 	data := struct{ Machines []vm }{Machines: machines}
 	funcs := template.FuncMap{
@@ -111,13 +113,16 @@ func (p *NeofetchPlugin) Render(ctx context.Context) (string, error) {
 }
 
 func (p *NeofetchPlugin) renderNoMachines() string {
-	return `<div class="neofetch-section section plugin" data-w="2">
+	return `<section class="neofetch-section section plugin" data-w="2">
+  <header class="plugin-header">
+    <h3 class="plugin-title">System Information</h3>
+  </header>
   <div class="plugin__inner">
-    <div class="plugin-header"><h3 class="plugin-title">System Information</h3></div>
     <p class="text-muted">No machines configured</p>
   </div>
-</div>`
+</section>`
 }
+
 func (p *NeofetchPlugin) UpdateData(ctx context.Context) error { return nil }
 func (p *NeofetchPlugin) GetSettings() map[string]interface{} {
 	return p.storage.GetPluginConfig(p.Name()).Settings

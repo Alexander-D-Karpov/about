@@ -43,15 +43,17 @@ func (p *PersonalPlugin) Render(ctx context.Context) (string, error) {
 		return "", nil
 	}
 
-	// Get configurable UI options
 	sectionTitle := p.getConfigValue(settings, "ui.sectionTitle", "Personal Info")
 	showImages := p.getConfigBool(settings, "ui.showImages", true)
 	showCategories := p.getConfigBool(settings, "ui.showCategories", true)
 	layout := p.getConfigValue(settings, "ui.layout", "grid") // "grid" or "list"
 
 	tmpl := `
-	<div class="personal-section section">
-		<h3>{{.SectionTitle}}</h3>
+<section class="personal-section section plugin" data-w="2">
+	<header class="plugin-header">
+		<h3 class="plugin-title">{{.SectionTitle}}</h3>
+	</header>
+	<div class="plugin__inner">
 		<div class="personal-{{.Layout}}">
 			{{if .ShowCategories}}
 			{{range $category, $items := .GroupedInfo}}
@@ -102,7 +104,8 @@ func (p *PersonalPlugin) Render(ctx context.Context) (string, error) {
 			</div>
 			{{end}}
 		</div>
-	</div>`
+	</div>
+</section>`
 
 	var allInfo []PersonalInfo
 	groupedInfo := make(map[string][]PersonalInfo)
@@ -121,12 +124,10 @@ func (p *PersonalPlugin) Render(ctx context.Context) (string, error) {
 			Category: p.getStringFromMap(infoMap, "category", "General"),
 		}
 
-		// Render markdown content (simplified markdown parsing)
 		personalItem.RenderedContent = p.renderMarkdown(personalItem.Content)
 
 		allInfo = append(allInfo, personalItem)
 
-		// Group by category
 		if showCategories {
 			if groupedInfo[personalItem.Category] == nil {
 				groupedInfo[personalItem.Category] = []PersonalInfo{}
@@ -225,7 +226,6 @@ func (p *PersonalPlugin) renderMarkdown(content string) string {
 				inList = false
 			}
 
-			// Handle inline formatting
 			line = p.processInlineMarkdown(line)
 			result.WriteString("<p>" + line + "</p>\n")
 		}
@@ -311,7 +311,6 @@ func (p *PersonalPlugin) SetSettings(settings map[string]interface{}) error {
 		return err
 	}
 
-	// Broadcast update
 	p.hub.Broadcast("plugin_update", map[string]interface{}{
 		"plugin": p.Name(),
 		"action": "settings_changed",

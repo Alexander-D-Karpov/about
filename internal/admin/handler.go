@@ -121,6 +121,7 @@ func (h *Handler) dashboard(w http.ResponseWriter, r *http.Request) {
 		"personal":   "Personal information with markdown support",
 		"meme":       "Random meme display for entertainment",
 		"places":     "Map of visited places with coordinates and details",
+		"health":     "Health Connect stats via HCGateway API (steps, calories, sleep, etc.)",
 	}
 
 	for name := range allPlugins {

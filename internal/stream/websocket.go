@@ -167,53 +167,28 @@ func (h *Hub) Run() {
 }
 
 func (h *Hub) forceCleanupStaleConnections() {
-	h.mutex.RLock()
-	clients := make([]*Client, 0, len(h.clients))
-	for client := range h.clients {
-		clients = append(clients, client)
-	}
-	h.mutex.RUnlock()
+	h.mutex.Lock()
+	defer h.mutex.Unlock()
 
 	deadClients := make([]*Client, 0)
-	for _, client := range clients {
-		if client.conn == nil {
-			deadClients = append(deadClients, client)
-			continue
-		}
-
-		client.conn.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
-		if _, _, err := client.conn.NextReader(); err != nil {
+	for client := range h.clients {
+		if client.conn == nil || client.send == nil {
 			deadClients = append(deadClients, client)
 		}
 	}
 
-	if len(deadClients) == 0 {
-		return
-	}
-
-	h.mutex.Lock()
 	for _, client := range deadClients {
-		if _, ok := h.clients[client]; ok {
-			delete(h.clients, client)
-			if client.send != nil {
-				select {
-				case <-client.send:
-				default:
-				}
-				close(client.send)
-			}
+		delete(h.clients, client)
+		if client.send != nil {
+			close(client.send)
 		}
-	}
-	h.mutex.Unlock()
-
-	for _, client := range deadClients {
 		if client.conn != nil {
 			client.conn.Close()
 		}
 	}
 
 	if len(deadClients) > 0 {
-		log.Printf("Force cleaned up %d stale connections", len(deadClients))
+		log.Printf("Cleaned up %d dead connections", len(deadClients))
 	}
 }
 
@@ -324,14 +299,14 @@ func (c *Client) readPump() {
 	}()
 
 	c.conn.SetReadLimit(512)
-	c.conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+	c.conn.SetReadDeadline(time.Now().Add(120 * time.Second))
 	c.conn.SetPongHandler(func(string) error {
-		c.conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+		c.conn.SetReadDeadline(time.Now().Add(120 * time.Second))
 		return nil
 	})
 
 	for {
-		c.conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+		c.conn.SetReadDeadline(time.Now().Add(120 * time.Second))
 		_, message, err := c.conn.ReadMessage()
 		if err != nil {
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure, websocket.CloseNormalClosure) {

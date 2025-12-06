@@ -29,36 +29,77 @@ func (p *ProfilePlugin) Render(ctx context.Context) (string, error) {
 	config := p.storage.GetPluginConfig(p.Name())
 	settings := config.Settings
 
-	name := p.getConfigValue(settings, "name", "Your Name")
-	title := p.getConfigValue(settings, "title", "Your Title")
-	subtitle := p.getConfigValue(settings, "subtitle", "")
+	name := p.getConfigValue(settings, "name", "sanspie")
+	title := p.getConfigValue(settings, "title", "Web FullStack Developer")
 	bio := p.getConfigValue(settings, "bio", "Your bio description here.")
 	profileImage := p.getConfigValue(settings, "profileImage", "")
 
+	// split title: first word ("Web") + the rest ("FullStack Developer")
+	var titleFirst, titleRest string
+	if parts := strings.Fields(title); len(parts) > 0 {
+		titleFirst = parts[0]
+		if len(parts) > 1 {
+			titleRest = strings.Join(parts[1:], " ")
+		}
+	}
+
+	subtitle := p.getConfigValue(settings, "subtitle", "DevSecOps")
+
+	var subDev, subSec, subOps string
+	if subtitle == "DevSecOps" {
+		subDev, subSec, subOps = "Dev", "Sec", "Ops"
+	} else if parts := strings.Fields(subtitle); len(parts) >= 3 {
+		subDev, subSec, subOps = parts[0], parts[1], parts[2]
+	}
+
 	tmpl := `
-	<div class="profile-section">
+<section class="profile-section section plugin" data-w="2">
+	<div class="plugin__inner">
 		<div class="profile-content">
 			<div class="profile-text">
 				<h1 class="profile-name">{{.Name}}</h1>
+
 				<div class="profile-titles">
 					{{if .Title}}
-					<div class="profile-title">{{.Title}}</div>
+					<div class="profile-title">
+						{{if .TitleFirst}}
+						<span class="profile-title-web">{{.TitleFirst}}</span>
+						{{end}}
+						{{if .TitleRest}}
+						<span class="profile-title-rest">{{.TitleRest}}</span>
+						{{end}}
+						{{if not .TitleFirst}}
+						{{.Title}}
+						{{end}}
+					</div>
 					{{end}}
+
 					{{if .Subtitle}}
-					<div class="profile-subtitle">{{.Subtitle}}</div>
+					<div class="profile-subtitle">
+						{{if .SubtitleDev}}
+						<span class="subtitle-dev">{{.SubtitleDev}}</span><!--
+						--><span class="subtitle-sec">{{.SubtitleSec}}</span><!--
+						--><span class="subtitle-ops">{{.SubtitleOps}}</span>
+						{{else}}
+						{{.Subtitle}}
+						{{end}}
+					</div>
 					{{end}}
 				</div>
+
 				{{if .Bio}}
 				<div class="profile-bio">{{.Bio}}</div>
 				{{end}}
 			</div>
+
 			{{if .ProfileImage}}
 			<div class="profile-image">
 				<img src="{{.ProfileImage}}" alt="{{.Name}}" loading="lazy">
 			</div>
 			{{end}}
 		</div>
-	</div>`
+	</div>
+</section>`
 
 	data := struct {
 		Name         string
@@ -66,12 +107,26 @@ func (p *ProfilePlugin) Render(ctx context.Context) (string, error) {
 		Subtitle     string
 		Bio          string
 		ProfileImage string
+
+		TitleFirst string
+		TitleRest  string
+
+		SubtitleDev string
+		SubtitleSec string
+		SubtitleOps string
 	}{
 		Name:         name,
 		Title:        title,
 		Subtitle:     subtitle,
 		Bio:          bio,
 		ProfileImage: profileImage,
+
+		TitleFirst: titleFirst,
+		TitleRest:  titleRest,
+
+		SubtitleDev: subDev,
+		SubtitleSec: subSec,
+		SubtitleOps: subOps,
 	}
 
 	t, err := template.New("profile").Parse(tmpl)
@@ -80,8 +135,7 @@ func (p *ProfilePlugin) Render(ctx context.Context) (string, error) {
 	}
 
 	var buf strings.Builder
-	err = t.Execute(&buf, data)
-	if err != nil {
+	if err := t.Execute(&buf, data); err != nil {
 		return "", err
 	}
 

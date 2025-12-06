@@ -70,6 +70,7 @@ func (m *Manager) LoadAll() error {
 		NewPersonalPlugin(m.storage, m.hub),
 		NewMemePlugin(m.storage, m.hub),
 		NewPlacesPlugin(m.storage, m.hub),
+		NewHealthPlugin(m.storage, m.hub, m.config.HCGatewayURL, m.config.HCGatewayUser, m.config.HCGatewayPassword),
 	}
 
 	m.mutex.Lock()

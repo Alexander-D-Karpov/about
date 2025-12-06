@@ -67,7 +67,7 @@ func (p *WebringPlugin) Render(ctx context.Context) (string, error) {
 	cfg := p.storage.GetPluginConfig(p.Name())
 	settings := cfg.Settings
 
-	base := getString(settings, "webring_url", "https://webring.otomir23.me")
+	base := getString(settings, "webring_url", "https://sanspie.otor.ing")
 	user := getString(settings, "username", "sanspie")
 
 	var prevName, nextName, prevURL, nextURL, prevFavicon, nextFavicon string
@@ -97,11 +97,15 @@ func (p *WebringPlugin) Render(ctx context.Context) (string, error) {
 	homeURL := base
 
 	tmpl := `
-<section class="webring-section plugin" data-base-url="{{.BaseURL}}" data-username="{{.Username}}">
+<section class="webring-section section plugin"
+         data-w="2"
+         data-base-url="{{.BaseURL}}"
+         data-username="{{.Username}}">
+	<header class="plugin-header">
+		<h3 class="plugin-title">Webring</h3>
+	</header>
+
 	<div class="plugin__inner">
-		<div class="plugin-header">
-			<h3 class="plugin-title">Webring</h3>
-		</div>
 		<nav class="webring-nav" role="navigation" aria-label="Webring navigation">
 			<a href="{{.PrevURL}}" 
 			   class="webring-prev" 

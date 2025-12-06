@@ -268,12 +268,12 @@ func (p *CodePlugin) Render(ctx context.Context) (string, error) {
 
 			{{if and .ShowWakatime .WakatimeData .WakatimeData.Languages}}
 			<div class="code-subsection">
-				<button class="section-toggle" data-target="wakatime-langs" type="button" aria-expanded="false">
-					<span class="toggle-icon">▶</span>
+				<button class="section-toggle" data-target="wakatime-langs" type="button" aria-expanded="true">
+					<span class="toggle-icon">▼</span>
 					<span>This Week</span>
 					<span class="section-count">({{len .WakatimeData.Languages}} langs)</span>
 				</button>
-				<div class="collapsible-content collapsed" id="wakatime-langs">
+				<div class="collapsible-content" id="wakatime-langs">
 					<div class="wakatime-list">
 						{{range .WakatimeData.Languages}}
 						{{if gt .Percent 1.0}}
@@ -327,7 +327,7 @@ func (p *CodePlugin) Render(ctx context.Context) (string, error) {
 								</div>
 								{{else if .Language}}
 								<div class="repo-lang-bar">
-									<div style="flex: 100; background-color: {{$.GetLanguageColor .Language}};" title="{{.Language}} 100%"></div>
+									<div style="flex: 100; background-color: {{call $.GetLanguageColor .Language}};" title="{{.Language}} 100%"></div>
 								</div>
 								{{end}}
 							</div>

@@ -1,11 +1,9 @@
+version: 2
+
 run:
   timeout: 5m
   issues-exit-code: 1
   tests: true
-  skip-dirs:
-    - vendor
-  skip-files:
-    - ".*\\.pb\\.go$"
 
 output:
   format: colored-line-number
@@ -17,49 +15,47 @@ linters-settings:
   errcheck:
     check-type-assertions: true
     check-blank: true
-  
-  govet:
-    check-shadowing: true
-  
+
   golint:
     min-confidence: 0.8
-  
+
   gofmt:
     simplify: true
-  
+
   goimports:
-    local-prefixes: github.com/Alexander-D-Karpov/about
-  
+    local-prefixes:
+      - github.com/Alexander-D-Karpov/about
+
   gocyclo:
     min-complexity: 15
-  
+
   maligned:
     suggest-new: true
-  
+
   dupl:
     threshold: 100
-  
+
   goconst:
     min-len: 3
     min-occurrences: 3
-  
+
   misspell:
     locale: US
-  
+
   lll:
     line-length: 120
-  
+
   unparam:
     check-exported: false
-  
+
   nakedret:
     max-func-lines: 30
-  
+
   prealloc:
     simple: true
     range-loops: true
     for-loops: false
-  
+
   gocritic:
     enabled-tags:
       - performance
@@ -87,7 +83,6 @@ linters:
     - misspell
     - staticcheck
     - stylecheck
-    - typecheck
     - unconvert
     - unparam
     - unused
@@ -97,6 +92,11 @@ linters:
     - gochecknoglobals
 
 issues:
+  exclude-dirs:
+    - vendor
+  exclude-files:
+    - ".*\\.pb\\.go$"
+
   exclude-rules:
     - path: _test\.go
       linters:
@@ -105,17 +105,19 @@ issues:
         - dupl
         - gosec
         - goconst
+
     - path: internal/plugins/
       linters:
         - dupl
+
     - linters:
         - lll
       source: "^//go:generate "
-  
+
   exclude:
     - 'declaration of "(err|ctx)" shadows declaration at'
     - 'shadow: declaration of "err" shadows declaration'
-  
+
   max-issues-per-linter: 0
   max-same-issues: 0
   new: false

@@ -37,16 +37,21 @@ func (p *SocialPlugin) Render(ctx context.Context) (string, error) {
 		return "", nil
 	}
 	tmpl := `
-	<div class="social-section section">
-		<h3>{{.SectionTitle}}</h3>
+<section class="social-section section plugin" data-w="2">
+	<header class="plugin-header">
+		<h3 class="plugin-title">{{.SectionTitle}}</h3>
+	</header>
+
+	<div class="plugin__inner">
 		<div class="social-links">
 			{{range .Links}}
 			<a href="{{.URL}}" title="{{.Name}}" target="_blank" rel="noopener" class="social-link">
-				<img src="{{.IconURL}}" alt="{{.Name}} icon" class="icon icon-social" loading="lazy">
+				<img src="{{.IconURL}}" alt="{{.Name}} icon" class="icon icon-social" loading="lazy" decoding="async">
 			</a>
 			{{end}}
 		</div>
-	</div>`
+	</div>
+</section>`
 
 	type socialLink struct {
 		Name    string
