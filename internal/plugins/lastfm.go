@@ -19,6 +19,8 @@ import (
 	"github.com/Alexander-D-Karpov/about/internal/stream"
 )
 
+const lastfmPlaceholderImage = "https://lastfm.freetls.fastly.net/i/u/300x300/2a96cbd8b46e442fc41c2b86b821562f.png"
+
 type LastFMPlugin struct {
 	storage             *storage.Storage
 	hub                 *stream.Hub
@@ -35,6 +37,8 @@ type LastFMPlugin struct {
 	pollMutex           sync.Mutex
 	trackMutex          sync.RWMutex
 	pluginManager       interface{ GetClientCount() int }
+	imageCache          map[string]string
+	imageCacheMutex     sync.RWMutex
 }
 
 type LastFMResponse struct {
@@ -104,6 +108,10 @@ type lastfmAlbumInfoResp struct {
 	} `json:"album"`
 }
 
+type AkarpovrMusicSearchResponse struct {
+	Songs []AkarpovrMusicTrack `json:"songs"`
+}
+
 type AkarpovrMusicResponse struct {
 	Count   int                  `json:"count"`
 	Results []AkarpovrMusicTrack `json:"results"`
@@ -117,10 +125,13 @@ type AkarpovrMusicTrack struct {
 	Length       int    `json:"length"`
 	Album        struct {
 		Name         string `json:"name"`
+		Slug         string `json:"slug"`
 		ImageCropped string `json:"image_cropped"`
 	} `json:"album"`
 	Authors []struct {
-		Name string `json:"name"`
+		Name         string `json:"name"`
+		Slug         string `json:"slug"`
+		ImageCropped string `json:"image_cropped"`
 	} `json:"authors"`
 }
 
@@ -131,11 +142,46 @@ func NewLastFMPlugin(storage *storage.Storage, hub *stream.Hub, apiKey string) *
 		apiKey:     apiKey,
 		httpClient: NewHTTPClientWithTimeout(15 * time.Second),
 		stopPoll:   make(chan struct{}),
+		imageCache: make(map[string]string),
 	}
 
+	plugin.loadImageCache()
 	go plugin.startConstantPolling()
 
 	return plugin
+}
+
+func (p *LastFMPlugin) loadImageCache() {
+	config := p.storage.GetPluginConfig(p.Name())
+	if cachedImages, ok := config.Settings["imageCache"].(map[string]interface{}); ok {
+		p.imageCacheMutex.Lock()
+		for k, v := range cachedImages {
+			if str, ok := v.(string); ok {
+				p.imageCache[k] = str
+			}
+		}
+		p.imageCacheMutex.Unlock()
+		log.Printf("[LastFM] Loaded %d cached images from storage", len(cachedImages))
+	}
+}
+
+func (p *LastFMPlugin) saveImageCache() {
+	p.imageCacheMutex.RLock()
+	cacheCopy := make(map[string]interface{})
+	for k, v := range p.imageCache {
+		cacheCopy[k] = v
+	}
+	p.imageCacheMutex.RUnlock()
+
+	config := p.storage.GetPluginConfig(p.Name())
+	if config.Settings == nil {
+		config.Settings = make(map[string]interface{})
+	}
+	config.Settings["imageCache"] = cacheCopy
+
+	if err := p.storage.SetPluginConfig(p.Name(), config); err != nil {
+		log.Printf("[LastFM] Failed to save image cache: %v", err)
+	}
 }
 
 func (p *LastFMPlugin) SetPluginManager(pm interface{ GetClientCount() int }) {
@@ -220,10 +266,7 @@ func (p *LastFMPlugin) Render(ctx context.Context) (string, error) {
 		return p.renderNoTrack(sectionTitle), nil
 	}
 
-	image := p.pickBestImage(currentTrack)
-	if image == "" && p.currentSong != nil && p.currentSong.ImageCropped != "" {
-		image = p.currentSong.ImageCropped
-	}
+	image := p.getTrackImage(currentTrack)
 
 	nowPlaying := currentTrack.Attr.NowPlaying == "true"
 	statusText := "Last played " + p.relativePlayedAt(currentTrack)
@@ -238,20 +281,26 @@ func (p *LastFMPlugin) Render(ctx context.Context) (string, error) {
 		scrobblesText = fmt.Sprintf("Total scrobbles: %s", formatScrobbles(userInfo.PlayCount))
 	}
 
-	searchQuery := fmt.Sprintf("%s %s", currentTrack.Artist.Text, currentTrack.Name)
-
 	var recentTracksToShow []LastFMTrack
 	if showRecentTracks && len(recentTracks) > 0 {
+		seen := make(map[string]bool)
+		currentKey := fmt.Sprintf("%s|%s", currentTrack.Artist.Text, currentTrack.Name)
+
 		for i, track := range recentTracks {
 			if i == 0 && nowPlaying {
 				continue
 			}
 
-			if track.Name == currentTrack.Name &&
-				track.Artist.Text == currentTrack.Artist.Text &&
-				track.Album.Text == currentTrack.Album.Text {
+			trackKey := fmt.Sprintf("%s|%s", track.Artist.Text, track.Name)
+
+			if trackKey == currentKey && nowPlaying {
 				continue
 			}
+
+			if seen[trackKey] {
+				continue
+			}
+			seen[trackKey] = true
 
 			recentTracksToShow = append(recentTracksToShow, track)
 
@@ -273,14 +322,14 @@ func (p *LastFMPlugin) Render(ctx context.Context) (string, error) {
 		</div>
 		{{end}}
 
-		<div class="current-track">
+		<div class="current-track" data-artist="{{.Artist}}" data-track="{{.Name}}">
 			<div class="track-main">
 				{{if .Image}}
 				<div class="track-cover-large">
 					<img src="{{.Image}}" alt="Album art" loading="lazy" id="lastfm-artwork">
 					<div class="track-overlay">
 						{{if and .ShowPlayButton .CanPlay}}
-						<button class="play-btn play-btn-large" onclick="playTrack('{{.SearchQuery}}')" title="Play track">
+						<button class="play-btn play-btn-large" onclick="playCurrentLastFMTrack()" title="Play track">
 							<svg viewBox="0 0 24 24" width="32" height="32">
 								<path fill="currentColor" d="M8 5v14l11-7z"/>
 							</svg>
@@ -295,14 +344,14 @@ func (p *LastFMPlugin) Render(ctx context.Context) (string, error) {
 						<span class="status-indicator {{.StatusClass}}"></span>
 						<span class="status-text">{{.StatusText}}</span>
 					</div>
-					<div class="track-title">{{.Name}}</div>
-					<div class="track-artist">by {{.Artist}}</div>
+					<div class="track-title" id="lastfm-track-title">{{.Name}}</div>
+					<div class="track-artist" id="lastfm-track-artist">by {{.Artist}}</div>
 					{{if .Album}}
-					<div class="track-album">from {{.Album}}</div>
+					<div class="track-album" id="lastfm-track-album">from {{.Album}}</div>
 					{{end}}
 					
 					<div class="track-actions">
-						<a class="btn btn-sm" href="{{.TrackURL}}" target="_blank" rel="noopener">
+						<a class="btn btn-sm" href="{{.TrackURL}}" target="_blank" rel="noopener" id="lastfm-link">
 							<img src="https://www.last.fm/static/images/favicon.ico" width="16" height="16" alt="Last.fm" style="margin-right: 4px;">
 							Last.fm
 						</a>
@@ -373,13 +422,13 @@ func (p *LastFMPlugin) Render(ctx context.Context) (string, error) {
 
 	var processedRecentTracks []map[string]interface{}
 	for _, track := range recentTracksToShow {
-		image := p.pickBestImage(&track)
+		trackImage := p.getTrackImage(&track)
 		relativeTime := p.getRelativeTimeForTrack(&track)
 
 		processedRecentTracks = append(processedRecentTracks, map[string]interface{}{
 			"Name":         track.Name,
 			"Artist":       track.Artist.Text,
-			"Image":        image,
+			"Image":        trackImage,
 			"RelativeTime": relativeTime,
 		})
 	}
@@ -397,7 +446,6 @@ func (p *LastFMPlugin) Render(ctx context.Context) (string, error) {
 		StatusText       string
 		StatusClass      string
 		CanPlay          bool
-		SearchQuery      string
 		TrackURL         string
 		RecentTracks     []map[string]interface{}
 	}{
@@ -413,7 +461,6 @@ func (p *LastFMPlugin) Render(ctx context.Context) (string, error) {
 		StatusText:       statusText,
 		StatusClass:      statusClass,
 		CanPlay:          true,
-		SearchQuery:      searchQuery,
 		TrackURL:         currentTrack.URL,
 		RecentTracks:     processedRecentTracks,
 	}
@@ -430,6 +477,53 @@ func (p *LastFMPlugin) Render(ctx context.Context) (string, error) {
 	}
 
 	return buf.String(), nil
+}
+
+func (p *LastFMPlugin) getTrackImage(track *LastFMTrack) string {
+	if track == nil {
+		return ""
+	}
+
+	cacheKey := fmt.Sprintf("%s-%s", track.Artist.Text, track.Name)
+
+	p.imageCacheMutex.RLock()
+	if cachedImage, ok := p.imageCache[cacheKey]; ok && cachedImage != "" {
+		p.imageCacheMutex.RUnlock()
+		return cachedImage
+	}
+	p.imageCacheMutex.RUnlock()
+
+	image := p.pickBestImage(track)
+
+	if image == "" || p.isPlaceholderImage(image) {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		p.tryAkarpovImageFallback(ctx, track)
+
+		p.imageCacheMutex.RLock()
+		if cachedImage, ok := p.imageCache[cacheKey]; ok && cachedImage != "" {
+			p.imageCacheMutex.RUnlock()
+			return cachedImage
+		}
+		p.imageCacheMutex.RUnlock()
+	}
+
+	if image == "" || p.isPlaceholderImage(image) {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = p.tryArtworkFallbacks(ctx, track)
+		image = p.pickBestImage(track)
+	}
+
+	if image != "" && !p.isPlaceholderImage(image) {
+		p.imageCacheMutex.Lock()
+		p.imageCache[cacheKey] = image
+		p.imageCacheMutex.Unlock()
+
+		go p.saveImageCache()
+	}
+
+	return image
 }
 
 func (p *LastFMPlugin) renderNoTrack(sectionTitle string) string {
@@ -513,28 +607,141 @@ func (p *LastFMPlugin) updateRecentTracksInternal(ctx context.Context, username 
 		oldTrack.Artist.Text != newCurrentTrack.Artist.Text ||
 		oldTrack.Attr.NowPlaying != newCurrentTrack.Attr.NowPlaying
 
-	if !trackChanged {
-		return false, nil
-	}
-
 	p.trackMutex.Lock()
 	p.currentTrack = newCurrentTrack
 	p.recentTracks = response.RecentTracks.Track
 	p.trackMutex.Unlock()
 
 	go func() {
+		needsSave := false
 		for i := range response.RecentTracks.Track {
-			if p.pickBestImage(&response.RecentTracks.Track[i]) == "" {
-				artCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-				_ = p.tryArtworkFallbacks(artCtx, &response.RecentTracks.Track[i])
-				cancel()
+			track := &response.RecentTracks.Track[i]
+			cacheKey := fmt.Sprintf("%s-%s", track.Artist.Text, track.Name)
+
+			p.imageCacheMutex.RLock()
+			_, hasCached := p.imageCache[cacheKey]
+			p.imageCacheMutex.RUnlock()
+
+			if hasCached {
+				continue
 			}
+
+			currentImage := p.pickBestImage(track)
+			if currentImage == "" || p.isPlaceholderImage(currentImage) {
+				artCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+				p.tryAkarpovImageFallback(artCtx, track)
+				cancel()
+
+				p.imageCacheMutex.RLock()
+				_, nowCached := p.imageCache[cacheKey]
+				p.imageCacheMutex.RUnlock()
+
+				if nowCached {
+					needsSave = true
+				}
+			}
+		}
+		if needsSave {
+			p.saveImageCache()
 		}
 	}()
 
-	p.broadcastTrackUpdate(newCurrentTrack, response.RecentTracks.Track)
+	if trackChanged {
+		p.broadcastTrackUpdate(newCurrentTrack, response.RecentTracks.Track)
+	}
 
-	return true, nil
+	return trackChanged, nil
+}
+
+func (p *LastFMPlugin) isPlaceholderImage(imageURL string) bool {
+	return imageURL == lastfmPlaceholderImage ||
+		strings.Contains(imageURL, "2a96cbd8b46e442fc41c2b86b821562f")
+}
+
+func (p *LastFMPlugin) tryAkarpovImageFallback(ctx context.Context, track *LastFMTrack) {
+	if ctx.Err() != nil {
+		return
+	}
+
+	cacheKey := fmt.Sprintf("%s-%s", track.Artist.Text, track.Name)
+
+	p.imageCacheMutex.RLock()
+	if cachedImage, ok := p.imageCache[cacheKey]; ok {
+		p.imageCacheMutex.RUnlock()
+		if cachedImage != "" {
+			track.Image = []struct {
+				Text string `json:"#text"`
+				Size string `json:"size"`
+			}{
+				{Text: cachedImage, Size: "extralarge"},
+			}
+		}
+		return
+	}
+	p.imageCacheMutex.RUnlock()
+
+	searchQuery := fmt.Sprintf("%s %s", track.Artist.Text, track.Name)
+	searchURL := fmt.Sprintf("https://new.akarpov.ru/api/v1/music/search/?query=%s", url.QueryEscape(searchQuery))
+
+	client := &http.Client{Timeout: 8 * time.Second}
+	req, err := http.NewRequestWithContext(ctx, "GET", searchURL, nil)
+	if err != nil {
+		return
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return
+	}
+
+	var searchResp AkarpovrMusicSearchResponse
+	if err := json.NewDecoder(resp.Body).Decode(&searchResp); err != nil {
+		return
+	}
+
+	if len(searchResp.Songs) == 0 {
+		p.imageCacheMutex.Lock()
+		p.imageCache[cacheKey] = ""
+		p.imageCacheMutex.Unlock()
+		return
+	}
+
+	imageURL := ""
+	for _, song := range searchResp.Songs {
+		if song.ImageCropped != "" {
+			imageURL = song.ImageCropped
+			if !strings.HasPrefix(imageURL, "http") {
+				imageURL = "https://new.akarpov.ru" + imageURL
+			}
+			break
+		}
+		if song.Album.ImageCropped != "" {
+			imageURL = song.Album.ImageCropped
+			if !strings.HasPrefix(imageURL, "http") {
+				imageURL = "https://new.akarpov.ru" + imageURL
+			}
+			break
+		}
+	}
+
+	p.imageCacheMutex.Lock()
+	p.imageCache[cacheKey] = imageURL
+	p.imageCacheMutex.Unlock()
+
+	if imageURL != "" {
+		track.Image = []struct {
+			Text string `json:"#text"`
+			Size string `json:"size"`
+		}{
+			{Text: imageURL, Size: "extralarge"},
+		}
+		log.Printf("[LastFM] Found image from akarpov.ru for %s - %s", track.Artist.Text, track.Name)
+	}
 }
 
 func (p *LastFMPlugin) broadcastTrackUpdate(track *LastFMTrack, recentTracks []LastFMTrack) {
@@ -543,15 +750,16 @@ func (p *LastFMPlugin) broadcastTrackUpdate(track *LastFMTrack, recentTracks []L
 
 	seen := make(map[string]bool)
 	currentKey := fmt.Sprintf("%s|%s", track.Name, track.Artist.Text)
-	seen[currentKey] = true
 
 	for _, t := range recentTracks {
 		trackKey := fmt.Sprintf("%s|%s", t.Name, t.Artist.Text)
 
-		if trackKey == currentKey {
+		if trackKey == currentKey && nowPlaying {
 			continue
 		}
-
+		if t.Attr.NowPlaying == "true" {
+			continue
+		}
 		if seen[trackKey] {
 			continue
 		}
@@ -561,16 +769,20 @@ func (p *LastFMPlugin) broadcastTrackUpdate(track *LastFMTrack, recentTracks []L
 			break
 		}
 
+		trackImage := p.getTrackImageFromCache(&t)
+
 		recentTracksData = append(recentTracksData, map[string]interface{}{
 			"name":         t.Name,
 			"artist":       t.Artist.Text,
 			"album":        t.Album.Text,
-			"image":        p.pickBestImage(&t),
+			"image":        trackImage,
 			"url":          t.URL,
-			"isPlaying":    t.Attr.NowPlaying == "true",
+			"isPlaying":    false,
 			"relativeTime": p.getRelativeTimeForTrack(&t),
 		})
 	}
+
+	currentImage := p.getTrackImage(track)
 
 	p.hub.Broadcast("lastfm_update", map[string]interface{}{
 		"name":         track.Name,
@@ -578,10 +790,27 @@ func (p *LastFMPlugin) broadcastTrackUpdate(track *LastFMTrack, recentTracks []L
 		"album":        track.Album.Text,
 		"isPlaying":    nowPlaying,
 		"url":          track.URL,
-		"image":        p.pickBestImage(track),
+		"image":        currentImage,
 		"recentTracks": recentTracksData,
 		"timestamp":    time.Now().Unix(),
 	})
+}
+
+func (p *LastFMPlugin) getTrackImageFromCache(track *LastFMTrack) string {
+	if track == nil {
+		return ""
+	}
+
+	cacheKey := fmt.Sprintf("%s-%s", track.Artist.Text, track.Name)
+
+	p.imageCacheMutex.RLock()
+	if cachedImage, ok := p.imageCache[cacheKey]; ok && cachedImage != "" {
+		p.imageCacheMutex.RUnlock()
+		return cachedImage
+	}
+	p.imageCacheMutex.RUnlock()
+
+	return p.getTrackImage(track)
 }
 
 func (p *LastFMPlugin) updateUserInfo(ctx context.Context, username string) error {
@@ -605,7 +834,7 @@ func (p *LastFMPlugin) tryArtworkFallbacks(ctx context.Context, t *LastFMTrack) 
 		return ctx.Err()
 	}
 
-	if art := p.fetchTrackInfoImage(ctx, t.Artist.Text, t.Name); art != "" {
+	if art := p.fetchTrackInfoImage(ctx, t.Artist.Text, t.Name); art != "" && !p.isPlaceholderImage(art) {
 		t.Image = []struct {
 			Text string `json:"#text"`
 			Size string `json:"size"`
@@ -616,7 +845,7 @@ func (p *LastFMPlugin) tryArtworkFallbacks(ctx context.Context, t *LastFMTrack) 
 	}
 
 	if t.Album.Text != "" {
-		if art := p.fetchAlbumInfoImage(ctx, t.Artist.Text, t.Album.Text); art != "" {
+		if art := p.fetchAlbumInfoImage(ctx, t.Artist.Text, t.Album.Text); art != "" && !p.isPlaceholderImage(art) {
 			t.Image = []struct {
 				Text string `json:"#text"`
 				Size string `json:"size"`
@@ -645,7 +874,7 @@ func (p *LastFMPlugin) fetchTrackInfoImage(ctx context.Context, artist, track st
 
 	for i := len(resp.Track.Album.Image) - 1; i >= 0; i-- {
 		url := ensureHTTPS(resp.Track.Album.Image[i].Text)
-		if url != "" {
+		if url != "" && !p.isPlaceholderImage(url) {
 			return url
 		}
 	}
@@ -667,7 +896,7 @@ func (p *LastFMPlugin) fetchAlbumInfoImage(ctx context.Context, artist, album st
 
 	for i := len(resp.Album.Image) - 1; i >= 0; i-- {
 		url := ensureHTTPS(resp.Album.Image[i].Text)
-		if url != "" {
+		if url != "" && !p.isPlaceholderImage(url) {
 			return url
 		}
 	}
@@ -786,7 +1015,7 @@ func (p *LastFMPlugin) getJSONWithRetry(ctx context.Context, urlStr string, targ
 
 func (p *LastFMPlugin) SearchAndPlayTrack(query string) (*AkarpovrMusicTrack, error) {
 	encodedQuery := url.QueryEscape(query)
-	searchURL := fmt.Sprintf("https://new.akarpov.ru/api/v1/music/song/?search=%s", encodedQuery)
+	searchURL := fmt.Sprintf("https://new.akarpov.ru/api/v1/music/search/?query=%s", encodedQuery)
 
 	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Get(searchURL)
@@ -795,25 +1024,37 @@ func (p *LastFMPlugin) SearchAndPlayTrack(query string) (*AkarpovrMusicTrack, er
 	}
 	defer resp.Body.Close()
 
-	var response AkarpovrMusicResponse
+	var response AkarpovrMusicSearchResponse
 	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
 		return nil, err
 	}
 
-	if len(response.Results) == 0 {
+	if len(response.Songs) == 0 {
 		return nil, fmt.Errorf("no tracks found")
 	}
 
-	bestMatch := &response.Results[0]
+	bestMatch := &response.Songs[0]
+
+	imageURL := bestMatch.ImageCropped
+	if imageURL != "" && !strings.HasPrefix(imageURL, "http") {
+		imageURL = "https://new.akarpov.ru" + imageURL
+	}
+
 	p.currentSong = bestMatch
 
+	artists := make([]string, 0, len(bestMatch.Authors))
+	for _, author := range bestMatch.Authors {
+		artists = append(artists, author.Name)
+	}
+
 	p.hub.Broadcast("music_play", map[string]interface{}{
-		"name":   bestMatch.Name,
-		"file":   bestMatch.File,
-		"image":  bestMatch.ImageCropped,
-		"length": bestMatch.Length,
-		"album":  bestMatch.Album.Name,
-		"query":  query,
+		"name":    bestMatch.Name,
+		"file":    bestMatch.File,
+		"image":   imageURL,
+		"length":  bestMatch.Length,
+		"album":   bestMatch.Album.Name,
+		"artists": artists,
+		"query":   query,
 	})
 
 	return bestMatch, nil

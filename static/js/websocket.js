@@ -534,15 +534,23 @@
         const section = document.querySelector('.lastfm-section');
         if (!section) return;
 
-        const trackName = section.querySelector('.track-title, .track-name');
-        const trackArtist = section.querySelector('.track-artist');
-        const trackAlbum = section.querySelector('.track-album');
+        const currentTrackEl = section.querySelector('.current-track');
+        if (currentTrackEl) {
+            currentTrackEl.dataset.artist = data.artist || '';
+            currentTrackEl.dataset.track = data.name || '';
+        }
+
+        const trackName = section.querySelector('.track-title, .track-name, #lastfm-track-title');
+        const trackArtist = section.querySelector('.track-artist, #lastfm-track-artist');
+        const trackAlbum = section.querySelector('.track-album, #lastfm-track-album');
         const statusText = section.querySelector('.status-text');
-        const coverImg = section.querySelector('.track-cover-large img, .track-cover img');
+        const coverImg = section.querySelector('.track-cover-large img, .track-cover img, #lastfm-artwork');
+        const lastfmLink = section.querySelector('#lastfm-link');
 
         if (trackName) trackName.textContent = data.name || 'Unknown Track';
         if (trackArtist) trackArtist.textContent = data.artist ? `by ${data.artist}` : 'Unknown Artist';
         if (trackAlbum && data.album) trackAlbum.textContent = `from ${data.album}`;
+        if (lastfmLink && data.url) lastfmLink.href = data.url;
 
         if (statusText) {
             const isNowPlaying = data.isPlaying === true || data.isPlaying === 'true';

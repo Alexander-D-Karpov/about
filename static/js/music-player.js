@@ -45,24 +45,68 @@
         }
     }
 
+    function playCurrentLastFMTrack() {
+        const currentTrackEl = document.querySelector('.current-track');
+        if (!currentTrackEl) {
+            console.error('No current track element found');
+            return;
+        }
+
+        const artist = currentTrackEl.dataset.artist ||
+            document.getElementById('lastfm-track-artist')?.textContent?.replace(/^by\s+/, '') || '';
+        const track = currentTrackEl.dataset.track ||
+            document.getElementById('lastfm-track-title')?.textContent || '';
+
+        if (!artist || !track) {
+            console.error('Could not get current track info');
+            return;
+        }
+
+        const searchQuery = `${artist} ${track}`;
+        console.log('Playing current track:', searchQuery);
+        playTrack(searchQuery);
+    }
+
     async function playTrack(searchQuery) {
         if (isLoadingTrack) return;
 
         isLoadingTrack = true;
         try {
-            const url = new URL('https://new.akarpov.ru/api/v1/music/song/');
-            url.searchParams.append('search', searchQuery);
+            const url = new URL('https://new.akarpov.ru/api/v1/music/search/');
+            url.searchParams.append('query', searchQuery);
             const response = await fetch(url);
             if (!response.ok) throw new Error('Search failed');
             const data = await response.json();
 
-            if (!data.results || data.results.length === 0) {
+            if (!data.songs || data.songs.length === 0) {
                 showNotification('No tracks found', 'error');
                 return;
             }
 
-            const track = data.results[0];
-            loadAndPlayCustomTrack(track);
+            const track = data.songs[0];
+
+            let imageURL = track.image_cropped || '';
+            if (imageURL && !imageURL.startsWith('http')) {
+                imageURL = 'https://new.akarpov.ru' + imageURL;
+            }
+            if (!imageURL && track.album && track.album.image_cropped) {
+                imageURL = track.album.image_cropped;
+                if (!imageURL.startsWith('http')) {
+                    imageURL = 'https://new.akarpov.ru' + imageURL;
+                }
+            }
+
+            const normalizedTrack = {
+                name: track.name,
+                slug: track.slug,
+                file: track.file,
+                image_cropped: imageURL,
+                length: track.length,
+                album: track.album,
+                authors: track.authors
+            };
+
+            loadAndPlayCustomTrack(normalizedTrack);
         } catch (error) {
             console.error('Error playing track:', error);
             showNotification('Failed to load track', 'error');
@@ -311,22 +355,29 @@
     }
 
     window.playTrack = playTrack;
+    window.playCurrentLastFMTrack = playCurrentLastFMTrack;
     window.toggleMusicPlayPause = toggleMusicPlayPause;
     window.stopMusicPlayback = stopMusicPlayback;
 
     window.musicPlayer = {
         playTrack,
+        playCurrentLastFMTrack,
         getCurrentTrack: () => currentLoadedTrack,
         isPlaying: () => isCustomPlaying,
         handleMusicUpdate: function(message) {
             if (message.type === 'music_play' && message.data) {
+                let imageURL = message.data.image || '';
+                if (imageURL && !imageURL.startsWith('http')) {
+                    imageURL = 'https://new.akarpov.ru' + imageURL;
+                }
+
                 const track = {
                     name: message.data.name || 'Unknown Track',
                     file: message.data.file,
-                    image_cropped: message.data.image || '',
+                    image_cropped: imageURL,
                     album: {
                         name: message.data.album || '',
-                        image_cropped: message.data.image || ''
+                        image_cropped: imageURL
                     },
                     authors: message.data.artists ?
                         message.data.artists.map(name => ({name})) :
