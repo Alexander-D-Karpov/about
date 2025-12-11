@@ -37,7 +37,7 @@ type LastFMPlugin struct {
 	pollMutex           sync.Mutex
 	trackMutex          sync.RWMutex
 	pluginManager       interface{ GetClientCount() int }
-	imageCache          map[string]string
+	imageCache          map[string]imageCacheEntry
 	imageCacheMutex     sync.RWMutex
 }
 
@@ -99,6 +99,11 @@ type lastfmTrackInfoResp struct {
 	} `json:"track"`
 }
 
+type imageCacheEntry struct {
+	URL      string `json:"url"`
+	CachedAt int64  `json:"cached_at"`
+}
+
 type lastfmAlbumInfoResp struct {
 	Album struct {
 		Image []struct {
@@ -142,7 +147,7 @@ func NewLastFMPlugin(storage *storage.Storage, hub *stream.Hub, apiKey string) *
 		apiKey:     apiKey,
 		httpClient: NewHTTPClientWithTimeout(15 * time.Second),
 		stopPoll:   make(chan struct{}),
-		imageCache: make(map[string]string),
+		imageCache: make(map[string]imageCacheEntry),
 	}
 
 	plugin.loadImageCache()
@@ -156,20 +161,34 @@ func (p *LastFMPlugin) loadImageCache() {
 	if cachedImages, ok := config.Settings["imageCache"].(map[string]interface{}); ok {
 		p.imageCacheMutex.Lock()
 		for k, v := range cachedImages {
-			if str, ok := v.(string); ok {
-				p.imageCache[k] = str
+			if entry, ok := v.(map[string]interface{}); ok {
+				url, _ := entry["url"].(string)
+				cachedAt, _ := entry["cached_at"].(float64)
+				p.imageCache[k] = imageCacheEntry{URL: url, CachedAt: int64(cachedAt)}
+			} else if str, ok := v.(string); ok {
+				p.imageCache[k] = imageCacheEntry{URL: str, CachedAt: time.Now().Unix()}
 			}
 		}
 		p.imageCacheMutex.Unlock()
-		log.Printf("[LastFM] Loaded %d cached images from storage", len(cachedImages))
 	}
+}
+
+func (p *LastFMPlugin) isCacheValid(entry imageCacheEntry) bool {
+	maxAge := int64(7 * 24 * 60 * 60) // 7 days for valid URLs
+	if entry.URL == "" {
+		maxAge = int64(24 * 60 * 60) // 1 day for empty results
+	}
+	return time.Now().Unix()-entry.CachedAt < maxAge
 }
 
 func (p *LastFMPlugin) saveImageCache() {
 	p.imageCacheMutex.RLock()
 	cacheCopy := make(map[string]interface{})
 	for k, v := range p.imageCache {
-		cacheCopy[k] = v
+		cacheCopy[k] = map[string]interface{}{
+			"url":       v.URL,
+			"cached_at": v.CachedAt,
+		}
 	}
 	p.imageCacheMutex.RUnlock()
 
@@ -286,14 +305,10 @@ func (p *LastFMPlugin) Render(ctx context.Context) (string, error) {
 		seen := make(map[string]bool)
 		currentKey := fmt.Sprintf("%s|%s", currentTrack.Artist.Text, currentTrack.Name)
 
-		for i, track := range recentTracks {
-			if i == 0 && nowPlaying {
-				continue
-			}
-
+		for _, track := range recentTracks {
 			trackKey := fmt.Sprintf("%s|%s", track.Artist.Text, track.Name)
 
-			if trackKey == currentKey && nowPlaying {
+			if trackKey == currentKey {
 				continue
 			}
 
@@ -487,11 +502,14 @@ func (p *LastFMPlugin) getTrackImage(track *LastFMTrack) string {
 	cacheKey := fmt.Sprintf("%s-%s", track.Artist.Text, track.Name)
 
 	p.imageCacheMutex.RLock()
-	if cachedImage, ok := p.imageCache[cacheKey]; ok && cachedImage != "" {
+	if entry, ok := p.imageCache[cacheKey]; ok && p.isCacheValid(entry) {
 		p.imageCacheMutex.RUnlock()
-		return cachedImage
+		if entry.URL != "" {
+			return entry.URL
+		}
+	} else {
+		p.imageCacheMutex.RUnlock()
 	}
-	p.imageCacheMutex.RUnlock()
 
 	image := p.pickBestImage(track)
 
@@ -501,9 +519,9 @@ func (p *LastFMPlugin) getTrackImage(track *LastFMTrack) string {
 		p.tryAkarpovImageFallback(ctx, track)
 
 		p.imageCacheMutex.RLock()
-		if cachedImage, ok := p.imageCache[cacheKey]; ok && cachedImage != "" {
+		if entry, ok := p.imageCache[cacheKey]; ok && entry.URL != "" {
 			p.imageCacheMutex.RUnlock()
-			return cachedImage
+			return entry.URL
 		}
 		p.imageCacheMutex.RUnlock()
 	}
@@ -515,13 +533,15 @@ func (p *LastFMPlugin) getTrackImage(track *LastFMTrack) string {
 		image = p.pickBestImage(track)
 	}
 
+	p.imageCacheMutex.Lock()
 	if image != "" && !p.isPlaceholderImage(image) {
-		p.imageCacheMutex.Lock()
-		p.imageCache[cacheKey] = image
-		p.imageCacheMutex.Unlock()
-
-		go p.saveImageCache()
+		p.imageCache[cacheKey] = imageCacheEntry{URL: image, CachedAt: time.Now().Unix()}
+	} else {
+		p.imageCache[cacheKey] = imageCacheEntry{URL: "", CachedAt: time.Now().Unix()}
 	}
+	p.imageCacheMutex.Unlock()
+
+	go p.saveImageCache()
 
 	return image
 }
@@ -666,14 +686,14 @@ func (p *LastFMPlugin) tryAkarpovImageFallback(ctx context.Context, track *LastF
 	cacheKey := fmt.Sprintf("%s-%s", track.Artist.Text, track.Name)
 
 	p.imageCacheMutex.RLock()
-	if cachedImage, ok := p.imageCache[cacheKey]; ok {
+	if entry, ok := p.imageCache[cacheKey]; ok && p.isCacheValid(entry) {
 		p.imageCacheMutex.RUnlock()
-		if cachedImage != "" {
+		if entry.URL != "" {
 			track.Image = []struct {
 				Text string `json:"#text"`
 				Size string `json:"size"`
 			}{
-				{Text: cachedImage, Size: "extralarge"},
+				{Text: entry.URL, Size: "extralarge"},
 			}
 		}
 		return
@@ -706,7 +726,7 @@ func (p *LastFMPlugin) tryAkarpovImageFallback(ctx context.Context, track *LastF
 
 	if len(searchResp.Songs) == 0 {
 		p.imageCacheMutex.Lock()
-		p.imageCache[cacheKey] = ""
+		p.imageCache[cacheKey] = imageCacheEntry{URL: "", CachedAt: time.Now().Unix()}
 		p.imageCacheMutex.Unlock()
 		return
 	}
@@ -730,7 +750,7 @@ func (p *LastFMPlugin) tryAkarpovImageFallback(ctx context.Context, track *LastF
 	}
 
 	p.imageCacheMutex.Lock()
-	p.imageCache[cacheKey] = imageURL
+	p.imageCache[cacheKey] = imageCacheEntry{URL: imageURL, CachedAt: time.Now().Unix()}
 	p.imageCacheMutex.Unlock()
 
 	if imageURL != "" {
@@ -754,9 +774,10 @@ func (p *LastFMPlugin) broadcastTrackUpdate(track *LastFMTrack, recentTracks []L
 	for _, t := range recentTracks {
 		trackKey := fmt.Sprintf("%s|%s", t.Name, t.Artist.Text)
 
-		if trackKey == currentKey && nowPlaying {
+		if trackKey == currentKey {
 			continue
 		}
+
 		if t.Attr.NowPlaying == "true" {
 			continue
 		}
@@ -804,9 +825,9 @@ func (p *LastFMPlugin) getTrackImageFromCache(track *LastFMTrack) string {
 	cacheKey := fmt.Sprintf("%s-%s", track.Artist.Text, track.Name)
 
 	p.imageCacheMutex.RLock()
-	if cachedImage, ok := p.imageCache[cacheKey]; ok && cachedImage != "" {
+	if entry, ok := p.imageCache[cacheKey]; ok && entry.URL != "" && p.isCacheValid(entry) {
 		p.imageCacheMutex.RUnlock()
-		return cachedImage
+		return entry.URL
 	}
 	p.imageCacheMutex.RUnlock()
 

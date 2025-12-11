@@ -136,8 +136,8 @@ func (h *Handler) dashboard(w http.ResponseWriter, r *http.Request) {
 			settings = make(map[string]interface{})
 		}
 
-		// Ensure arrays are properly formatted
 		settings = h.normalizeSettings(settings)
+		settings = h.filterInternalSettings(settings)
 
 		pluginList = append(pluginList, PluginData{
 			Name:        name,
@@ -172,6 +172,30 @@ func (h *Handler) dashboard(w http.ResponseWriter, r *http.Request) {
 		fmt.Printf("Template error: %v\n", err)
 		http.Error(w, "Template error", http.StatusInternalServerError)
 	}
+}
+
+func (h *Handler) filterInternalSettings(settings map[string]interface{}) map[string]interface{} {
+	internalKeys := []string{"imageCache"}
+
+	result := make(map[string]interface{})
+	for key, value := range settings {
+		isInternal := false
+		for _, internal := range internalKeys {
+			if key == internal {
+				isInternal = true
+				break
+			}
+		}
+		if !isInternal {
+			switch v := value.(type) {
+			case map[string]interface{}:
+				result[key] = h.filterInternalSettings(v)
+			default:
+				result[key] = value
+			}
+		}
+	}
+	return result
 }
 
 func (h *Handler) normalizeSettings(settings map[string]interface{}) map[string]interface{} {
@@ -246,6 +270,7 @@ func (h *Handler) getPluginsAPI(w http.ResponseWriter, r *http.Request) {
 		}
 
 		settings = h.normalizeSettings(settings)
+		settings = h.filterInternalSettings(settings)
 
 		pluginList = append(pluginList, PluginData{
 			Name:     name,
@@ -278,6 +303,7 @@ func (h *Handler) reloadPluginAPI(w http.ResponseWriter, r *http.Request) {
 	}
 
 	settings = h.normalizeSettings(settings)
+	settings = h.filterInternalSettings(settings)
 
 	response := map[string]interface{}{
 		"success":  true,

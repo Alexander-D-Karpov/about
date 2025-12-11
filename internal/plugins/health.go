@@ -1,12 +1,11 @@
 package plugins
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"html/template"
-	"io"
+	"log"
 	"net/http"
 	"strings"
 	"sync"
@@ -21,9 +20,12 @@ type HealthData struct {
 	StepsWeek           int64        `json:"steps_week"`
 	CaloriesToday       float64      `json:"calories_today"`
 	CaloriesWeek        float64      `json:"calories_week"`
+	WorkoutMinutesToday int64        `json:"workout_minutes_today"`
 	WorkoutMinutesWeek  int64        `json:"workout_minutes_week"`
+	WorkoutCountToday   int          `json:"workout_count_today"`
 	WorkoutCountWeek    int          `json:"workout_count_week"`
 	AvgHeartRate        int          `json:"avg_heart_rate"`
+	CurrentHeartRate    int          `json:"current_heart_rate"`
 	RestingHeartRate    int          `json:"resting_heart_rate"`
 	SleepHoursLastNight float64      `json:"sleep_hours_last_night"`
 	SleepAvgWeek        float64      `json:"sleep_avg_week"`
@@ -31,8 +33,8 @@ type HealthData struct {
 	DistanceWeek        float64      `json:"distance_week"`
 	HydrationToday      float64      `json:"hydration_today"`
 	LastWorkout         *WorkoutInfo `json:"last_workout"`
-	WeeklyTrend         *WeeklyTrend `json:"weekly_trend"`
 	LastUpdated         time.Time    `json:"last_updated"`
+	LastHRUpdate        time.Time    `json:"last_hr_update"`
 }
 
 type WorkoutInfo struct {
@@ -42,88 +44,639 @@ type WorkoutInfo struct {
 	Date     time.Time `json:"date"`
 }
 
-type WeeklyTrend struct {
-	StepsTrend    string `json:"steps_trend"`
-	CaloriesTrend string `json:"calories_trend"`
-	SleepTrend    string `json:"sleep_trend"`
+type DailyAverage struct {
+	Date           string  `json:"date"`
+	Steps          int64   `json:"steps"`
+	Calories       float64 `json:"calories"`
+	SleepHours     float64 `json:"sleep_hours"`
+	AvgHeartRate   int     `json:"avg_heart_rate"`
+	HydrationML    float64 `json:"hydration_ml"`
+	WorkoutMinutes int64   `json:"workout_minutes"`
+	DistanceKM     float64 `json:"distance_km"`
 }
 
-type FlexibleTime struct {
-	time.Time
+type IncomingHealthRecord struct {
+	ID        string                 `json:"id,omitempty"`
+	StartTime string                 `json:"startTime,omitempty"`
+	EndTime   string                 `json:"endTime,omitempty"`
+	Time      string                 `json:"time,omitempty"`
+	Data      map[string]interface{} `json:"-"`
+	Metadata  map[string]interface{} `json:"metadata,omitempty"`
 }
 
-func (ft *FlexibleTime) UnmarshalJSON(b []byte) error {
-	s := strings.Trim(string(b), `"`)
-	if s == "" || s == "null" {
-		ft.Time = time.Time{}
-		return nil
+func (r *IncomingHealthRecord) UnmarshalJSON(data []byte) error {
+	type Alias IncomingHealthRecord
+	aux := &struct {
+		*Alias
+	}{
+		Alias: (*Alias)(r),
 	}
-
-	formats := []string{
-		time.RFC3339,
-		time.RFC3339Nano,
-		"2006-01-02T15:04:05.000000",
-		"2006-01-02T15:04:05.000",
-		"2006-01-02T15:04:05",
-		"2006-01-02 15:04:05",
-		"2006-01-02",
+	if err := json.Unmarshal(data, aux); err != nil {
+		return err
 	}
-
-	var parseErr error
-	for _, format := range formats {
-		t, err := time.Parse(format, s)
-		if err == nil {
-			ft.Time = t
-			return nil
-		}
-		parseErr = err
+	var rawMap map[string]interface{}
+	if err := json.Unmarshal(data, &rawMap); err != nil {
+		return err
 	}
-
-	return fmt.Errorf("unable to parse time %q: %w", s, parseErr)
-}
-
-type HCGatewayLoginResponse struct {
-	Token   string       `json:"token"`
-	Refresh string       `json:"refresh"`
-	Expiry  FlexibleTime `json:"expiry"`
-}
-
-type HCGatewayRecord struct {
-	ID    string                 `json:"_id"`
-	Data  map[string]interface{} `json:"data"`
-	Start FlexibleTime           `json:"start"`
-	End   *FlexibleTime          `json:"end"`
-	App   string                 `json:"app"`
+	r.Data = rawMap
+	return nil
 }
 
 type HealthPlugin struct {
-	storage      *storage.Storage
-	hub          *stream.Hub
-	httpClient   *http.Client
-	baseURL      string
-	username     string
-	password     string
-	token        string
-	refreshToken string
-	tokenExpiry  time.Time
-	healthData   *HealthData
-	lastUpdate   time.Time
-	mutex        sync.RWMutex
+	storage          *storage.Storage
+	hub              *stream.Hub
+	username         string
+	password         string
+	healthData       *HealthData
+	dailyAverages    map[string]*DailyAverage
+	todayRawData     map[string][]map[string]interface{}
+	heartRateSamples []int
+	mutex            sync.RWMutex
+	lastPersist      time.Time
 }
 
-func NewHealthPlugin(storage *storage.Storage, hub *stream.Hub, baseURL, username, password string) *HealthPlugin {
-	return &HealthPlugin{
-		storage:    storage,
-		hub:        hub,
-		httpClient: NewHTTPClientWithTimeout(20 * time.Second),
-		baseURL:    baseURL,
-		username:   username,
-		password:   password,
-		healthData: &HealthData{},
+func NewHealthPlugin(storage *storage.Storage, hub *stream.Hub, _, username, password string) *HealthPlugin {
+	p := &HealthPlugin{
+		storage:          storage,
+		hub:              hub,
+		username:         username,
+		password:         password,
+		healthData:       &HealthData{},
+		dailyAverages:    make(map[string]*DailyAverage),
+		todayRawData:     make(map[string][]map[string]interface{}),
+		heartRateSamples: make([]int, 0),
 	}
+	p.loadPersistedData()
+	return p
 }
 
 func (p *HealthPlugin) Name() string { return "health" }
+
+func (p *HealthPlugin) ValidateAuth(username, password string) bool {
+	return p.username != "" && p.password != "" &&
+		username == p.username && password == p.password
+}
+
+func (p *HealthPlugin) HandleSync(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	username, password, ok := r.BasicAuth()
+	if !ok || !p.ValidateAuth(username, password) {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	pathParts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/health/sync/"), "/")
+	if len(pathParts) == 0 || pathParts[0] == "" {
+		http.Error(w, "Missing data type", http.StatusBadRequest)
+		return
+	}
+	dataType := strings.ToLower(pathParts[0])
+
+	var payload struct {
+		Data json.RawMessage `json:"data"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	var records []map[string]interface{}
+	if err := json.Unmarshal(payload.Data, &records); err != nil {
+		var single map[string]interface{}
+		if err2 := json.Unmarshal(payload.Data, &single); err2 != nil {
+			http.Error(w, "Invalid data format", http.StatusBadRequest)
+			return
+		}
+		records = []map[string]interface{}{single}
+	}
+
+	p.processRecords(dataType, records)
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"count":   len(records),
+	})
+}
+
+func (p *HealthPlugin) HandleStatus(w http.ResponseWriter, r *http.Request) {
+	p.mutex.RLock()
+	data := p.healthData
+	p.mutex.RUnlock()
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(data)
+}
+
+func (p *HealthPlugin) processRecords(dataType string, records []map[string]interface{}) {
+	p.mutex.Lock()
+	defer p.mutex.Unlock()
+
+	now := time.Now()
+	today := now.Format("2006-01-02")
+	startOfDay := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	startOfWeek := startOfDay.AddDate(0, 0, -int(now.Weekday()))
+
+	for _, record := range records {
+		recordTime := p.parseRecordTime(record)
+		if recordTime.IsZero() {
+			recordTime = now
+		}
+
+		isToday := recordTime.After(startOfDay) || recordTime.Equal(startOfDay)
+		isThisWeek := recordTime.After(startOfWeek) || recordTime.Equal(startOfWeek)
+
+		switch dataType {
+		case "steps":
+			count := p.extractInt(record, "count")
+			if isToday {
+				p.healthData.StepsToday += count
+			}
+			if isThisWeek {
+				p.healthData.StepsWeek += count
+			}
+
+		case "activecaloriesburned", "totalcaloriesburned":
+			calories := p.extractCalories(record)
+			if isToday {
+				p.healthData.CaloriesToday += calories
+			}
+			if isThisWeek {
+				p.healthData.CaloriesWeek += calories
+			}
+
+		case "heartrate":
+			bpm := p.extractHeartRate(record)
+			if bpm > 0 {
+				p.healthData.CurrentHeartRate = bpm
+				p.healthData.LastHRUpdate = now
+				p.heartRateSamples = append(p.heartRateSamples, bpm)
+				if len(p.heartRateSamples) > 100 {
+					p.heartRateSamples = p.heartRateSamples[len(p.heartRateSamples)-100:]
+				}
+				p.healthData.AvgHeartRate = p.calculateAvgHR()
+				if bpm < p.healthData.RestingHeartRate || p.healthData.RestingHeartRate == 0 {
+					if bpm > 40 {
+						p.healthData.RestingHeartRate = bpm
+					}
+				}
+			}
+
+		case "restingheartrate":
+			bpm := p.extractHeartRate(record)
+			if bpm > 0 {
+				p.healthData.RestingHeartRate = bpm
+			}
+
+		case "sleepsession":
+			hours := p.extractSleepHours(record)
+			if hours > 0 {
+				p.healthData.SleepHoursLastNight = hours
+			}
+
+		case "exercisesession":
+			duration, calories, exerciseType := p.extractWorkout(record)
+			if isToday {
+				p.healthData.WorkoutMinutesToday += duration
+				p.healthData.WorkoutCountToday++
+			}
+			if isThisWeek {
+				p.healthData.WorkoutMinutesWeek += duration
+				p.healthData.WorkoutCountWeek++
+			}
+			if p.healthData.LastWorkout == nil || recordTime.After(p.healthData.LastWorkout.Date) {
+				p.healthData.LastWorkout = &WorkoutInfo{
+					Type:     exerciseType,
+					Duration: duration,
+					Calories: calories,
+					Date:     recordTime,
+				}
+			}
+
+		case "hydration":
+			ml := p.extractHydration(record)
+			if isToday {
+				p.healthData.HydrationToday += ml
+			}
+
+		case "distance":
+			km := p.extractDistance(record)
+			if isToday {
+				p.healthData.DistanceToday += km
+			}
+			if isThisWeek {
+				p.healthData.DistanceWeek += km
+			}
+		}
+	}
+
+	p.healthData.LastUpdated = now
+
+	if _, exists := p.dailyAverages[today]; !exists {
+		p.dailyAverages[today] = &DailyAverage{Date: today}
+	}
+	p.dailyAverages[today].Steps = p.healthData.StepsToday
+	p.dailyAverages[today].Calories = p.healthData.CaloriesToday
+	p.dailyAverages[today].SleepHours = p.healthData.SleepHoursLastNight
+	p.dailyAverages[today].AvgHeartRate = p.healthData.AvgHeartRate
+	p.dailyAverages[today].HydrationML = p.healthData.HydrationToday
+	p.dailyAverages[today].WorkoutMinutes = p.healthData.WorkoutMinutesToday
+	p.dailyAverages[today].DistanceKM = p.healthData.DistanceToday
+
+	if time.Since(p.lastPersist) > 5*time.Minute {
+		go p.persistData()
+	}
+}
+
+func (p *HealthPlugin) parseRecordTime(record map[string]interface{}) time.Time {
+	for _, key := range []string{"startTime", "time", "start"} {
+		if v, ok := record[key].(string); ok && v != "" {
+			if t, err := time.Parse(time.RFC3339, v); err == nil {
+				return t
+			}
+			if t, err := time.Parse("2006-01-02T15:04:05", v); err == nil {
+				return t
+			}
+		}
+	}
+	return time.Time{}
+}
+
+func (p *HealthPlugin) extractInt(record map[string]interface{}, key string) int64 {
+	if v, ok := record[key].(float64); ok {
+		return int64(v)
+	}
+	if v, ok := record[key].(int); ok {
+		return int64(v)
+	}
+	return 0
+}
+
+func (p *HealthPlugin) extractCalories(record map[string]interface{}) float64 {
+	if energy, ok := record["energy"].(map[string]interface{}); ok {
+		if kcal, ok := energy["inKilocalories"].(float64); ok {
+			return kcal
+		}
+	}
+	if kcal, ok := record["calories"].(float64); ok {
+		return kcal
+	}
+	return 0
+}
+
+func (p *HealthPlugin) extractHeartRate(record map[string]interface{}) int {
+	if bpm, ok := record["bpm"].(float64); ok {
+		return int(bpm)
+	}
+	if bpm, ok := record["beatsPerMinute"].(float64); ok {
+		return int(bpm)
+	}
+	if samples, ok := record["samples"].([]interface{}); ok && len(samples) > 0 {
+		if sample, ok := samples[0].(map[string]interface{}); ok {
+			if bpm, ok := sample["beatsPerMinute"].(float64); ok {
+				return int(bpm)
+			}
+		}
+	}
+	return 0
+}
+
+func (p *HealthPlugin) extractSleepHours(record map[string]interface{}) float64 {
+	startStr, _ := record["startTime"].(string)
+	endStr, _ := record["endTime"].(string)
+	if startStr == "" || endStr == "" {
+		return 0
+	}
+	start, err1 := time.Parse(time.RFC3339, startStr)
+	end, err2 := time.Parse(time.RFC3339, endStr)
+	if err1 != nil || err2 != nil {
+		return 0
+	}
+	return end.Sub(start).Hours()
+}
+
+func (p *HealthPlugin) extractWorkout(record map[string]interface{}) (int64, float64, string) {
+	var duration int64
+	var calories float64
+	exerciseType := "Workout"
+
+	startStr, _ := record["startTime"].(string)
+	endStr, _ := record["endTime"].(string)
+	if startStr != "" && endStr != "" {
+		start, _ := time.Parse(time.RFC3339, startStr)
+		end, _ := time.Parse(time.RFC3339, endStr)
+		if !start.IsZero() && !end.IsZero() {
+			duration = int64(end.Sub(start).Minutes())
+		}
+	}
+
+	if energy, ok := record["energy"].(map[string]interface{}); ok {
+		if kcal, ok := energy["inKilocalories"].(float64); ok {
+			calories = kcal
+		}
+	} else if kcal, ok := record["calories"].(float64); ok {
+		calories = kcal
+	}
+
+	if t, ok := record["exerciseType"].(string); ok {
+		exerciseType = formatExerciseType(t)
+	} else if t, ok := record["exerciseType"].(float64); ok {
+		exerciseType = fmt.Sprintf("Exercise %d", int(t))
+	}
+
+	return duration, calories, exerciseType
+}
+
+func (p *HealthPlugin) extractHydration(record map[string]interface{}) float64 {
+	if volume, ok := record["volume"].(map[string]interface{}); ok {
+		if ml, ok := volume["inMilliliters"].(float64); ok {
+			return ml
+		}
+		if l, ok := volume["inLiters"].(float64); ok {
+			return l * 1000
+		}
+	}
+	if ml, ok := record["volume"].(float64); ok {
+		return ml
+	}
+	return 0
+}
+
+func (p *HealthPlugin) extractDistance(record map[string]interface{}) float64 {
+	if distance, ok := record["distance"].(map[string]interface{}); ok {
+		if m, ok := distance["inMeters"].(float64); ok {
+			return m / 1000
+		}
+		if km, ok := distance["inKilometers"].(float64); ok {
+			return km
+		}
+	}
+	if m, ok := record["distance"].(float64); ok {
+		return m / 1000
+	}
+	return 0
+}
+
+func (p *HealthPlugin) calculateAvgHR() int {
+	if len(p.heartRateSamples) == 0 {
+		return 0
+	}
+	sum := 0
+	for _, hr := range p.heartRateSamples {
+		sum += hr
+	}
+	return sum / len(p.heartRateSamples)
+}
+
+func (p *HealthPlugin) BroadcastHeartRate() {
+	p.mutex.RLock()
+	hr := p.healthData.CurrentHeartRate
+	lastUpdate := p.healthData.LastHRUpdate
+	p.mutex.RUnlock()
+
+	if hr > 0 {
+		p.hub.Broadcast("heartrate_update", map[string]interface{}{
+			"bpm":         hr,
+			"last_update": lastUpdate.Unix(),
+			"timestamp":   time.Now().Unix(),
+		})
+	}
+}
+
+func (p *HealthPlugin) ResetDailyData() {
+	p.mutex.Lock()
+	defer p.mutex.Unlock()
+
+	today := time.Now().Format("2006-01-02")
+
+	if avg, exists := p.dailyAverages[today]; !exists || avg.Steps == 0 {
+		yesterday := time.Now().AddDate(0, 0, -1).Format("2006-01-02")
+		if _, exists := p.dailyAverages[yesterday]; !exists {
+			p.dailyAverages[yesterday] = &DailyAverage{
+				Date:           yesterday,
+				Steps:          p.healthData.StepsToday,
+				Calories:       p.healthData.CaloriesToday,
+				SleepHours:     p.healthData.SleepHoursLastNight,
+				AvgHeartRate:   p.healthData.AvgHeartRate,
+				HydrationML:    p.healthData.HydrationToday,
+				WorkoutMinutes: p.healthData.WorkoutMinutesToday,
+				DistanceKM:     p.healthData.DistanceToday,
+			}
+		}
+	}
+
+	p.healthData.StepsToday = 0
+	p.healthData.CaloriesToday = 0
+	p.healthData.WorkoutMinutesToday = 0
+	p.healthData.WorkoutCountToday = 0
+	p.healthData.HydrationToday = 0
+	p.healthData.DistanceToday = 0
+	p.heartRateSamples = make([]int, 0)
+
+	p.recalculateWeeklyData()
+	p.cleanOldData()
+	p.persistData()
+}
+
+func (p *HealthPlugin) recalculateWeeklyData() {
+	now := time.Now()
+	startOfWeek := now.AddDate(0, 0, -int(now.Weekday()))
+
+	var stepsWeek int64
+	var caloriesWeek float64
+	var workoutMinutesWeek int64
+	var workoutCountWeek int
+	var distanceWeek float64
+	var sleepTotal float64
+	var sleepCount int
+
+	for dateStr, avg := range p.dailyAverages {
+		date, err := time.Parse("2006-01-02", dateStr)
+		if err != nil {
+			continue
+		}
+		if date.After(startOfWeek) || date.Equal(startOfWeek) {
+			stepsWeek += avg.Steps
+			caloriesWeek += avg.Calories
+			workoutMinutesWeek += avg.WorkoutMinutes
+			distanceWeek += avg.DistanceKM
+			if avg.SleepHours > 0 {
+				sleepTotal += avg.SleepHours
+				sleepCount++
+			}
+		}
+	}
+
+	p.healthData.StepsWeek = stepsWeek
+	p.healthData.CaloriesWeek = caloriesWeek
+	p.healthData.WorkoutMinutesWeek = workoutMinutesWeek
+	p.healthData.WorkoutCountWeek = workoutCountWeek
+	p.healthData.DistanceWeek = distanceWeek
+	if sleepCount > 0 {
+		p.healthData.SleepAvgWeek = sleepTotal / float64(sleepCount)
+	}
+}
+
+func (p *HealthPlugin) cleanOldData() {
+	cutoff := time.Now().AddDate(0, 0, -7).Format("2006-01-02")
+	for dateStr := range p.dailyAverages {
+		if dateStr < cutoff {
+			delete(p.dailyAverages, dateStr)
+		}
+	}
+}
+
+func (p *HealthPlugin) persistData() {
+	config := p.storage.GetPluginConfig(p.Name())
+	if config.Settings == nil {
+		config.Settings = make(map[string]interface{})
+	}
+
+	avgData := make(map[string]interface{})
+	for date, avg := range p.dailyAverages {
+		avgData[date] = map[string]interface{}{
+			"steps":           avg.Steps,
+			"calories":        avg.Calories,
+			"sleep_hours":     avg.SleepHours,
+			"avg_heart_rate":  avg.AvgHeartRate,
+			"hydration_ml":    avg.HydrationML,
+			"workout_minutes": avg.WorkoutMinutes,
+			"distance_km":     avg.DistanceKM,
+		}
+	}
+	config.Settings["daily_averages"] = avgData
+
+	config.Settings["current_data"] = map[string]interface{}{
+		"steps_today":           p.healthData.StepsToday,
+		"steps_week":            p.healthData.StepsWeek,
+		"calories_today":        p.healthData.CaloriesToday,
+		"calories_week":         p.healthData.CaloriesWeek,
+		"workout_minutes_today": p.healthData.WorkoutMinutesToday,
+		"workout_minutes_week":  p.healthData.WorkoutMinutesWeek,
+		"workout_count_today":   p.healthData.WorkoutCountToday,
+		"workout_count_week":    p.healthData.WorkoutCountWeek,
+		"avg_heart_rate":        p.healthData.AvgHeartRate,
+		"current_heart_rate":    p.healthData.CurrentHeartRate,
+		"resting_heart_rate":    p.healthData.RestingHeartRate,
+		"sleep_hours_last":      p.healthData.SleepHoursLastNight,
+		"sleep_avg_week":        p.healthData.SleepAvgWeek,
+		"distance_today":        p.healthData.DistanceToday,
+		"distance_week":         p.healthData.DistanceWeek,
+		"hydration_today":       p.healthData.HydrationToday,
+		"last_updated":          p.healthData.LastUpdated.Format(time.RFC3339),
+		"last_hr_update":        p.healthData.LastHRUpdate.Format(time.RFC3339),
+	}
+
+	if p.healthData.LastWorkout != nil {
+		config.Settings["last_workout"] = map[string]interface{}{
+			"type":     p.healthData.LastWorkout.Type,
+			"duration": p.healthData.LastWorkout.Duration,
+			"calories": p.healthData.LastWorkout.Calories,
+			"date":     p.healthData.LastWorkout.Date.Format(time.RFC3339),
+		}
+	}
+
+	config.Settings["last_persist"] = time.Now().Format(time.RFC3339)
+
+	if err := p.storage.SetPluginConfig(p.Name(), config); err != nil {
+		log.Printf("Failed to persist health data: %v", err)
+	} else {
+		log.Printf("Health data persisted successfully")
+	}
+
+	p.lastPersist = time.Now()
+}
+
+func (p *HealthPlugin) loadPersistedData() {
+	config := p.storage.GetPluginConfig(p.Name())
+	if config.Settings == nil {
+		return
+	}
+
+	if avgData, ok := config.Settings["daily_averages"].(map[string]interface{}); ok {
+		for date, data := range avgData {
+			if dayData, ok := data.(map[string]interface{}); ok {
+				p.dailyAverages[date] = &DailyAverage{
+					Date:           date,
+					Steps:          int64(getFloat(dayData, "steps")),
+					Calories:       getFloat(dayData, "calories"),
+					SleepHours:     getFloat(dayData, "sleep_hours"),
+					AvgHeartRate:   int(getFloat(dayData, "avg_heart_rate")),
+					HydrationML:    getFloat(dayData, "hydration_ml"),
+					WorkoutMinutes: int64(getFloat(dayData, "workout_minutes")),
+					DistanceKM:     getFloat(dayData, "distance_km"),
+				}
+			}
+		}
+	}
+
+	if currentData, ok := config.Settings["current_data"].(map[string]interface{}); ok {
+		p.healthData.StepsToday = int64(getFloat(currentData, "steps_today"))
+		p.healthData.StepsWeek = int64(getFloat(currentData, "steps_week"))
+		p.healthData.CaloriesToday = getFloat(currentData, "calories_today")
+		p.healthData.CaloriesWeek = getFloat(currentData, "calories_week")
+		p.healthData.WorkoutMinutesToday = int64(getFloat(currentData, "workout_minutes_today"))
+		p.healthData.WorkoutMinutesWeek = int64(getFloat(currentData, "workout_minutes_week"))
+		p.healthData.WorkoutCountToday = int(getFloat(currentData, "workout_count_today"))
+		p.healthData.WorkoutCountWeek = int(getFloat(currentData, "workout_count_week"))
+		p.healthData.AvgHeartRate = int(getFloat(currentData, "avg_heart_rate"))
+		p.healthData.CurrentHeartRate = int(getFloat(currentData, "current_heart_rate"))
+		p.healthData.RestingHeartRate = int(getFloat(currentData, "resting_heart_rate"))
+		p.healthData.SleepHoursLastNight = getFloat(currentData, "sleep_hours_last")
+		p.healthData.SleepAvgWeek = getFloat(currentData, "sleep_avg_week")
+		p.healthData.DistanceToday = getFloat(currentData, "distance_today")
+		p.healthData.DistanceWeek = getFloat(currentData, "distance_week")
+		p.healthData.HydrationToday = getFloat(currentData, "hydration_today")
+
+		if lastUpdated, ok := currentData["last_updated"].(string); ok {
+			if t, err := time.Parse(time.RFC3339, lastUpdated); err == nil {
+				p.healthData.LastUpdated = t
+			}
+		}
+		if lastHR, ok := currentData["last_hr_update"].(string); ok {
+			if t, err := time.Parse(time.RFC3339, lastHR); err == nil {
+				p.healthData.LastHRUpdate = t
+			}
+		}
+	}
+
+	if workoutData, ok := config.Settings["last_workout"].(map[string]interface{}); ok {
+		workout := &WorkoutInfo{
+			Type:     getStringC(workoutData, "type"),
+			Duration: int64(getFloat(workoutData, "duration")),
+			Calories: getFloat(workoutData, "calories"),
+		}
+		if dateStr, ok := workoutData["date"].(string); ok {
+			if t, err := time.Parse(time.RFC3339, dateStr); err == nil {
+				workout.Date = t
+			}
+		}
+		p.healthData.LastWorkout = workout
+	}
+
+	p.recalculateWeeklyData()
+
+	log.Printf("Health data loaded: steps=%d, hr=%d, sleep=%.1fh",
+		p.healthData.StepsToday, p.healthData.CurrentHeartRate, p.healthData.SleepHoursLastNight)
+}
+
+func getStringC(m map[string]interface{}, key string) string {
+	if v, ok := m[key].(string); ok {
+		return v
+	}
+	return ""
+}
+
+func getFloat(m map[string]interface{}, key string) float64 {
+	if v, ok := m[key].(float64); ok {
+		return v
+	}
+	return 0
+}
 
 func (p *HealthPlugin) Render(ctx context.Context) (string, error) {
 	select {
@@ -135,7 +688,7 @@ func (p *HealthPlugin) Render(ctx context.Context) (string, error) {
 	config := p.storage.GetPluginConfig(p.Name())
 	settings := config.Settings
 
-	sectionTitle := p.getConfigValue(settings, "ui.sectionTitle", "Me Irl")
+	sectionTitle := p.getConfigValue(settings, "ui.sectionTitle", "Health")
 	showSteps := p.getConfigBool(settings, "ui.showSteps", true)
 	showCalories := p.getConfigBool(settings, "ui.showCalories", true)
 	showWorkouts := p.getConfigBool(settings, "ui.showWorkouts", true)
@@ -145,30 +698,27 @@ func (p *HealthPlugin) Render(ctx context.Context) (string, error) {
 
 	p.mutex.RLock()
 	data := p.healthData
-	lastUpdated := p.lastUpdate
 	p.mutex.RUnlock()
 
 	if data == nil {
 		data = &HealthData{}
 	}
 
-	apiConfigured := p.baseURL != "" && p.username != ""
-
-	if !apiConfigured {
+	if p.username == "" {
 		return p.renderNoConfig(sectionTitle), nil
 	}
 
 	lastUpdatedText := "never"
-	if !lastUpdated.IsZero() {
-		lastUpdatedText = p.formatTimeAgo(lastUpdated)
+	if !data.LastUpdated.IsZero() {
+		lastUpdatedText = p.formatTimeAgo(data.LastUpdated)
 	}
 
 	tmpl := `
-<section class="health-section section plugin" data-w="2">
+<section class="health-section section plugin" data-w="1" data-plugin="health">
 	<header class="plugin-header">
 		<h3 class="plugin-title">{{.SectionTitle}}</h3>
 		<div class="health-updated">
-			<span class="update-time">{{.LastUpdatedText}}</span>
+			<span class="update-time" data-health-updated>{{.LastUpdatedText}}</span>
 		</div>
 	</header>
 	
@@ -237,14 +787,14 @@ func (p *HealthPlugin) Render(ctx context.Context) (string, error) {
 			{{if .ShowHeartRate}}
 			<div class="health-card health-card--heart">
 				<div class="health-card-icon">
-					<svg viewBox="0 0 24 24" fill="currentColor">
+					<svg class="health-heartbeat" data-heartbeat viewBox="0 0 24 24" fill="currentColor" data-bpm="{{.CurrentBPM}}">
 						<path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/>
 					</svg>
 				</div>
 				<div class="health-card-content">
-					<div class="health-card-value" data-metric="heart-rate">{{.AvgHeartRate}}</div>
+					<div class="health-card-value" data-metric="heart-rate">{{.CurrentHeartRate}}</div>
 					<div class="health-card-label">Heart Rate</div>
-					<div class="health-card-sub">{{.RestingHeartRate}} resting</div>
+					<div class="health-card-sub" data-metric="resting-hr">{{.RestingHeartRate}} resting</div>
 				</div>
 			</div>
 			{{end}}
@@ -264,23 +814,6 @@ func (p *HealthPlugin) Render(ctx context.Context) (string, error) {
 			</div>
 			{{end}}
 		</div>
-		
-		{{if and .ShowWorkouts .LastWorkout}}
-		<div class="health-last-workout">
-			<div class="last-workout-header">
-				<svg class="last-workout-icon" viewBox="0 0 24 24" fill="currentColor">
-					<path d="M13.5 5.5c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zM9.8 8.9L7 23h2.1l1.8-8 2.1 2v6h2v-7.5l-2.1-2 .6-3C14.8 12 16.8 13 19 13v-2c-1.9 0-3.5-1-4.3-2.4l-1-1.6c-.4-.6-1-1-1.7-1-.3 0-.5.1-.8.1L6 8.3V13h2V9.6l1.8-.7"/>
-				</svg>
-				<span class="last-workout-title">Last Workout</span>
-			</div>
-			<div class="last-workout-info">
-				<span class="last-workout-type">{{.LastWorkout.Type}}</span>
-				<span class="last-workout-duration">{{.LastWorkout.Duration}} min</span>
-				<span class="last-workout-calories">{{.LastWorkout.Calories}} cal</span>
-				<span class="last-workout-date">{{.LastWorkout.DateStr}}</span>
-			</div>
-		</div>
-		{{end}}
 	</div>
 </section>`
 
@@ -291,7 +824,7 @@ func (p *HealthPlugin) Render(ctx context.Context) (string, error) {
 	workoutMinutes := fmt.Sprintf("%d min", data.WorkoutMinutesWeek)
 	sleepLastNight := fmt.Sprintf("%.1fh", data.SleepHoursLastNight)
 	sleepAvg := fmt.Sprintf("%.1fh", data.SleepAvgWeek)
-	avgHeartRate := fmt.Sprintf("%d bpm", data.AvgHeartRate)
+	currentHeartRate := fmt.Sprintf("%d bpm", data.CurrentHeartRate)
 	restingHeartRate := fmt.Sprintf("%d bpm", data.RestingHeartRate)
 	hydration := fmt.Sprintf("%.0f", data.HydrationToday)
 
@@ -321,7 +854,8 @@ func (p *HealthPlugin) Render(ctx context.Context) (string, error) {
 		WorkoutCount     int
 		SleepLastNight   string
 		SleepAvg         string
-		AvgHeartRate     string
+		CurrentHeartRate string
+		CurrentBPM       int
 		RestingHeartRate string
 		Hydration        string
 		LastWorkout      map[string]interface{}
@@ -342,7 +876,8 @@ func (p *HealthPlugin) Render(ctx context.Context) (string, error) {
 		WorkoutCount:     data.WorkoutCountWeek,
 		SleepLastNight:   sleepLastNight,
 		SleepAvg:         sleepAvg,
-		AvgHeartRate:     avgHeartRate,
+		CurrentHeartRate: currentHeartRate,
+		CurrentBPM:       data.CurrentHeartRate,
 		RestingHeartRate: restingHeartRate,
 		Hydration:        hydration,
 		LastWorkout:      lastWorkoutData,
@@ -363,7 +898,7 @@ func (p *HealthPlugin) Render(ctx context.Context) (string, error) {
 }
 
 func (p *HealthPlugin) renderNoConfig(sectionTitle string) string {
-	return fmt.Sprintf(`<section class="health-section section plugin" data-w="2">
+	return fmt.Sprintf(`<section class="health-section section plugin" data-w="1">
 		<header class="plugin-header">
 			<h3 class="plugin-title">%s</h3>
 		</header>
@@ -373,441 +908,15 @@ func (p *HealthPlugin) renderNoConfig(sectionTitle string) string {
 					<path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z"/>
 					<path d="M12 8v4M12 16h.01"/>
 				</svg>
-				<p class="no-config-text">Health Connect not configured</p>
-				<p class="no-config-hint">Set up HCGateway credentials in admin panel</p>
+				<p class="no-config-text">Health sync not configured</p>
+				<p class="no-config-hint">Set credentials in config to receive health data</p>
 			</div>
 		</div>
 	</section>`, sectionTitle)
 }
 
 func (p *HealthPlugin) UpdateData(ctx context.Context) error {
-	if time.Since(p.lastUpdate) < 5*time.Minute {
-		return nil
-	}
-
-	if p.baseURL == "" || p.username == "" {
-		return nil
-	}
-
-	if err := p.ensureAuthenticated(ctx); err != nil {
-		return fmt.Errorf("authentication failed: %w", err)
-	}
-
-	newData := &HealthData{LastUpdated: time.Now()}
-
-	now := time.Now()
-	startOfDay := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
-	startOfWeek := startOfDay.AddDate(0, 0, -int(now.Weekday()))
-
-	if steps, err := p.fetchSteps(ctx, startOfDay, now); err == nil {
-		newData.StepsToday = steps
-	}
-	if stepsWeek, err := p.fetchSteps(ctx, startOfWeek, now); err == nil {
-		newData.StepsWeek = stepsWeek
-	}
-
-	if calories, err := p.fetchCalories(ctx, startOfDay, now); err == nil {
-		newData.CaloriesToday = calories
-	}
-	if caloriesWeek, err := p.fetchCalories(ctx, startOfWeek, now); err == nil {
-		newData.CaloriesWeek = caloriesWeek
-	}
-
-	if minutes, count, lastWorkout, err := p.fetchWorkouts(ctx, startOfWeek, now); err == nil {
-		newData.WorkoutMinutesWeek = minutes
-		newData.WorkoutCountWeek = count
-		newData.LastWorkout = lastWorkout
-	}
-
-	yesterday := startOfDay.AddDate(0, 0, -1)
-	if sleepHours, err := p.fetchSleep(ctx, yesterday, startOfDay); err == nil {
-		newData.SleepHoursLastNight = sleepHours
-	}
-	if sleepAvg, err := p.fetchSleepAverage(ctx, startOfWeek, now); err == nil {
-		newData.SleepAvgWeek = sleepAvg
-	}
-
-	if avgHR, restingHR, err := p.fetchHeartRate(ctx, startOfDay, now); err == nil {
-		newData.AvgHeartRate = avgHR
-		newData.RestingHeartRate = restingHR
-	}
-
-	if hydration, err := p.fetchHydration(ctx, startOfDay, now); err == nil {
-		newData.HydrationToday = hydration
-	}
-
-	if distance, err := p.fetchDistance(ctx, startOfDay, now); err == nil {
-		newData.DistanceToday = distance
-	}
-	if distanceWeek, err := p.fetchDistance(ctx, startOfWeek, now); err == nil {
-		newData.DistanceWeek = distanceWeek
-	}
-
-	p.mutex.Lock()
-	p.healthData = newData
-	p.lastUpdate = time.Now()
-	p.mutex.Unlock()
-
-	p.broadcastUpdate(newData)
-
 	return nil
-}
-
-func (p *HealthPlugin) ensureAuthenticated(ctx context.Context) error {
-	p.mutex.RLock()
-	tokenValid := p.token != "" && time.Now().Before(p.tokenExpiry.Add(-5*time.Minute))
-	p.mutex.RUnlock()
-
-	if tokenValid {
-		return nil
-	}
-
-	p.mutex.RLock()
-	hasRefreshToken := p.refreshToken != ""
-	p.mutex.RUnlock()
-
-	if hasRefreshToken {
-		if err := p.refreshAuth(ctx); err == nil {
-			return nil
-		}
-	}
-
-	return p.login(ctx)
-}
-
-func (p *HealthPlugin) login(ctx context.Context) error {
-	loginURL := fmt.Sprintf("%s/api/v2/login", strings.TrimRight(p.baseURL, "/"))
-
-	payload := map[string]string{
-		"username": p.username,
-		"password": p.password,
-	}
-	body, _ := json.Marshal(payload)
-
-	req, err := http.NewRequestWithContext(ctx, "POST", loginURL, bytes.NewReader(body))
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := p.httpClient.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		bodyBytes, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("login failed with status %d: %s", resp.StatusCode, string(bodyBytes))
-	}
-
-	var loginResp HCGatewayLoginResponse
-	if err := json.NewDecoder(resp.Body).Decode(&loginResp); err != nil {
-		return fmt.Errorf("failed to decode login response: %w", err)
-	}
-
-	p.mutex.Lock()
-	p.token = loginResp.Token
-	p.refreshToken = loginResp.Refresh
-	p.tokenExpiry = loginResp.Expiry.Time
-	p.mutex.Unlock()
-
-	return nil
-}
-
-func (p *HealthPlugin) refreshAuth(ctx context.Context) error {
-	refreshURL := fmt.Sprintf("%s/api/v2/refresh", strings.TrimRight(p.baseURL, "/"))
-
-	p.mutex.RLock()
-	refreshToken := p.refreshToken
-	p.mutex.RUnlock()
-
-	payload := map[string]string{"refresh": refreshToken}
-	body, _ := json.Marshal(payload)
-
-	req, err := http.NewRequestWithContext(ctx, "POST", refreshURL, bytes.NewReader(body))
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := p.httpClient.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("refresh failed with status %d", resp.StatusCode)
-	}
-
-	var refreshResp HCGatewayLoginResponse
-	if err := json.NewDecoder(resp.Body).Decode(&refreshResp); err != nil {
-		return err
-	}
-
-	p.mutex.Lock()
-	p.token = refreshResp.Token
-	p.refreshToken = refreshResp.Refresh
-	p.tokenExpiry = refreshResp.Expiry.Time
-	p.mutex.Unlock()
-
-	return nil
-}
-
-func (p *HealthPlugin) fetchData(ctx context.Context, method string, startTime, endTime time.Time) ([]HCGatewayRecord, error) {
-	fetchURL := fmt.Sprintf("%s/api/v2/fetch/%s", strings.TrimRight(p.baseURL, "/"), method)
-
-	query := map[string]interface{}{
-		"queries": map[string]interface{}{
-			"start": map[string]interface{}{
-				"$gte": startTime.Format(time.RFC3339),
-				"$lte": endTime.Format(time.RFC3339),
-			},
-		},
-	}
-	body, _ := json.Marshal(query)
-
-	req, err := http.NewRequestWithContext(ctx, "POST", fetchURL, bytes.NewReader(body))
-	if err != nil {
-		return nil, err
-	}
-
-	p.mutex.RLock()
-	token := p.token
-	p.mutex.RUnlock()
-
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+token)
-
-	resp, err := p.httpClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		bodyBytes, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("fetch %s failed: %d - %s", method, resp.StatusCode, string(bodyBytes))
-	}
-
-	var records []HCGatewayRecord
-	if err := json.NewDecoder(resp.Body).Decode(&records); err != nil {
-		return nil, err
-	}
-
-	return records, nil
-}
-
-func (p *HealthPlugin) fetchSteps(ctx context.Context, start, end time.Time) (int64, error) {
-	records, err := p.fetchData(ctx, "steps", start, end)
-	if err != nil {
-		return 0, err
-	}
-
-	var total int64
-	for _, r := range records {
-		if count, ok := r.Data["count"].(float64); ok {
-			total += int64(count)
-		}
-	}
-	return total, nil
-}
-
-func (p *HealthPlugin) fetchCalories(ctx context.Context, start, end time.Time) (float64, error) {
-	records, err := p.fetchData(ctx, "activeCaloriesBurned", start, end)
-	if err != nil {
-		return 0, err
-	}
-
-	var total float64
-	for _, r := range records {
-		if energy, ok := r.Data["energy"].(map[string]interface{}); ok {
-			if kcal, ok := energy["inKilocalories"].(float64); ok {
-				total += kcal
-			}
-		}
-	}
-	return total, nil
-}
-
-func (p *HealthPlugin) fetchWorkouts(ctx context.Context, start, end time.Time) (int64, int, *WorkoutInfo, error) {
-	records, err := p.fetchData(ctx, "exerciseSession", start, end)
-	if err != nil {
-		return 0, 0, nil, err
-	}
-
-	var totalMinutes int64
-	var lastWorkout *WorkoutInfo
-
-	for _, r := range records {
-		if r.End != nil {
-			duration := r.End.Time.Sub(r.Start.Time)
-			totalMinutes += int64(duration.Minutes())
-		}
-
-		exerciseType := "Workout"
-		if t, ok := r.Data["exerciseType"].(string); ok {
-			exerciseType = formatExerciseType(t)
-		}
-
-		if lastWorkout == nil || r.Start.Time.After(lastWorkout.Date) {
-			var calories float64
-			if energy, ok := r.Data["energy"].(map[string]interface{}); ok {
-				if kcal, ok := energy["inKilocalories"].(float64); ok {
-					calories = kcal
-				}
-			}
-
-			duration := int64(0)
-			if r.End != nil {
-				duration = int64(r.End.Time.Sub(r.Start.Time).Minutes())
-			}
-
-			lastWorkout = &WorkoutInfo{
-				Type:     exerciseType,
-				Duration: duration,
-				Calories: calories,
-				Date:     r.Start.Time,
-			}
-		}
-	}
-
-	return totalMinutes, len(records), lastWorkout, nil
-}
-
-func (p *HealthPlugin) fetchSleep(ctx context.Context, start, end time.Time) (float64, error) {
-	records, err := p.fetchData(ctx, "sleepSession", start, end)
-	if err != nil {
-		return 0, err
-	}
-
-	var totalHours float64
-	for _, r := range records {
-		if r.End != nil {
-			duration := r.End.Time.Sub(r.Start.Time)
-			totalHours += duration.Hours()
-		}
-	}
-	return totalHours, nil
-}
-
-func (p *HealthPlugin) fetchSleepAverage(ctx context.Context, start, end time.Time) (float64, error) {
-	records, err := p.fetchData(ctx, "sleepSession", start, end)
-	if err != nil {
-		return 0, err
-	}
-
-	if len(records) == 0 {
-		return 0, nil
-	}
-
-	var totalHours float64
-	for _, r := range records {
-		if r.End != nil {
-			duration := r.End.Time.Sub(r.Start.Time)
-			totalHours += duration.Hours()
-		}
-	}
-	return totalHours / float64(len(records)), nil
-}
-
-func (p *HealthPlugin) fetchHeartRate(ctx context.Context, start, end time.Time) (int, int, error) {
-	records, err := p.fetchData(ctx, "heartRate", start, end)
-	if err != nil {
-		return 0, 0, err
-	}
-
-	if len(records) == 0 {
-		return 0, 0, nil
-	}
-
-	var total, count int
-	var minHR int = 999
-	for _, r := range records {
-		if bpm, ok := r.Data["beatsPerMinute"].(float64); ok {
-			total += int(bpm)
-			count++
-			if int(bpm) < minHR && int(bpm) > 40 {
-				minHR = int(bpm)
-			}
-		}
-	}
-
-	avgHR := 0
-	if count > 0 {
-		avgHR = total / count
-	}
-
-	restingRecords, err := p.fetchData(ctx, "restingHeartRate", start, end)
-	restingHR := minHR
-	if err == nil && len(restingRecords) > 0 {
-		for _, r := range restingRecords {
-			if bpm, ok := r.Data["beatsPerMinute"].(float64); ok {
-				restingHR = int(bpm)
-				break
-			}
-		}
-	}
-
-	if restingHR == 999 {
-		restingHR = 0
-	}
-
-	return avgHR, restingHR, nil
-}
-
-func (p *HealthPlugin) fetchHydration(ctx context.Context, start, end time.Time) (float64, error) {
-	records, err := p.fetchData(ctx, "hydration", start, end)
-	if err != nil {
-		return 0, err
-	}
-
-	var total float64
-	for _, r := range records {
-		if volume, ok := r.Data["volume"].(map[string]interface{}); ok {
-			if ml, ok := volume["inMilliliters"].(float64); ok {
-				total += ml
-			}
-		}
-	}
-	return total, nil
-}
-
-func (p *HealthPlugin) fetchDistance(ctx context.Context, start, end time.Time) (float64, error) {
-	records, err := p.fetchData(ctx, "distance", start, end)
-	if err != nil {
-		return 0, err
-	}
-
-	var total float64
-	for _, r := range records {
-		if distance, ok := r.Data["distance"].(map[string]interface{}); ok {
-			if meters, ok := distance["inMeters"].(float64); ok {
-				total += meters
-			}
-		}
-	}
-	return total / 1000, nil
-}
-
-func (p *HealthPlugin) broadcastUpdate(data *HealthData) {
-	p.hub.Broadcast("health_update", map[string]interface{}{
-		"steps_today":        data.StepsToday,
-		"steps_week":         data.StepsWeek,
-		"calories_today":     data.CaloriesToday,
-		"calories_week":      data.CaloriesWeek,
-		"workout_minutes":    data.WorkoutMinutesWeek,
-		"workout_count":      data.WorkoutCountWeek,
-		"avg_heart_rate":     data.AvgHeartRate,
-		"resting_heart_rate": data.RestingHeartRate,
-		"sleep_last_night":   data.SleepHoursLastNight,
-		"sleep_avg":          data.SleepAvgWeek,
-		"hydration_today":    data.HydrationToday,
-		"distance_today":     data.DistanceToday,
-		"distance_week":      data.DistanceWeek,
-		"timestamp":          time.Now().Unix(),
-	})
 }
 
 func (p *HealthPlugin) GetSettings() map[string]interface{} {
@@ -822,12 +931,6 @@ func (p *HealthPlugin) SetSettings(settings map[string]interface{}) error {
 	if err := p.storage.SetPluginConfig(p.Name(), config); err != nil {
 		return err
 	}
-
-	p.mutex.Lock()
-	p.token = ""
-	p.refreshToken = ""
-	p.tokenExpiry = time.Time{}
-	p.mutex.Unlock()
 
 	p.hub.Broadcast("plugin_update", map[string]interface{}{
 		"plugin": p.Name(),
@@ -846,10 +949,11 @@ func (p *HealthPlugin) RenderText(ctx context.Context) (string, error) {
 		return "Health: No data available", nil
 	}
 
-	return fmt.Sprintf("Health: %s steps, %.0f cal burned, %.1fh sleep",
+	return fmt.Sprintf("Health: %s steps, %.0f cal, %.1fh sleep, %d bpm",
 		formatNumberCommas(data.StepsToday),
 		data.CaloriesToday,
-		data.SleepHoursLastNight), nil
+		data.SleepHoursLastNight,
+		data.CurrentHeartRate), nil
 }
 
 func (p *HealthPlugin) formatTimeAgo(t time.Time) string {
@@ -904,19 +1008,17 @@ func (p *HealthPlugin) getConfigBool(settings map[string]interface{}, key string
 	return defaultValue
 }
 
-func formatNumberCommas(n int64) string {
-	str := fmt.Sprintf("%d", n)
-	if len(str) <= 3 {
-		return str
-	}
-	var result []rune
-	for i, r := range str {
-		if i > 0 && (len(str)-i)%3 == 0 {
-			result = append(result, ',')
-		}
-		result = append(result, r)
-	}
-	return string(result)
+func (p *HealthPlugin) GetCurrentHeartRate() int {
+	p.mutex.RLock()
+	defer p.mutex.RUnlock()
+	return p.healthData.CurrentHeartRate
+}
+
+func (p *HealthPlugin) GetHealthData() *HealthData {
+	p.mutex.RLock()
+	defer p.mutex.RUnlock()
+	dataCopy := *p.healthData
+	return &dataCopy
 }
 
 func formatExerciseType(t string) string {
@@ -935,5 +1037,31 @@ func formatExerciseType(t string) string {
 	}
 	t = strings.TrimPrefix(t, "EXERCISE_TYPE_")
 	t = strings.ReplaceAll(t, "_", " ")
-	return strings.Title(strings.ToLower(t))
+	words := strings.Fields(strings.ToLower(t))
+	for i, word := range words {
+		if len(word) > 0 {
+			words[i] = strings.ToUpper(string(word[0])) + word[1:]
+		}
+	}
+	return strings.Join(words, " ")
+}
+func formatNumberCommas(n int64) string {
+	str := fmt.Sprintf("%d", n)
+	if len(str) <= 3 {
+		return str
+	}
+	var result []rune
+	for i, r := range str {
+		if i > 0 && (len(str)-i)%3 == 0 {
+			result = append(result, ',')
+		}
+		result = append(result, r)
+	}
+	return string(result)
+}
+
+func (p *HealthPlugin) PersistNow() {
+	p.mutex.Lock()
+	defer p.mutex.Unlock()
+	p.persistData()
 }

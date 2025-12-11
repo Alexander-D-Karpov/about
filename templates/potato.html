@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta content="width=device-width, initial-scale=1" name="viewport">
+    <title>{{ .Title }} - Lite Mode</title>
+    <meta This about content="{{ .Description | default " is literally me name="description" site
+    " }}">
+    <link href="/favicon.ico" rel="icon" type="image/x-icon">
+    <link href="/static/bundle.css?v={{ .CSSHash }}" rel="stylesheet">
+</head>
+<body class="potato-mode">
+<div class="container">
+    <section class="mosaic">
+        {{ range .Plugins }}
+        {{ . }}
+        {{ end }}
+    </section>
+</div>
+
+<div class="status-bar">
+    <span class="status-indicator" id="connection-status"></span>
+    <span id="status-text">Connecting...</span>
+    <span class="status-separator">•</span>
+    <button class="potato-toggle active" id="potato-toggle" onclick="togglePotatoMode()" title="Switch to Full Mode">
+        🥔
+    </button>
+</div>
+
+<script defer src="/static/bundle.js?v={{ .JSHash }}"></script>
+</body>
+</html>

@@ -11,12 +11,10 @@
     <meta name="robots" content="index,follow,max-snippet:-1,max-image-preview:large,max-video-preview:-1">
     <meta name="google" content="notranslate">
     <meta name="robots" content="noai, noimageai">
-
     <meta name="referrer" content="strict-origin-when-cross-origin">
-
     <meta name="color-scheme" content="dark light">
     <meta name="theme-color" media="(prefers-color-scheme: light)" content="#ffffff">
-    <meta name="theme-color" media="(prefers-color-scheme: dark)"  content="#0d1117">
+    <meta content="#0d1117" media="(prefers-color-scheme: dark)" name="theme-color">
 
     <meta property="og:type" content="website">
     <meta property="og:site_name" content="sanspie">
@@ -41,25 +39,7 @@
     <link rel="apple-touch-icon" sizes="180x180" href="/favicon.png">
     <link rel="mask-icon" href="/favicon.png" color="#0d1117">
 
-    <link rel="stylesheet" href="/static/css/main.css">
-
-    <link rel="stylesheet" href="/static/css/plugin-profile.css">
-    <link rel="stylesheet" href="/static/css/plugin-social.css">
-    <link rel="stylesheet" href="/static/css/plugin-webring.css">
-    <link rel="stylesheet" href="/static/css/plugin-tech.css">
-    <link rel="stylesheet" href="/static/css/plugin-neofetch.css">
-    <link rel="stylesheet" href="/static/css/plugin-lastfm.css">
-    <link rel="stylesheet" href="/static/css/plugin-beatleader.css">
-    <link rel="stylesheet" href="/static/css/plugin-steam.css">
-    <link rel="stylesheet" href="/static/css/plugin-visitors.css">
-    <link rel="stylesheet" href="/static/css/plugin-code.css">
-    <link rel="stylesheet" href="/static/css/plugin-meme.css">
-    <link rel="stylesheet" href="/static/css/plugin-projects.css">
-    <link rel="stylesheet" href="/static/css/plugin-services.css">
-    <link rel="stylesheet" href="/static/css/plugin-info.css">
-    <link href="/static/css/plugin-health.css" rel="stylesheet">
-    <link rel="stylesheet" href="/static/css/plugin-personal.css">
-    <link href="/static/css/plugin-places.css" rel="stylesheet">
+    <link href="/static/bundle.css?v={{ .CSSHash }}" rel="stylesheet">
 
     <script type="application/ld+json">
         {
@@ -86,17 +66,13 @@
 <div class="status-bar">
     <span class="status-indicator" id="connection-status"></span>
     <span id="status-text">Connecting...</span>
+    <span class="status-separator">•</span>
+    <button class="potato-toggle" id="potato-toggle" onclick="togglePotatoMode()" title="Toggle Lite Mode">
+        🥔
+    </button>
 </div>
 
-<!-- Order matters: core WM first, then interactions/plugins -->
-<script src="/static/js/websocket.js" defer></script>
-<script src="/static/js/windowManager.js" defer></script>
-<script src="/static/js/interactions.js" defer></script>
-<script src="/static/js/music-player.js" defer></script>
-<script src="/static/js/plugins.js" defer></script>
-<script src="/static/js/greetings.js" defer></script>
-<script defer src="/static/js/places-map.js"></script>
-
+<script defer src="/static/bundle.js?v={{ .JSHash }}"></script>
 <script>
     function refreshMeme() {
         const refreshBtns = document.querySelectorAll('.meme-refresh-btn');

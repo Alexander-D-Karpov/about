@@ -80,7 +80,7 @@
         'services-section': 2,
         'places-section': 2,
         'profile-section': 2,
-        'health-section': 2,
+        'health-section': 1,
         'personal-section': 2,
     };
 

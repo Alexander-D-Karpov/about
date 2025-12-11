@@ -16,6 +16,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/Alexander-D-Karpov/about/internal/assets"
 	"github.com/gorilla/mux"
 	"github.com/joho/godotenv"
 
@@ -69,7 +70,14 @@ func main() {
 
 	go startBackgroundTasks(store, pluginManager)
 
+	bundler := assets.NewBundler(staticFiles)
+	bundler.Build()
+
 	r := mux.NewRouter()
+
+	bundleHandler := handlers.NewBundleHandler(bundler)
+	r.Handle("/static/bundle.css", bundleHandler)
+	r.Handle("/static/bundle.js", bundleHandler)
 
 	staticHandler := http.FileServer(http.FS(staticFiles))
 	r.PathPrefix("/static/").Handler(disableDirectoryListing(addCacheHeaders(staticHandler)))
@@ -86,11 +94,14 @@ func main() {
 
 	r.HandleFunc("/upload", handlers.NewUploadHandler(cfg).ServeHTTP).Methods("POST")
 
-	mainHandler := handlers.NewMainHandler(pluginManager, cfg, templateFiles)
+	mainHandler := handlers.NewMainHandler(pluginManager, cfg, templateFiles, bundler)
 	r.HandleFunc("/", mainHandler.ServeHTTP).Methods("GET")
 
 	wsHandler := handlers.NewWebSocketHandler(hub)
 	r.HandleFunc("/ws", wsHandler.ServeHTTP)
+
+	potatoHandler := handlers.NewPotatoHandler()
+	r.Handle("/api/potato", potatoHandler)
 
 	r.HandleFunc("/api/meme/refresh", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
@@ -174,6 +185,14 @@ func main() {
 
 	adminHandler := admin.NewHandler(store, pluginManager, cfg, templateFiles, staticFiles)
 	r.PathPrefix("/admin").Handler(adminHandler)
+
+	healthPlugin, healthExists := pluginManager.GetPlugin("health")
+	if healthExists {
+		if hp, ok := healthPlugin.(*plugins.HealthPlugin); ok {
+			r.HandleFunc("/api/health/sync/{type}", hp.HandleSync).Methods("POST")
+			r.HandleFunc("/api/health/status", hp.HandleStatus).Methods("GET")
+		}
+	}
 
 	log.Printf("Server starting on port %s", cfg.Port)
 	log.Printf("Admin panel available at /admin (user: %s)", cfg.AdminUser)
@@ -500,6 +519,82 @@ func startBackgroundTasks(store *storage.Storage, pm *plugins.Manager) {
 					if m.Alloc > 100*1024*1024 {
 						log.Printf("WARNING: High memory usage: %d MB", m.Alloc/1024/1024)
 						runtime.GC()
+					}
+				}()
+			}
+		}
+	}()
+
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("Heartrate broadcast task panic recovered: %v", r)
+				time.Sleep(30 * time.Second)
+				if pm != nil {
+					go startBackgroundTasks(store, pm)
+				}
+			}
+		}()
+
+		hrTicker := time.NewTicker(5 * time.Minute)
+		dailyResetTicker := time.NewTicker(1 * time.Hour)
+		persistTicker := time.NewTicker(10 * time.Minute)
+		defer hrTicker.Stop()
+		defer dailyResetTicker.Stop()
+		defer persistTicker.Stop()
+
+		var lastResetDay int
+
+		for {
+			select {
+			case <-quit:
+				return
+			case <-hrTicker.C:
+				go func() {
+					defer func() {
+						if r := recover(); r != nil {
+							log.Printf("Heartrate broadcast panic recovered: %v", r)
+						}
+					}()
+
+					if healthPlugin, exists := pm.GetPlugin("health"); exists {
+						if hp, ok := healthPlugin.(*plugins.HealthPlugin); ok {
+							hp.BroadcastHeartRate()
+						}
+					}
+				}()
+
+			case <-dailyResetTicker.C:
+				go func() {
+					defer func() {
+						if r := recover(); r != nil {
+							log.Printf("Daily reset panic recovered: %v", r)
+						}
+					}()
+
+					now := time.Now()
+					if now.Day() != lastResetDay && now.Hour() == 0 {
+						if healthPlugin, exists := pm.GetPlugin("health"); exists {
+							if hp, ok := healthPlugin.(*plugins.HealthPlugin); ok {
+								hp.ResetDailyData()
+								lastResetDay = now.Day()
+								log.Println("Health daily data reset completed")
+							}
+						}
+					}
+				}()
+			case <-persistTicker.C:
+				go func() {
+					defer func() {
+						if r := recover(); r != nil {
+							log.Printf("Health persist panic recovered: %v", r)
+						}
+					}()
+
+					if healthPlugin, exists := pm.GetPlugin("health"); exists {
+						if hp, ok := healthPlugin.(*plugins.HealthPlugin); ok {
+							hp.PersistNow()
+						}
 					}
 				}()
 			}

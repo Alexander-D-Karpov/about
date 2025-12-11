@@ -12,14 +12,17 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/Alexander-D-Karpov/about/internal/assets"
 	"github.com/Alexander-D-Karpov/about/internal/config"
 	"github.com/Alexander-D-Karpov/about/internal/plugins"
 )
 
 type MainHandler struct {
-	pluginManager *plugins.Manager
-	config        *config.Config
-	template      *template.Template
+	pluginManager  *plugins.Manager
+	config         *config.Config
+	template       *template.Template
+	potatoTemplate *template.Template
+	bundler        *assets.Bundler
 }
 
 type TemplateData struct {
@@ -29,25 +32,38 @@ type TemplateData struct {
 	OGTitle       string
 	OGDescription string
 	OGImage       string
+	PotatoMode    bool
+	CSSHash       string
+	JSHash        string
 	Plugins       []template.HTML
 }
 
-func NewMainHandler(pluginManager *plugins.Manager, config *config.Config, templateFiles embed.FS) *MainHandler {
+func NewMainHandler(pluginManager *plugins.Manager, cfg *config.Config, templateFiles embed.FS, bundler *assets.Bundler) *MainHandler {
 	funcs := template.FuncMap{
-		"default": defaultFunc, // {{ .Field | default "fallback" }}
+		"default": defaultFunc,
 	}
 
 	tmpl, err := template.New("main.html").
 		Funcs(funcs).
 		ParseFS(templateFiles, "templates/main.html")
 	if err != nil {
-		log.Fatalf("Error loading template: %v", err)
+		log.Fatalf("Error loading main template: %v", err)
+	}
+
+	potatoTmpl, err := template.New("potato.html").
+		Funcs(funcs).
+		ParseFS(templateFiles, "templates/potato.html")
+	if err != nil {
+		log.Printf("Warning: potato template not found, using main template: %v", err)
+		potatoTmpl = tmpl
 	}
 
 	return &MainHandler{
-		pluginManager: pluginManager,
-		config:        config,
-		template:      tmpl,
+		pluginManager:  pluginManager,
+		config:         cfg,
+		template:       tmpl,
+		potatoTemplate: potatoTmpl,
+		bundler:        bundler,
 	}
 }
 
@@ -97,6 +113,8 @@ func (h *MainHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	potatoMode := IsPotatoMode(r)
+
 	type renderResult struct {
 		plugins []template.HTML
 		err     error
@@ -106,9 +124,9 @@ func (h *MainHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	go func() {
 		defer func() {
-			if r := recover(); r != nil {
-				log.Printf("Plugin rendering panic: %v", r)
-				done <- renderResult{nil, fmt.Errorf("rendering failed: %v", r)}
+			if rec := recover(); rec != nil {
+				log.Printf("Plugin rendering panic: %v", rec)
+				done <- renderResult{nil, fmt.Errorf("rendering failed: %v", rec)}
 			}
 		}()
 
@@ -129,23 +147,7 @@ func (h *MainHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	case <-mainCtx.Done():
 		log.Printf("Main handler timeout - rendering taking too long")
-
-		// Try to serve a minimal page
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
-		w.WriteHeader(http.StatusServiceUnavailable)
-
-		minimalHTML := `<!DOCTYPE html>
-<html><head><title>Loading...</title></head>
-<body>
-<div style="text-align:center;padding:50px;">
-<h1>Site Loading</h1>
-<p>The page is currently loading. Please refresh in a moment.</p>
-<script>setTimeout(() => location.reload(), 3000);</script>
-</div>
-</body></html>`
-
-		w.Write([]byte(minimalHTML))
+		h.serveMinimalPage(w)
 		return
 
 	case <-r.Context().Done():
@@ -153,23 +155,38 @@ func (h *MainHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var cssHash, jsHash string
+	if potatoMode {
+		_, cssHash = h.bundler.PotatoCSSBundle()
+		_, jsHash = h.bundler.PotatoJSBundle()
+	} else {
+		_, cssHash = h.bundler.CSSBundle()
+		_, jsHash = h.bundler.JSBundle()
+	}
+
 	data := TemplateData{
-		Title:         "sanspie",
-		Description:   "WebDev & DevSecOps",
-		Canonical:     "",
-		OGTitle:       "sanspie",
-		OGDescription: "",
-		OGImage:       "",
-		Plugins:       renderedPlugins,
+		Title:       "sanspie",
+		Description: "WebDev & DevSecOps",
+		PotatoMode:  potatoMode,
+		CSSHash:     cssHash,
+		JSHash:      jsHash,
+		Plugins:     renderedPlugins,
 	}
 
 	var buf bytes.Buffer
 	templateCtx, templateCancel := context.WithTimeout(mainCtx, 1*time.Second)
 	defer templateCancel()
 
+	var tmpl *template.Template
+	if potatoMode {
+		tmpl = h.potatoTemplate
+	} else {
+		tmpl = h.template
+	}
+
 	templateDone := make(chan error, 1)
 	go func() {
-		templateDone <- h.template.Execute(&buf, data)
+		templateDone <- tmpl.Execute(&buf, data)
 	}()
 
 	select {
@@ -195,6 +212,22 @@ func (h *MainHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	_, _ = buf.WriteTo(w)
 }
 
+func (h *MainHandler) serveMinimalPage(w http.ResponseWriter) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+	w.WriteHeader(http.StatusServiceUnavailable)
+
+	minimalHTML := `<!DOCTYPE html>
+<html><head><title>Loading...</title>
+<style>body{font-family:system-ui;background:#0a0a0a;color:#e0e0e0;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0}
+.c{text-align:center;padding:40px}.s{width:40px;height:40px;border:3px solid #333;border-top-color:#6a9fff;border-radius:50%;animation:s 1s linear infinite;margin:0 auto 20px}
+@keyframes s{to{transform:rotate(360deg)}}</style></head>
+<body><div class="c"><div class="s"></div><h1>Loading...</h1><p>Please wait or refresh in a moment.</p></div>
+<script>setTimeout(()=>location.reload(),3000)</script></body></html>`
+
+	w.Write([]byte(minimalHTML))
+}
+
 func (h *MainHandler) renderTextResponse(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
@@ -212,7 +245,7 @@ func (h *MainHandler) renderTextResponse(w http.ResponseWriter, r *http.Request)
 	systemSummary := h.pluginManager.GetSystemTextSummary()
 
 	width := 63
-	innerWidth := width - 4 // Account for "│ " and " │"
+	innerWidth := width - 4
 	headerText := "sanspie - About Page"
 	centeredHeader := centerText(headerText, innerWidth)
 
@@ -290,7 +323,6 @@ func wrapText(text string, width int) []string {
 				lines = append(lines, currentLine)
 			}
 			currentLine = word
-			// Handle case where single word is longer than width
 			if utf8.RuneCountInString(currentLine) > width {
 				runes := []rune(currentLine)
 				lines = append(lines, string(runes[:width-3])+"...")
@@ -308,7 +340,8 @@ func wrapText(text string, width int) []string {
 
 func getClientIP(r *http.Request) string {
 	if forwarded := r.Header.Get("X-Forwarded-For"); forwarded != "" {
-		return forwarded
+		parts := strings.Split(forwarded, ",")
+		return strings.TrimSpace(parts[0])
 	}
 	if realIP := r.Header.Get("X-Real-IP"); realIP != "" {
 		return realIP
