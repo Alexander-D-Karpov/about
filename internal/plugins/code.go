@@ -702,6 +702,15 @@ func (p *CodePlugin) updateWakatimeData(apiKey string) error {
 		return err
 	}
 
+	if len(weekData.Data.Languages) == 0 && weekData.Data.TotalSeconds == 0 && p.wakatimeData != nil {
+		p.hub.Broadcast("wakatime_update", map[string]interface{}{
+			"week_hours": p.wakatimeData.LastWeek.Seconds / 3600,
+			"total_text": p.wakatimeData.TotalTime.Text,
+			"languages":  len(p.wakatimeData.Languages),
+		})
+		return nil
+	}
+
 	weekHours := weekData.Data.TotalSeconds / 3600
 	weekTimeText := fmt.Sprintf("%.1f hrs", weekHours)
 

@@ -67,6 +67,8 @@
         if (isPotatoMode()) return;
         if (document.querySelector('.potato-suggestion')) return;
 
+        return; // disable suggestion banner for now
+
         const banner = document.createElement('div');
         banner.className = 'potato-suggestion';
         banner.style.cssText = `

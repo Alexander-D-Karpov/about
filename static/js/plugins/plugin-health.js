@@ -101,8 +101,11 @@
 
         function beat() {
             heartbeatElement.classList.remove('beating');
-            void heartbeatElement.offsetWidth;
-            heartbeatElement.classList.add('beating');
+            requestAnimationFrame(() => {
+                requestAnimationFrame(() => {
+                    heartbeatElement.classList.add('beating');
+                });
+            });
         }
 
         beat();

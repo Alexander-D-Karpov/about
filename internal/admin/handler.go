@@ -175,7 +175,17 @@ func (h *Handler) dashboard(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) filterInternalSettings(settings map[string]interface{}) map[string]interface{} {
-	internalKeys := []string{"imageCache"}
+	internalKeys := []string{
+		"imageCache",
+		"current_data",
+		"daily_averages",
+		"sleep_records",
+		"last_persist",
+		"last_reset_date",
+		"last_workout",
+		"cachedCubes",
+		"lastCubesCalculated",
+	}
 
 	result := make(map[string]interface{})
 	for key, value := range settings {

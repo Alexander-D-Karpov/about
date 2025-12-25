@@ -23,6 +23,14 @@
 
         if (!container || !dataEl) return;
 
+        // Force container dimensions for potato mode
+        if (document.body.classList.contains('potato-mode')) {
+            container.style.height = '280px';
+            container.style.minHeight = '280px';
+            container.style.display = 'block';
+        }
+
+
         try {
             places = JSON.parse(dataEl.textContent || '[]');
             config = JSON.parse(configEl?.textContent || '{}');
