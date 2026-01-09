@@ -5,7 +5,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 	"sync"
+	"time"
 )
 
 type Storage struct {
@@ -40,7 +43,7 @@ func (s *Storage) Load() error {
 	if _, err := os.Stat(configFile); os.IsNotExist(err) {
 		s.data = s.getDefaultConfig()
 		s.applyEnvOverrides()
-		return s.saveToFile()
+		return s.saveToFileAtomic()
 	}
 
 	data, err := os.ReadFile(configFile)
@@ -48,20 +51,80 @@ func (s *Storage) Load() error {
 		return err
 	}
 
-	if err := json.Unmarshal(data, &s.data); err != nil {
+	if len(data) == 0 {
+		fmt.Printf("[Storage] WARNING: config.json is empty, attempting recovery from backup\n")
+		if recovered := s.recoverFromBackup(); recovered {
+			return nil
+		}
 		s.data = s.getDefaultConfig()
 		s.applyEnvOverrides()
-		return s.saveToFile()
+		return s.saveToFileAtomic()
+	}
+
+	if err := json.Unmarshal(data, &s.data); err != nil {
+		fmt.Printf("[Storage] WARNING: config.json is corrupted: %v, attempting recovery\n", err)
+		if recovered := s.recoverFromBackup(); recovered {
+			return nil
+		}
+		s.data = s.getDefaultConfig()
+		s.applyEnvOverrides()
+		return s.saveToFileAtomic()
 	}
 
 	s.applyEnvOverrides()
 	return nil
 }
 
+func (s *Storage) recoverFromBackup() bool {
+	backupDir := filepath.Join(s.dataPath, "backups")
+
+	entries, err := os.ReadDir(backupDir)
+	if err != nil {
+		return false
+	}
+
+	var backupFiles []string
+	for _, entry := range entries {
+		if !entry.IsDir() && strings.HasPrefix(entry.Name(), "config_") && strings.HasSuffix(entry.Name(), ".json") {
+			backupFiles = append(backupFiles, entry.Name())
+		}
+	}
+
+	sort.Sort(sort.Reverse(sort.StringSlice(backupFiles)))
+
+	for _, backupFile := range backupFiles {
+		backupPath := filepath.Join(backupDir, backupFile)
+		data, err := os.ReadFile(backupPath)
+		if err != nil {
+			continue
+		}
+
+		if len(data) == 0 {
+			continue
+		}
+
+		var testData map[string]interface{}
+		if err := json.Unmarshal(data, &testData); err != nil {
+			continue
+		}
+
+		s.data = testData
+		fmt.Printf("[Storage] Successfully recovered from backup: %s\n", backupFile)
+
+		if err := s.saveToFileAtomic(); err != nil {
+			fmt.Printf("[Storage] WARNING: Failed to save recovered config: %v\n", err)
+		}
+
+		return true
+	}
+
+	return false
+}
+
 func (s *Storage) Save() error {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
-	return s.saveToFile()
+	return s.saveToFileAtomic()
 }
 
 func (s *Storage) SetPluginConfig(pluginName string, config *PluginConfig) error {
@@ -80,20 +143,199 @@ func (s *Storage) SetPluginConfig(pluginName string, config *PluginConfig) error
 		"settings": config.Settings,
 	}
 
-	if err := s.saveToFile(); err != nil {
+	if err := s.saveToFileAtomic(); err != nil {
 		return fmt.Errorf("failed to save plugin config to file: %w", err)
+	}
+
+	go s.createDailyBackup()
+
+	return nil
+}
+
+func (s *Storage) saveToFileAtomic() error {
+	configFile := filepath.Join(s.dataPath, "config.json")
+	tempFile := configFile + ".tmp"
+
+	data, err := json.MarshalIndent(s.data, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal config: %w", err)
+	}
+
+	f, err := os.OpenFile(tempFile, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
+	if err != nil {
+		return fmt.Errorf("failed to create temp file: %w", err)
+	}
+
+	if _, err := f.Write(data); err != nil {
+		f.Close()
+		os.Remove(tempFile)
+		return fmt.Errorf("failed to write temp file: %w", err)
+	}
+
+	if err := f.Sync(); err != nil {
+		f.Close()
+		os.Remove(tempFile)
+		return fmt.Errorf("failed to sync temp file: %w", err)
+	}
+
+	if err := f.Close(); err != nil {
+		os.Remove(tempFile)
+		return fmt.Errorf("failed to close temp file: %w", err)
+	}
+
+	if err := os.Rename(tempFile, configFile); err != nil {
+		os.Remove(tempFile)
+		return fmt.Errorf("failed to rename temp file: %w", err)
+	}
+
+	dir, err := os.Open(s.dataPath)
+	if err == nil {
+		dir.Sync()
+		dir.Close()
 	}
 
 	return nil
 }
 
-func (s *Storage) saveToFile() error {
-	configFile := filepath.Join(s.dataPath, "config.json")
-	data, err := json.MarshalIndent(s.data, "", "  ")
-	if err != nil {
-		return err
+func (s *Storage) createDailyBackup() {
+	s.mutex.RLock()
+	dataCopy := make(map[string]interface{})
+	for k, v := range s.data {
+		dataCopy[k] = v
 	}
-	return os.WriteFile(configFile, data, 0644)
+	s.mutex.RUnlock()
+
+	backupDir := filepath.Join(s.dataPath, "backups")
+	if err := os.MkdirAll(backupDir, 0755); err != nil {
+		fmt.Printf("[Storage] Failed to create backup directory: %v\n", err)
+		return
+	}
+
+	today := time.Now().Format("2006-01-02")
+	backupFile := filepath.Join(backupDir, fmt.Sprintf("config_%s.json", today))
+	tempFile := backupFile + ".tmp"
+
+	data, err := json.MarshalIndent(dataCopy, "", "  ")
+	if err != nil {
+		fmt.Printf("[Storage] Failed to marshal backup data: %v\n", err)
+		return
+	}
+
+	f, err := os.OpenFile(tempFile, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
+	if err != nil {
+		fmt.Printf("[Storage] Failed to create backup temp file: %v\n", err)
+		return
+	}
+
+	if _, err := f.Write(data); err != nil {
+		f.Close()
+		os.Remove(tempFile)
+		fmt.Printf("[Storage] Failed to write backup: %v\n", err)
+		return
+	}
+
+	if err := f.Sync(); err != nil {
+		f.Close()
+		os.Remove(tempFile)
+		fmt.Printf("[Storage] Failed to sync backup: %v\n", err)
+		return
+	}
+
+	if err := f.Close(); err != nil {
+		os.Remove(tempFile)
+		fmt.Printf("[Storage] Failed to close backup file: %v\n", err)
+		return
+	}
+
+	if err := os.Rename(tempFile, backupFile); err != nil {
+		os.Remove(tempFile)
+		fmt.Printf("[Storage] Failed to finalize backup: %v\n", err)
+		return
+	}
+
+	s.cleanupOldBackups(backupDir, 7)
+}
+
+func (s *Storage) cleanupOldBackups(backupDir string, keepDays int) {
+	entries, err := os.ReadDir(backupDir)
+	if err != nil {
+		return
+	}
+
+	var backupFiles []string
+	for _, entry := range entries {
+		if !entry.IsDir() && strings.HasPrefix(entry.Name(), "config_") && strings.HasSuffix(entry.Name(), ".json") {
+			backupFiles = append(backupFiles, entry.Name())
+		}
+	}
+
+	sort.Sort(sort.Reverse(sort.StringSlice(backupFiles)))
+
+	for i, file := range backupFiles {
+		if i >= keepDays {
+			filePath := filepath.Join(backupDir, file)
+			if err := os.Remove(filePath); err != nil {
+				fmt.Printf("[Storage] Failed to remove old backup %s: %v\n", file, err)
+			} else {
+				fmt.Printf("[Storage] Removed old backup: %s\n", file)
+			}
+		}
+	}
+}
+
+func (s *Storage) CreateBackup() error {
+	s.mutex.RLock()
+	dataCopy := make(map[string]interface{})
+	for k, v := range s.data {
+		dataCopy[k] = v
+	}
+	s.mutex.RUnlock()
+
+	backupDir := filepath.Join(s.dataPath, "backups")
+	if err := os.MkdirAll(backupDir, 0755); err != nil {
+		return fmt.Errorf("failed to create backup directory: %w", err)
+	}
+
+	today := time.Now().Format("2006-01-02")
+	backupFile := filepath.Join(backupDir, fmt.Sprintf("config_%s.json", today))
+	tempFile := backupFile + ".tmp"
+
+	data, err := json.MarshalIndent(dataCopy, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal backup data: %w", err)
+	}
+
+	f, err := os.OpenFile(tempFile, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
+	if err != nil {
+		return fmt.Errorf("failed to create backup file: %w", err)
+	}
+
+	if _, err := f.Write(data); err != nil {
+		f.Close()
+		os.Remove(tempFile)
+		return fmt.Errorf("failed to write backup: %w", err)
+	}
+
+	if err := f.Sync(); err != nil {
+		f.Close()
+		os.Remove(tempFile)
+		return fmt.Errorf("failed to sync backup: %w", err)
+	}
+
+	if err := f.Close(); err != nil {
+		os.Remove(tempFile)
+		return fmt.Errorf("failed to close backup file: %w", err)
+	}
+
+	if err := os.Rename(tempFile, backupFile); err != nil {
+		os.Remove(tempFile)
+		return fmt.Errorf("failed to finalize backup: %w", err)
+	}
+
+	s.cleanupOldBackups(backupDir, 7)
+
+	fmt.Printf("[Storage] Backup created: config_%s.json\n", today)
+	return nil
 }
 
 func (s *Storage) GetPluginConfig(pluginName string) *PluginConfig {
@@ -129,29 +371,6 @@ func (s *Storage) GetPluginConfig(pluginName string) *PluginConfig {
 	}
 
 	return config
-}
-
-func (s *Storage) CreateBackup() error {
-	s.mutex.RLock()
-	defer s.mutex.RUnlock()
-
-	backupDir := filepath.Join(s.dataPath, "backups")
-	if err := os.MkdirAll(backupDir, 0755); err != nil {
-		return err
-	}
-
-	oldBackup := filepath.Join(backupDir, "config.json.bak")
-	_ = os.Remove(oldBackup)
-
-	configFile := filepath.Join(s.dataPath, "config.json")
-	backupFile := filepath.Join(backupDir, "config.json.bak")
-
-	data, err := os.ReadFile(configFile)
-	if err != nil {
-		return err
-	}
-
-	return os.WriteFile(backupFile, data, 0644)
 }
 
 func (s *Storage) getDefaultConfig() map[string]interface{} {

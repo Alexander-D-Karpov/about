@@ -40,6 +40,11 @@
                 el.querySelector('.plugin__inner').prepend(header);
             }
         }
+
+        el.style.height = 'auto';
+        el.style.gridColumn = '';
+        el.style.gridRowStart = '';
+        el.style.gridRowEnd = '';
     });
 
     window.mosaicUtils = {
@@ -53,4 +58,7 @@
         },
         getMosaic: () => mosaic
     };
+
+    document.documentElement.classList.remove('js-loading');
+    document.documentElement.classList.add('js-loaded');
 })();

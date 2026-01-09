@@ -121,11 +121,16 @@
     let _scrollLockY = 0;
     let initialLoadComplete = false;
     let userHasScrolled = false;
+    let lastScrollY = 0;
+    let isNearBottom = false;
+    let lastMosaicHeight = 0;
+    let packingInProgress = false;
 
     on(window, 'scroll', () => {
         if (!userHasScrolled && window.scrollY > 10) {
             userHasScrolled = true;
         }
+        lastScrollY = window.scrollY;
     }, {passive: true});
 
     function lockBodyScroll() {
@@ -208,6 +213,8 @@
         });
     }
 
+    // In windowManager.js, update the alignBottoms function to add a gap buffer
+
     function alignBottoms(placements, cols) {
         const colEndRows = new Array(cols).fill(0);
         placements.sort((a, b) => a.row - b.row || a.col - b.col);
@@ -217,6 +224,10 @@
             }
         });
         const globalBottom = Math.max(...colEndRows);
+
+        const maxExtension = 100;
+        const GAP_BUFFER = 12; // Add buffer to prevent overlap
+
         placements.forEach((p) => {
             let nextRowInCols = Infinity;
             for (const other of placements) {
@@ -225,9 +236,14 @@
                 if (!overlap) continue;
                 if (other.row > p.row) nextRowInCols = Math.min(nextRowInCols, other.row);
             }
-            const targetEnd = nextRowInCols !== Infinity ? nextRowInCols : globalBottom;
+            // Subtract gap buffer to prevent touching
+            const targetEnd = nextRowInCols !== Infinity ? nextRowInCols - GAP_BUFFER : globalBottom;
             const desiredSpan = targetEnd - p.row;
-            if (desiredSpan > p.rowSpan) p.rowSpan = desiredSpan;
+
+            const maxAllowedSpan = p.rowSpan + maxExtension;
+            if (desiredSpan > p.rowSpan && desiredSpan <= maxAllowedSpan) {
+                p.rowSpan = desiredSpan;
+            }
         });
     }
 
@@ -235,6 +251,14 @@
         clampSpansToCols();
         const cols = colCount();
         if (expanded) return;
+        if (packingInProgress) return;
+
+        packingInProgress = true;
+
+        const scrollY = window.scrollY;
+        const viewportHeight = window.innerHeight;
+        const docHeight = document.documentElement.scrollHeight;
+        isNearBottom = (scrollY + viewportHeight) >= (docHeight - 100);
 
         const items = $$('.plugin', mosaic);
         const style = getComputedStyle(mosaic);
@@ -292,7 +316,10 @@
         });
 
         expandHorizontally(placements, cols);
-        alignBottoms(placements, cols);
+
+        if (!isNearBottom) {
+            alignBottoms(placements, cols);
+        }
 
         const spansOut = {};
         placements.forEach((p) => {
@@ -304,12 +331,18 @@
             p.el.style.gridRowStart = String(p.row + 1);
             p.el.style.gridRowEnd = `span ${p.rowSpan}`;
 
-            const targetHeight = Math.max(p.height, (p.rowSpan * ROW_HEIGHT) - gap);
+            // Use the original height, don't expand to fill row span
+            const targetHeight = p.height;
             p.el.style.height = `${Math.max(0, targetHeight)}px`;
             spansOut[p.el.id] = p.rowSpan;
         });
 
         localStorage.setItem(spansStoreKey, JSON.stringify(spansOut));
+
+        const newMosaicHeight = mosaic.scrollHeight;
+
+        packingInProgress = false;
+        lastMosaicHeight = newMosaicHeight;
     }
 
     let packScheduled = false;
@@ -318,8 +351,18 @@
         if (document.hidden) return;
         if (expanded) return;
         if (packScheduled) return;
+        if (packingInProgress) return;
 
         if (!force && !initialLoadComplete && userHasScrolled) return;
+
+        const scrollY = window.scrollY;
+        const viewportHeight = window.innerHeight;
+        const docHeight = document.documentElement.scrollHeight;
+        const nearBottom = (scrollY + viewportHeight) >= (docHeight - 100);
+
+        if (!force && nearBottom && initialLoadComplete) {
+            return;
+        }
 
         packScheduled = true;
 
@@ -330,7 +373,7 @@
         });
     }
 
-    const debouncedPack = debounce(() => packAll(false), 100);
+    const debouncedPack = debounce(() => packAll(false), 150);
 
     function fullRepack() {
         clampSpansToCols();
@@ -830,24 +873,81 @@
     }
 
     let resizeTimeout = null;
-    const ro = new ResizeObserver(() => {
+    let lastObservedHeights = new Map();
+
+    const ro = new ResizeObserver((entries) => {
         if (!initialLoadComplete) return;
+        if (expanded) return;
+        if (packingInProgress) return;
+
+        let hasSignificantChange = false;
+        for (const entry of entries) {
+            const el = entry.target;
+            const newHeight = entry.contentRect.height;
+            const lastHeight = lastObservedHeights.get(el) || 0;
+
+            if (Math.abs(newHeight - lastHeight) > 10) {
+                hasSignificantChange = true;
+                lastObservedHeights.set(el, newHeight);
+            }
+        }
+
+        if (!hasSignificantChange) return;
+
+        const scrollY = window.scrollY;
+        const viewportHeight = window.innerHeight;
+        const docHeight = document.documentElement.scrollHeight;
+        if ((scrollY + viewportHeight) >= (docHeight - 100)) {
+            return;
+        }
+
         clearTimeout(resizeTimeout);
-        resizeTimeout = setTimeout(() => packAll(false), 80);
+        resizeTimeout = setTimeout(() => packAll(false), 120);
     });
 
     $$('.plugin', mosaic).forEach((n) => ro.observe(n, {box: 'border-box'}));
 
-    const mo = new MutationObserver(debounce(() => {
+    const mo = new MutationObserver((mutations) => {
         if (!initialLoadComplete) return;
-        packAll(false);
-    }, 150));
+        if (expanded) return;
+        if (packingInProgress) return;
+
+        const significantMutation = mutations.some(m => {
+            if (m.type === 'attributes' && m.attributeName === 'style') {
+                return false;
+            }
+            if (m.type === 'attributes' && m.attributeName === 'class') {
+                const target = m.target;
+                if (target.classList && target.classList.contains('plugin')) {
+                    return false;
+                }
+            }
+            if (m.type === 'childList' && m.target === mosaic) {
+                return true;
+            }
+            if (m.type === 'attributes' && (m.attributeName === 'src' || m.attributeName === 'srcset')) {
+                return true;
+            }
+            return false;
+        });
+
+        if (!significantMutation) return;
+
+        const scrollY = window.scrollY;
+        const viewportHeight = window.innerHeight;
+        const docHeight = document.documentElement.scrollHeight;
+        if ((scrollY + viewportHeight) >= (docHeight - 100)) {
+            return;
+        }
+
+        debouncedPack();
+    });
 
     mo.observe(mosaic, {
         childList: true,
         subtree: true,
         attributes: true,
-        attributeFilter: ['src', 'srcset', 'class'],
+        attributeFilter: ['src', 'srcset'],
     });
 
     function restorePreferredWidths(maxCols = colCount()) {
@@ -859,11 +959,16 @@
 
     let lastCols = colCount();
     on(window, 'resize', throttle(() => {
+        if (packingInProgress) return;
+
         const nextCols = colCount();
         clampSpansToCols();
         if (nextCols > lastCols) restorePreferredWidths(nextCols);
         lastCols = nextCols;
+
+        const scrollY = window.scrollY;
         fullRepack();
+        window.scrollTo(0, scrollY);
     }, 200));
 
     on(document, 'visibilitychange', () => {

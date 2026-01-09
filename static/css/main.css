@@ -302,6 +302,8 @@ img {
     min-height: 120px;
     height: auto;
     align-self: start;
+    overflow: hidden; /* Prevent content from bleeding out */
+    contain: layout style; /* Improve rendering isolation */
 }
 
 .plugin:hover {

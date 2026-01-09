@@ -114,15 +114,13 @@ func (p *ServicesPlugin) Render(ctx context.Context) (string, error) {
 							<span class="service-title">{{.Name}}</span>
 						{{end}}
 						{{if $.ShowStatus}}
-						<span class="service-statuschip status-{{.Status}}" title="{{.StatusText}}{{if .ResponseTime}} • {{.ResponseTime}}ms{{end}}">
+						<span class="service-statuschip">
 							<span class="status-dot {{if eq .Status "online"}}status-online{{else if eq .Status "offline"}}status-offline{{end}}" aria-hidden="true"></span>
-							<span class="sr-only">{{.StatusText}}</span>
 							<span class="status-label">{{.StatusText}}</span>
 						</span>
 						{{end}}
 					</div>
 				</div>
-
 
 				{{if .Description}}
 				<p class="service-description">{{.Description}}</p>
@@ -130,15 +128,13 @@ func (p *ServicesPlugin) Render(ctx context.Context) (string, error) {
 
 				<div class="service-stats">
 					{{if and $.ShowResponseTime .ResponseTime}}
-						<span class="chip chip-rt" title="Response time">{{.ResponseTime}}ms</span>
-					{{else if eq .Status "unknown"}}
-						<span class="chip chip-skeleton" title="Waiting for first check…">—</span>
+						<span class="chip chip-rt">{{.ResponseTime}}ms</span>
 					{{end}}
 					{{if .StatusCode}}
-						<span class="chip chip-code" data-code="{{.StatusCode}}" title="HTTP status">{{.StatusCode}}</span>
+						<span class="chip chip-code" data-code="{{.StatusCode}}">{{.StatusCode}}</span>
 					{{end}}
 					{{if .LastCheckedText}}
-						<span class="chip chip-last" title="Last checked">{{.LastCheckedText}}</span>
+						<span class="chip chip-last">{{.LastCheckedText}}</span>
 					{{end}}
 				</div>
 			</article>
@@ -146,15 +142,15 @@ func (p *ServicesPlugin) Render(ctx context.Context) (string, error) {
 		</div>
 
 		<footer class="services-summary" aria-label="Summary">
-			<div class="summary-item" title="Number of online services">
+			<div class="summary-item">
 				<span class="summary-count online-count">{{.OnlineCount}}</span>
 				<span class="summary-label">Online</span>
 			</div>
-			<div class="summary-item" title="Number of offline services">
+			<div class="summary-item">
 				<span class="summary-count offline-count">{{.OfflineCount}}</span>
 				<span class="summary-label">Offline</span>
 			</div>
-			<div class="summary-item" title="Total services">
+			<div class="summary-item">
 				<span class="summary-count total-count">{{.TotalCount}}</span>
 				<span class="summary-label">Total</span>
 			</div>

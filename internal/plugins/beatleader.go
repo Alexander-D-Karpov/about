@@ -920,12 +920,20 @@ func (p *BeatLeaderPlugin) fetchScoresPage(username string, page int, count int)
 func (p *BeatLeaderPlugin) generateCubesImage() error {
 	p.cubesMutex.RLock()
 	cubes := p.cachedCubesSliced
+	lastCalc := p.lastCubesCalculated
 	p.cubesMutex.RUnlock()
 
 	cubesText := formatNumberWithCommas(cubes)
 
 	line1 := "cubes sliced total:"
 	line2 := cubesText
+
+	var actualAt string
+	if lastCalc.IsZero() {
+		actualAt = "calculating..."
+	} else {
+		actualAt = fmt.Sprintf("accurate as of %s", lastCalc.Format("Jan 2, 2006 15:04 UTC"))
+	}
 
 	imgWidth := 1400
 	imgHeight := 500
@@ -936,9 +944,9 @@ func (p *BeatLeaderPlugin) generateCubesImage() error {
 	draw.Draw(img, img.Bounds(), &image.Uniform{black}, image.Point{}, draw.Src)
 
 	white := color.RGBA{255, 255, 255, 255}
+	gray := color.RGBA{128, 128, 128, 255}
 
 	fontSize := 64.0
-	lineSpacing := 30
 
 	face, err := loadMinecraftFont(fontSize)
 	if err != nil {
@@ -946,6 +954,14 @@ func (p *BeatLeaderPlugin) generateCubesImage() error {
 		return p.generateCubesImageFallback()
 	}
 	defer face.Close()
+
+	smallFace, err := loadMinecraftFont(24.0)
+	if err != nil {
+		log.Printf("BeatLeader: Failed to load small font: %v", err)
+		smallFace = face
+	} else {
+		defer smallFace.Close()
+	}
 
 	d := &font.Drawer{
 		Dst:  img,
@@ -965,9 +981,10 @@ func (p *BeatLeaderPlugin) generateCubesImage() error {
 	ascent := metrics.Ascent.Ceil()
 	descent := metrics.Descent.Ceil()
 	lineHeight := ascent + descent
+	lineSpacing := 30
 
 	totalHeight := lineHeight*2 + lineSpacing
-	startY := (imgHeight-totalHeight)/2 + ascent
+	startY := (imgHeight-totalHeight)/2 + ascent - 20
 
 	d.Dot = fixed.Point26_6{
 		X: fixed.I(line1X),
@@ -980,6 +997,23 @@ func (p *BeatLeaderPlugin) generateCubesImage() error {
 		Y: fixed.I(startY + lineHeight + lineSpacing),
 	}
 	d.DrawString(line2)
+
+	dSmall := &font.Drawer{
+		Dst:  img,
+		Src:  image.NewUniform(gray),
+		Face: smallFace,
+	}
+
+	smallBounds, _ := dSmall.BoundString(actualAt)
+	smallWidth := (smallBounds.Max.X - smallBounds.Min.X).Ceil()
+	smallX := (imgWidth - smallWidth) / 2
+	smallY := imgHeight - 30
+
+	dSmall.Dot = fixed.Point26_6{
+		X: fixed.I(smallX),
+		Y: fixed.I(smallY),
+	}
+	dSmall.DrawString(actualAt)
 
 	imagePath := filepath.Join(p.mediaPath, "bs.jpg")
 

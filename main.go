@@ -259,7 +259,7 @@ func startBackgroundTasks(store *storage.Storage, pm *plugins.Manager) {
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
-				log.Printf("Daily backup task panic recovered: %v", r)
+				log.Printf("Backup task panic recovered: %v", r)
 				time.Sleep(30 * time.Second)
 				if pm != nil {
 					go startBackgroundTasks(store, pm)
@@ -267,7 +267,13 @@ func startBackgroundTasks(store *storage.Storage, pm *plugins.Manager) {
 			}
 		}()
 
-		ticker := time.NewTicker(24 * time.Hour)
+		if err := store.CreateBackup(); err != nil {
+			log.Printf("Initial backup failed: %v", err)
+		} else {
+			log.Println("Initial backup completed successfully")
+		}
+
+		ticker := time.NewTicker(1 * time.Hour)
 		defer ticker.Stop()
 
 		for {
@@ -283,9 +289,9 @@ func startBackgroundTasks(store *storage.Storage, pm *plugins.Manager) {
 					}()
 
 					if err := store.CreateBackup(); err != nil {
-						log.Printf("Backup failed: %v", err)
+						log.Printf("Hourly backup failed: %v", err)
 					} else {
-						log.Println("Daily backup completed successfully")
+						log.Println("Hourly backup completed successfully")
 					}
 				}()
 			}
@@ -391,7 +397,6 @@ func startBackgroundTasks(store *storage.Storage, pm *plugins.Manager) {
 						defer cancel()
 
 						if err := infoPlugin.UpdateData(ctx); err != nil {
-							// Don't log info plugin errors as they're not critical
 						}
 					}
 				}()
@@ -430,7 +435,6 @@ func startBackgroundTasks(store *storage.Storage, pm *plugins.Manager) {
 						defer cancel()
 
 						if err := visitors.UpdateData(ctx); err != nil {
-							// Don't log visitors timeout errors as they're handled in the plugin
 						}
 					}
 				}()

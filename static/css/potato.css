@@ -15,9 +15,9 @@ body.potato-mode {
     --edge-1: rgba(255, 255, 255, .12);
     --edge-2: rgba(255, 255, 255, .18);
     --shadow: none;
-    --radius: 4px;
-    --radius-lg: 6px;
-    --gap: 8px;
+    --radius: 6px;
+    --radius-lg: 8px;
+    --gap: 12px;
     --col-min: 280px;
 }
 
@@ -38,7 +38,7 @@ body.potato-mode {
 }
 
 body.potato-mode .container {
-    max-width: 1600px;
+    max-width: 1400px;
     margin: 0 auto;
     padding: 16px;
 }
@@ -54,52 +54,62 @@ body.potato-mode [class$="-section"] {
     background: var(--paper);
     border: 1px solid var(--edge-1);
     border-radius: var(--radius);
-    margin-bottom: var(--gap);
     width: 100%;
     overflow: hidden;
+    height: auto !important;
+    min-height: 0 !important;
+    grid-column: auto !important;
+    grid-row: auto !important;
+    grid-row-start: auto !important;
+    grid-row-end: auto !important;
+    position: relative !important;
 }
 
-body.potato-mode .plugin[data-w="2"],
-body.potato-mode .plugin[data-w="3"] {
-    width: 100%;
-}
-
-@media (min-width: 700px) {
+@media (min-width: 768px) {
     body.potato-mode .mosaic {
         display: grid;
         grid-template-columns: repeat(2, 1fr);
         grid-auto-rows: auto;
+        grid-auto-flow: row dense;
+        align-items: start;
+    }
+
+    body.potato-mode .plugin {
+        align-self: start;
     }
 
     body.potato-mode .plugin[data-w="2"],
-    body.potato-mode .plugin[data-w="3"] {
-        grid-column: span 2;
+    body.potato-mode .plugin[data-w="3"],
+    body.potato-mode .projects-section,
+    body.potato-mode .services-section {
+        grid-column: span 2 !important;
     }
 }
 
-@media (min-width: 1100px) {
+@media (min-width: 1200px) {
     body.potato-mode .mosaic {
         grid-template-columns: repeat(3, 1fr);
     }
 
     body.potato-mode .plugin[data-w="2"] {
-        grid-column: span 2;
+        grid-column: span 2 !important;
     }
 
-    body.potato-mode .plugin[data-w="3"] {
-        grid-column: span 3;
+    body.potato-mode .plugin[data-w="3"],
+    body.potato-mode .projects-section {
+        grid-column: span 3 !important;
     }
 }
 
 body.potato-mode .plugin__inner,
 body.potato-mode [class$="-section"] > .plugin__inner {
-    padding: 12px;
+    padding: 14px;
 }
 
 body.potato-mode .plugin-header {
     display: flex;
     align-items: center;
-    padding: 10px 12px;
+    padding: 10px 14px;
     background: var(--bg-2);
     border-bottom: 1px solid var(--edge-0);
     border-radius: 0;
@@ -108,31 +118,30 @@ body.potato-mode .plugin-header {
 
 body.potato-mode .plugin-title {
     margin: 0;
-    font-size: 13px;
-    font-weight: 600;
+    font-size: 12px;
+    font-weight: 700;
     color: var(--ink-2);
     text-transform: uppercase;
     letter-spacing: 0.5px;
 }
 
 body.potato-mode .plugin-toolbar {
-    display: none;
+    display: none !important;
 }
 
 body.potato-mode .drag-handle {
     cursor: default;
 }
 
-body.potato-mode .plugin-overlay,
+body.potato-mode .plugin-overlay {
+    display: none !important;
+}
+
 body.potato-mode .plugin--expanded {
-    position: static !important;
+    position: relative !important;
     width: 100% !important;
     max-height: none !important;
     overflow: visible !important;
-}
-
-body.potato-mode .plugin-overlay {
-    display: none !important;
 }
 
 body.potato-mode .btn,
@@ -173,7 +182,6 @@ body.potato-mode .profile-section {
     background: var(--paper);
     border: 1px solid var(--edge-1);
     padding: 16px;
-    margin-bottom: var(--gap);
 }
 
 body.potato-mode .profile-content {
@@ -183,36 +191,36 @@ body.potato-mode .profile-content {
 }
 
 body.potato-mode .profile-image img {
-    width: 80px;
-    height: 80px;
+    width: 72px;
+    height: 72px;
     border-radius: var(--radius);
 }
 
 body.potato-mode .profile-name {
     margin: 0 0 4px;
-    font-size: 24px;
+    font-size: 22px;
 }
 
 body.potato-mode .tech-grid {
     display: flex;
     flex-wrap: wrap;
-    gap: 8px;
+    gap: 6px;
 }
 
 body.potato-mode .tech-item {
-    width: 40px;
-    height: 40px;
+    width: 36px;
+    height: 36px;
     display: flex;
     align-items: center;
     justify-content: center;
-    background: var(--bg-3);
+    background: transparent;
     border: 1px solid var(--edge-0);
     border-radius: var(--radius);
 }
 
 body.potato-mode .tech-item img {
-    width: 24px;
-    height: 24px;
+    width: 22px;
+    height: 22px;
 }
 
 body.potato-mode .tech-item .tech-name {
@@ -222,16 +230,16 @@ body.potato-mode .tech-item .tech-name {
 body.potato-mode .social-links {
     display: flex;
     flex-wrap: wrap;
-    gap: 8px;
+    gap: 6px;
 }
 
 body.potato-mode .social-link {
-    width: 36px;
-    height: 36px;
+    width: 34px;
+    height: 34px;
     display: flex;
     align-items: center;
     justify-content: center;
-    background: var(--bg-3);
+    background: transparent;
     border: 1px solid var(--edge-0);
     border-radius: var(--radius);
 }
@@ -260,12 +268,12 @@ body.potato-mode .time-card {
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    padding: 12px 8px;
-    background: var(--bg-3);
+    padding: 10px 8px;
+    background: transparent;
     border: 1px solid var(--edge-0);
     border-radius: var(--radius);
     text-align: center;
-    min-height: 60px;
+    min-height: 50px;
 }
 
 body.potato-mode .stat-value,
@@ -273,7 +281,7 @@ body.potato-mode .stat-number,
 body.potato-mode .health-card-value,
 body.potato-mode .time-value,
 body.potato-mode .info-value {
-    font-size: 18px;
+    font-size: 16px;
     font-weight: 700;
     color: var(--accent);
     line-height: 1.2;
@@ -287,7 +295,7 @@ body.potato-mode .info-label {
     font-size: 10px;
     color: var(--muted);
     text-transform: uppercase;
-    margin-top: 4px;
+    margin-top: 2px;
     letter-spacing: 0.3px;
     white-space: nowrap;
 }
@@ -298,7 +306,7 @@ body.potato-mode .recent-tracks-list,
 body.potato-mode .repo-list {
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: 6px;
 }
 
 body.potato-mode .map-item,
@@ -306,9 +314,9 @@ body.potato-mode .game-item,
 body.potato-mode .recent-track-item,
 body.potato-mode .repo-item {
     display: flex;
-    gap: 12px;
-    padding: 10px;
-    background: var(--bg-3);
+    gap: 10px;
+    padding: 8px 10px;
+    background: transparent;
     border: 1px solid var(--edge-0);
     border-radius: var(--radius);
 }
@@ -316,8 +324,8 @@ body.potato-mode .repo-item {
 body.potato-mode .map-cover,
 body.potato-mode .game-icon,
 body.potato-mode .recent-track-cover img {
-    width: 50px;
-    height: 50px;
+    width: 44px;
+    height: 44px;
     border-radius: var(--radius);
     object-fit: cover;
 }
@@ -342,46 +350,85 @@ body.potato-mode .terminal-body {
 
 body.potato-mode .neofetch-pre {
     margin: 0;
-    font-size: 11px;
-    line-height: 1.3;
+    font-size: 10px;
+    line-height: 1.25;
     white-space: pre;
+}
+
+body.potato-mode .projects-section {
+    grid-column: 1 / -1 !important;
 }
 
 body.potato-mode .projects-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-    gap: 12px;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 10px;
 }
 
 body.potato-mode .project-card {
-    background: var(--bg-3);
+    background: transparent;
     border: 1px solid var(--edge-0);
     border-radius: var(--radius);
     overflow: hidden;
+    display: flex;
+    flex-direction: column;
 }
 
 body.potato-mode .project-content {
     padding: 12px;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
 }
 
 body.potato-mode .project-title {
+    margin: 0 0 6px;
+    font-size: 14px;
+    font-weight: 700;
+}
+
+body.potato-mode .project-description {
+    font-size: 12px;
+    color: var(--ink-2);
     margin: 0 0 8px;
-    font-size: 16px;
+    flex: 1;
+}
+
+body.potato-mode .project-links {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    margin-bottom: 8px;
+}
+
+body.potato-mode .project-link {
+    padding: 4px 8px;
+    font-size: 11px;
+    background: transparent;
+    border: 1px solid var(--edge-0);
+    border-radius: 4px;
+    color: var(--accent);
+    text-decoration: none;
 }
 
 body.potato-mode .project-tech {
     display: flex;
     flex-wrap: wrap;
     gap: 4px;
-    margin-top: 8px;
+    margin-top: auto;
 }
 
 body.potato-mode .tech-tag {
-    padding: 2px 8px;
-    background: var(--bg-2);
+    padding: 2px 6px;
+    background: transparent;
     border: 1px solid var(--edge-0);
-    border-radius: var(--radius);
-    font-size: 11px;
+    border-radius: 4px;
+    font-size: 10px;
+    color: var(--muted);
+}
+
+body.potato-mode .services-section {
+    grid-column: 1 / -1 !important;
 }
 
 body.potato-mode .services-grid {
@@ -392,20 +439,67 @@ body.potato-mode .services-grid {
 
 body.potato-mode .service-item {
     padding: 10px 12px;
-    background: var(--bg-3);
+    background: transparent;
     border: 1px solid var(--edge-0);
     border-radius: var(--radius);
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
 }
 
 body.potato-mode .service-item::before {
     display: none;
 }
 
+body.potato-mode .service-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+body.potato-mode .service-icon {
+    width: 24px;
+    height: 24px;
+    font-size: 16px;
+    background: transparent;
+    flex-shrink: 0;
+}
+
+body.potato-mode .service-id {
+    flex: 1;
+    min-width: 0;
+}
+
+body.potato-mode .service-title {
+    font-size: 13px;
+    font-weight: 600;
+}
+
+body.potato-mode .service-statuschip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 10px;
+}
+
+body.potato-mode .service-stats {
+    display: flex;
+    gap: 4px;
+    flex-wrap: wrap;
+}
+
+body.potato-mode .chip {
+    font-size: 9px;
+    padding: 2px 4px;
+    background: transparent;
+    border: 1px solid var(--edge-0);
+}
+
 body.potato-mode .services-summary {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
     gap: 8px;
-    margin-top: 12px;
+    margin-top: 10px;
     padding: 0;
     background: none;
     border: none;
@@ -415,8 +509,8 @@ body.potato-mode .summary-item {
     display: flex;
     flex-direction: column;
     align-items: center;
-    padding: 10px;
-    background: var(--bg-3);
+    padding: 8px;
+    background: transparent;
     border: 1px solid var(--edge-0);
     border-radius: var(--radius);
 }
@@ -427,7 +521,7 @@ body.potato-mode .summary-count {
 }
 
 body.potato-mode .summary-label {
-    font-size: 10px;
+    font-size: 9px;
     color: var(--muted);
     text-transform: uppercase;
 }
@@ -441,13 +535,13 @@ body.potato-mode .webring-nav {
 body.potato-mode .webring-prev,
 body.potato-mode .webring-home,
 body.potato-mode .webring-next {
-    padding: 8px 16px;
-    background: var(--bg-3);
+    padding: 8px 14px;
+    background: transparent;
     border: 1px solid var(--edge-1);
     border-radius: var(--radius);
     color: var(--ink);
     text-decoration: none;
-    font-size: 13px;
+    font-size: 12px;
 }
 
 body.potato-mode .webring-home {
@@ -463,8 +557,8 @@ body.potato-mode .places-section {
 body.potato-mode .places-map-container {
     position: relative;
     width: 100%;
-    height: 300px;
-    min-height: 300px;
+    height: 280px;
+    min-height: 280px;
     background: var(--bg-2);
     border: 1px solid var(--edge-1);
     border-radius: var(--radius);
@@ -501,8 +595,8 @@ body.potato-mode .map-loading.hidden {
 
 body.potato-mode .map-controls {
     position: absolute;
-    top: 10px;
-    right: 10px;
+    top: 8px;
+    right: 8px;
     z-index: 1000;
     display: flex;
     flex-direction: column;
@@ -510,8 +604,8 @@ body.potato-mode .map-controls {
 }
 
 body.potato-mode .map-control-btn {
-    width: 32px;
-    height: 32px;
+    width: 28px;
+    height: 28px;
     border-radius: var(--radius);
     border: 1px solid var(--edge-1);
     background: var(--paper);
@@ -538,9 +632,9 @@ body.potato-mode .leaflet-control-zoom a {
     background: var(--paper) !important;
     color: var(--ink) !important;
     border: 1px solid var(--edge-1) !important;
-    width: 30px !important;
-    height: 30px !important;
-    line-height: 30px !important;
+    width: 28px !important;
+    height: 28px !important;
+    line-height: 28px !important;
 }
 
 body.potato-mode .leaflet-popup-content-wrapper {
@@ -566,18 +660,25 @@ body.potato-mode .code-section .collapsible-content {
     opacity: 1 !important;
     visibility: visible !important;
     display: block !important;
-    padding: 14px !important;
-    margin: 12px 0 !important;
+    padding: 12px !important;
+    margin: 10px 0 !important;
+    background: transparent !important;
+    border: 1px solid var(--edge-0) !important;
 }
 
 body.potato-mode .code-section .collapsible-content.collapsed {
     max-height: none !important;
     height: auto !important;
-    padding: 14px !important;
+    padding: 12px !important;
     opacity: 1 !important;
     visibility: visible !important;
     display: block !important;
-    margin: 12px 0 !important;
+    margin: 10px 0 !important;
+}
+
+body.potato-mode .section-toggle {
+    background: transparent;
+    border: 1px solid var(--edge-0);
 }
 
 body.potato-mode .section-toggle .toggle-icon {
@@ -587,12 +688,12 @@ body.potato-mode .section-toggle .toggle-icon {
 body.potato-mode .custom-music-player {
     display: flex;
     align-items: center;
-    gap: 12px;
-    padding: 12px;
-    background: var(--bg-3);
+    gap: 10px;
+    padding: 10px;
+    background: transparent;
     border: 1px solid var(--edge-0);
     border-radius: var(--radius);
-    margin-top: 12px;
+    margin-top: 10px;
 }
 
 body.potato-mode .player-artwork-mini {
@@ -607,8 +708,8 @@ body.potato-mode .player-artwork-mini img {
 }
 
 body.potato-mode .track-cover-large {
-    width: 120px;
-    height: 120px;
+    width: 100px;
+    height: 100px;
     border-radius: var(--radius);
     overflow: hidden;
 }
@@ -648,7 +749,6 @@ body.potato-mode .toast {
     font-size: 13px;
 }
 
-body.potato-mode .visitors-section .plugin__inner,
 body.potato-mode .visitors-stats {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(80px, 1fr));
@@ -660,8 +760,8 @@ body.potato-mode .visitor-stat {
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    padding: 12px 8px;
-    background: var(--bg-3);
+    padding: 10px 6px;
+    background: transparent;
     border: 1px solid var(--edge-0);
     border-radius: var(--radius);
     text-align: center;
@@ -669,7 +769,7 @@ body.potato-mode .visitor-stat {
 }
 
 body.potato-mode .visitor-number {
-    font-size: 18px;
+    font-size: 16px;
     font-weight: 700;
     color: var(--accent);
     line-height: 1.2;
@@ -677,11 +777,11 @@ body.potato-mode .visitor-number {
 }
 
 body.potato-mode .visitor-label {
-    font-size: 10px;
+    font-size: 9px;
     color: var(--muted);
     text-transform: uppercase;
     white-space: nowrap;
-    margin-top: 4px;
+    margin-top: 2px;
 }
 
 body.potato-mode .visitor-uptime {
@@ -689,20 +789,20 @@ body.potato-mode .visitor-uptime {
 }
 
 body.potato-mode .personal-item {
-    background: var(--bg-3);
+    background: transparent;
     border: 1px solid var(--edge-0);
     border-radius: var(--radius);
-    padding: 12px;
+    padding: 10px;
 }
 
 body.potato-mode .personal-title {
-    font-size: 14px;
+    font-size: 13px;
     font-weight: 600;
-    margin-bottom: 8px;
+    margin-bottom: 6px;
 }
 
 body.potato-mode .personal-text {
-    font-size: 13px;
+    font-size: 12px;
     color: var(--ink-2);
 }
 
@@ -721,12 +821,11 @@ body.potato-mode .meme-content img {
 }
 
 body.potato-mode .meme-caption {
-    margin-top: 8px;
-    font-size: 13px;
+    margin-top: 6px;
+    font-size: 12px;
     color: var(--ink-2);
 }
 
-body.potato-mode .plugin-toolbar,
 body.potato-mode .pepe-gif,
 body.potato-mode .replay-indicator {
     display: none;
@@ -741,40 +840,40 @@ body.potato-mode .language-item,
 body.potato-mode .waka-item {
     display: flex;
     align-items: center;
-    gap: 12px;
-    padding: 8px 10px;
-    background: var(--bg-3);
+    gap: 10px;
+    padding: 6px 8px;
+    background: transparent;
     border: 1px solid var(--edge-0);
     border-radius: var(--radius);
 }
 
 body.potato-mode .lang-info,
 body.potato-mode .waka-lang {
-    min-width: 100px;
-    font-size: 12px;
+    min-width: 90px;
+    font-size: 11px;
     font-weight: 600;
 }
 
 body.potato-mode .lang-bar,
 body.potato-mode .waka-bar {
     flex: 1;
-    height: 6px;
+    height: 4px;
     background: var(--bg);
-    border-radius: 3px;
+    border-radius: 2px;
     overflow: hidden;
 }
 
 body.potato-mode .lang-fill,
 body.potato-mode .waka-fill {
     height: 100%;
-    border-radius: 3px;
+    border-radius: 2px;
 }
 
 body.potato-mode .lang-percent,
 body.potato-mode .waka-time {
-    font-size: 11px;
+    font-size: 10px;
     color: var(--muted);
-    min-width: 60px;
+    min-width: 50px;
     text-align: right;
 }
 
@@ -782,22 +881,22 @@ body.potato-mode .language-chart,
 body.potato-mode .wakatime-list {
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    gap: 4px;
 }
 
 body.potato-mode .editor-list {
     display: flex;
     flex-wrap: wrap;
-    gap: 6px;
-    margin-top: 12px;
+    gap: 4px;
+    margin-top: 10px;
 }
 
 body.potato-mode .editor-chip {
-    padding: 4px 8px;
-    background: var(--bg-3);
+    padding: 3px 6px;
+    background: transparent;
     border: 1px solid var(--edge-0);
     border-radius: var(--radius);
-    font-size: 11px;
+    font-size: 10px;
     color: var(--ink-2);
 }
 
@@ -807,14 +906,14 @@ body.potato-mode .repo-content {
 }
 
 body.potato-mode .repo-name {
-    font-size: 13px;
+    font-size: 12px;
     font-weight: 600;
-    margin-bottom: 4px;
+    margin-bottom: 3px;
 }
 
 body.potato-mode .repo-lang-bar {
     display: flex;
-    height: 4px;
+    height: 3px;
     border-radius: 2px;
     overflow: hidden;
     background: var(--bg);
@@ -827,15 +926,49 @@ body.potato-mode .repo-tags {
 
 body.potato-mode .repo-lang,
 body.potato-mode .repo-stars {
-    font-size: 10px;
-    padding: 2px 6px;
+    font-size: 9px;
+    padding: 2px 5px;
     border-radius: var(--radius);
-    background: var(--bg-2);
+    background: transparent;
+    border: 1px solid var(--edge-0);
 }
 
 body.potato-mode .repo-stars {
     background: var(--accent);
     color: #fff;
+    border-color: var(--accent);
+}
+
+body.potato-mode .health-card {
+    flex-direction: row;
+    gap: 10px;
+    padding: 10px;
+    min-height: auto;
+}
+
+body.potato-mode .health-card-icon {
+    width: 28px;
+    height: 28px;
+    min-width: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+body.potato-mode .health-card-content {
+    flex: 1;
+    text-align: left;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+body.potato-mode .health-card-value {
+    font-size: 14px;
+}
+
+body.potato-mode .health-card-label {
+    margin-top: 0;
 }
 
 @media (prefers-color-scheme: light) {
