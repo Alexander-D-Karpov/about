@@ -38,15 +38,20 @@ body.potato-mode {
 }
 
 body.potato-mode .container {
-    max-width: 1400px;
+    max-width: 100%;
+    width: 100%;
     margin: 0 auto;
-    padding: 16px;
+    padding: 16px 24px;
+    box-sizing: border-box;
 }
 
 body.potato-mode .mosaic {
-    display: flex;
-    flex-direction: column;
-    gap: var(--gap);
+    display: grid !important;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)) !important;
+    grid-auto-rows: auto !important;
+    gap: 12px !important;
+    align-items: start !important;
+    width: 100%;
 }
 
 body.potato-mode .plugin,
@@ -54,49 +59,102 @@ body.potato-mode [class$="-section"] {
     background: var(--paper);
     border: 1px solid var(--edge-1);
     border-radius: var(--radius);
-    width: 100%;
-    overflow: hidden;
+    width: 100% !important;
+    overflow: visible !important;
     height: auto !important;
-    min-height: 0 !important;
-    grid-column: auto !important;
-    grid-row: auto !important;
-    grid-row-start: auto !important;
-    grid-row-end: auto !important;
-    position: relative !important;
+    min-height: auto !important;
+    max-height: none !important;
+    position: static !important;
+    transform: none !important;
+    align-self: start !important;
+    box-sizing: border-box;
 }
 
-@media (min-width: 768px) {
-    body.potato-mode .mosaic {
-        display: grid;
-        grid-template-columns: repeat(2, 1fr);
-        grid-auto-rows: auto;
-        grid-auto-flow: row dense;
-        align-items: start;
-    }
+/* Reset all grid positioning from main mode */
+body.potato-mode .plugin[style],
+body.potato-mode .mosaic > * {
+    grid-row-start: auto !important;
+    grid-row-end: auto !important;
+    grid-column-start: auto !important;
+    grid-column-end: auto !important;
+}
 
-    body.potato-mode .plugin {
-        align-self: start;
+body.potato-mode .plugin__inner {
+    padding: 14px;
+    height: auto !important;
+    overflow: visible;
+}
+
+body.potato-mode .profile-section {
+    order: -100;
+    grid-column: 1 / -1 !important;
+}
+
+body.potato-mode .projects-section,
+body.potato-mode .neofetch-section,
+body.potato-mode .code-section,
+body.potato-mode .services-section {
+    grid-column: 1 / -1 !important;
+}
+
+@media (min-width: 900px) {
+    body.potato-mode .mosaic {
+        grid-template-columns: repeat(2, 1fr) !important;
     }
 
     body.potato-mode .plugin[data-w="2"],
-    body.potato-mode .plugin[data-w="3"],
-    body.potato-mode .projects-section,
-    body.potato-mode .services-section {
+    body.potato-mode .lastfm-section,
+    body.potato-mode .beatleader-section,
+    body.potato-mode .steam-section,
+    body.potato-mode .places-section,
+    body.potato-mode .info-section {
         grid-column: span 2 !important;
     }
 }
 
 @media (min-width: 1200px) {
-    body.potato-mode .mosaic {
-        grid-template-columns: repeat(3, 1fr);
+    body.potato-mode .container {
+        padding: 24px 32px;
     }
 
-    body.potato-mode .plugin[data-w="2"] {
+    body.potato-mode .mosaic {
+        grid-template-columns: repeat(3, 1fr) !important;
+    }
+
+    body.potato-mode .plugin[data-w="2"],
+    body.potato-mode .lastfm-section,
+    body.potato-mode .beatleader-section,
+    body.potato-mode .steam-section,
+    body.potato-mode .places-section,
+    body.potato-mode .neofetch-section,
+    body.potato-mode .code-section,
+    body.potato-mode .info-section {
         grid-column: span 2 !important;
     }
 
     body.potato-mode .plugin[data-w="3"],
+    body.potato-mode .projects-section,
+    body.potato-mode .services-section {
+        grid-column: span 3 !important;
+    }
+}
+
+@media (min-width: 1600px) {
+    body.potato-mode .container {
+        max-width: 1800px;
+        padding: 24px 48px;
+    }
+
+    body.potato-mode .mosaic {
+        grid-template-columns: repeat(4, 1fr) !important;
+    }
+
+    body.potato-mode .plugin[data-w="3"],
     body.potato-mode .projects-section {
+        grid-column: span 4 !important;
+    }
+
+    body.potato-mode .services-section {
         grid-column: span 3 !important;
     }
 }

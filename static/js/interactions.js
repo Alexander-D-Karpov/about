@@ -488,7 +488,13 @@
         autoScaleAllNeofetch();
 
         sec.querySelectorAll('.machine-btn').forEach(btn => {
-            btn.addEventListener('click', () => {
+            if (btn.dataset.listenerAttached === '1') return;
+            btn.dataset.listenerAttached = '1';
+
+            btn.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+
                 sec.querySelectorAll('.machine-btn').forEach(b => {
                     b.classList.remove('active');
                     b.removeAttribute('data-active');
@@ -502,7 +508,9 @@
                 if (out) out.style.display = 'block';
 
                 requestAnimationFrame(autoScaleAllNeofetch);
-                setTimeout(() => { window.mosaicUtils && window.mosaicUtils.resizeAll(); }, 50);
+                setTimeout(() => {
+                    if (window.mosaicUtils) window.mosaicUtils.resizeAll();
+                }, 50);
             });
         });
 

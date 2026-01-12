@@ -7,12 +7,18 @@
     const root = $('.container');
     if (!root) return;
 
+    // Remove any inline styles on container
+    root.removeAttribute('style');
+
     let mosaic = $('.mosaic', root);
     if (!mosaic) {
         mosaic = document.createElement('section');
         mosaic.className = 'mosaic';
         root.prepend(mosaic);
     }
+
+    // Remove any inline styles on mosaic
+    mosaic.removeAttribute('style');
 
     const toMove = [...root.children].filter(el => el !== mosaic);
     toMove.forEach(el => {
@@ -41,18 +47,37 @@
             }
         }
 
-        el.style.height = 'auto';
-        el.style.gridColumn = '';
-        el.style.gridRowStart = '';
-        el.style.gridRowEnd = '';
+        // Remove ALL inline styles completely
+        el.removeAttribute('style');
+
+        // Also remove from inner
+        const inner = el.querySelector('.plugin__inner');
+        if (inner) {
+            inner.removeAttribute('style');
+        }
     });
 
+    // Move profile to first position
+    const profile = mosaic.querySelector('.profile-section');
+    if (profile && profile !== mosaic.firstElementChild) {
+        mosaic.insertBefore(profile, mosaic.firstElementChild);
+    }
+
+    // Move projects to last position
+    const projects = mosaic.querySelector('.projects-section');
+    if (projects) {
+        mosaic.appendChild(projects);
+    }
+
+    // Stub out mosaicUtils so other scripts don't error
     window.mosaicUtils = {
         resizeAll: () => {
         },
         fullRepack: () => {
         },
-        expand: () => {
+        expand: (el) => {
+            // Simple expand - just scroll to element
+            if (el) el.scrollIntoView({behavior: 'smooth', block: 'start'});
         },
         collapseExpanded: () => {
         },

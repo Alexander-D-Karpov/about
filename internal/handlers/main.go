@@ -115,6 +115,23 @@ func (h *MainHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	potatoMode := IsPotatoMode(r)
 
+	// Set cookie if potato mode activated via URL param
+	if _, hasParam := r.URL.Query()["potato"]; hasParam {
+		val := r.URL.Query().Get("potato")
+		cookieVal := "1"
+		if val == "0" || val == "false" {
+			cookieVal = "0"
+		}
+		http.SetCookie(w, &http.Cookie{
+			Name:     "potato_mode",
+			Value:    cookieVal,
+			Path:     "/",
+			MaxAge:   365 * 24 * 60 * 60,
+			HttpOnly: false,
+			SameSite: http.SameSiteLaxMode,
+		})
+	}
+
 	type renderResult struct {
 		plugins []template.HTML
 		err     error

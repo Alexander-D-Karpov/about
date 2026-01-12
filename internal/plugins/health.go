@@ -411,7 +411,7 @@ func (p *HealthPlugin) deduplicateSleepRecords() {
 
 func (p *HealthPlugin) recalculateSleep(startOfDay time.Time) {
 	now := time.Now()
-	todayNoon := time.Date(now.Year(), now.Month(), now.Day(), 12, 0, 0, 0, now.Location())
+	todayAfternoon := time.Date(now.Year(), now.Month(), now.Day(), 16, 0, 0, 0, now.Location())
 	yesterdayEvening := time.Date(now.Year(), now.Month(), now.Day()-1, 18, 0, 0, 0, now.Location())
 
 	var totalSleepHours float64
@@ -423,7 +423,7 @@ func (p *HealthPlugin) recalculateSleep(startOfDay time.Time) {
 	for _, sr := range p.sleepRecords {
 		endLocal := sr.EndTime.In(now.Location())
 
-		if endLocal.After(yesterdayEvening) && endLocal.Before(todayNoon) {
+		if endLocal.After(yesterdayEvening) && endLocal.Before(todayAfternoon) {
 			totalSleepHours += sr.Hours
 		}
 

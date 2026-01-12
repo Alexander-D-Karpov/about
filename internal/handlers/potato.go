@@ -54,8 +54,9 @@ func (h *PotatoHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func IsPotatoMode(r *http.Request) bool {
-	if r.URL.Query().Get("potato") == "1" {
-		return true
+	if _, hasParam := r.URL.Query()["potato"]; hasParam {
+		val := r.URL.Query().Get("potato")
+		return val != "0" && val != "false"
 	}
 
 	cookie, err := r.Cookie("potato_mode")
