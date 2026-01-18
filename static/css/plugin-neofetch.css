@@ -112,7 +112,7 @@
     overflow: visible;
     word-wrap: normal;
     overflow-wrap: normal;
-    font-family: 'Cascadia Code', 'Fira Code', 'Consolas', 'Monaco', var(--mono);
+    font-family: 'Cascadia Code', 'Fira Code', 'Consolas', 'Monaco', var(--mono), sans-serif;
     font-size: 13px;
     line-height: 1.4;
     color: #cccccc;
@@ -120,8 +120,8 @@
     transform: scale(var(--neo-scale));
     position: relative;
     z-index: 1;
-    text-shadow: 0 0 1px rgba(204, 204, 204, .3);
 }
+
 
 .color-palette{
     margin-top: 12px;

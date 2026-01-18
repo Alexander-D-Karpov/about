@@ -8,6 +8,7 @@ import (
 	"html/template"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Alexander-D-Karpov/about/internal/storage"
@@ -15,11 +16,13 @@ import (
 )
 
 type CodePlugin struct {
-	storage      *storage.Storage
-	hub          *stream.Hub
-	githubData   *GitHubUserData
-	wakatimeData *WakatimeData
-	lastUpdate   time.Time
+	storage          *storage.Storage
+	hub              *stream.Hub
+	githubData       *GitHubUserData
+	wakatimeData     *WakatimeData
+	allRepoLanguages []LanguageStat
+	lastUpdate       time.Time
+	mutex            sync.RWMutex
 }
 
 type RepoLanguageBreakdown struct {
@@ -112,83 +115,6 @@ func (p *CodePlugin) Name() string {
 	return "code"
 }
 
-func (p *CodePlugin) getLanguageColor(languageName string) string {
-	colors := map[string]string{
-		"Go":           "#00ADD8",
-		"Python":       "#3776ab",
-		"JavaScript":   "#f1e05a",
-		"TypeScript":   "#2b7489",
-		"Java":         "#b07219",
-		"C++":          "#f34b7d",
-		"C":            "#555555",
-		"C#":           "#239120",
-		"Rust":         "#dea584",
-		"HTML":         "#e34c26",
-		"CSS":          "#1572B6",
-		"Shell":        "#89e051",
-		"Bash":         "#89e051",
-		"PHP":          "#4F5D95",
-		"Ruby":         "#701516",
-		"Swift":        "#FA7343",
-		"Kotlin":       "#A97BFF",
-		"Dart":         "#00B4AB",
-		"Vue":          "#4FC08D",
-		"React":        "#61DAFB",
-		"JSON":         "#292929",
-		"XML":          "#0060ac",
-		"YAML":         "#cb171e",
-		"Markdown":     "#083fa1",
-		"SQL":          "#e38c00",
-		"Dockerfile":   "#384d54",
-		"Vim script":   "#199f4b",
-		"Lua":          "#000080",
-		"PowerShell":   "#012456",
-		"Assembly":     "#6E4C13",
-		"SCSS":         "#c6538c",
-		"Less":         "#1d365d",
-		"Sass":         "#a53b70",
-		"Makefile":     "#427819",
-		"CMake":        "#DA3434",
-		"Perl":         "#0298c3",
-		"R":            "#198CE7",
-		"MATLAB":       "#e16737",
-		"Scala":        "#c22d40",
-		"Clojure":      "#db5855",
-		"Elixir":       "#6e4a7e",
-		"Erlang":       "#B83998",
-		"Haskell":      "#5e5086",
-		"F#":           "#b845fc",
-		"OCaml":        "#3be133",
-		"Reason":       "#ff5847",
-		"Elm":          "#60B5CC",
-		"PureScript":   "#1D222D",
-		"CoffeeScript": "#244776",
-		"LiveScript":   "#499886",
-		"Nim":          "#ffc200",
-		"Crystal":      "#000100",
-		"D":            "#ba595e",
-		"Zig":          "#ec915c",
-		"V":            "#4f87c4",
-		"Odin":         "#60AFFE",
-		"Text":         "#383A42",
-		"Plain Text":   "#383A42",
-		"Other":        "#8b949e",
-	}
-
-	if color, exists := colors[languageName]; exists {
-		return color
-	}
-
-	lowerName := strings.ToLower(languageName)
-	for lang, color := range colors {
-		if strings.ToLower(lang) == lowerName {
-			return color
-		}
-	}
-
-	return "#8b949e"
-}
-
 func (p *CodePlugin) Render(ctx context.Context) (string, error) {
 	config := p.storage.GetPluginConfig(p.Name())
 	settings := config.Settings
@@ -197,9 +123,12 @@ func (p *CodePlugin) Render(ctx context.Context) (string, error) {
 	showGitHub := p.getConfigBool(settings, "ui.showGitHub", true)
 	showWakatime := p.getConfigBool(settings, "ui.showWakatime", true)
 	showLanguages := p.getConfigBool(settings, "ui.showLanguages", true)
-	showCommitGraph := p.getConfigBool(settings, "ui.showCommitGraph", true)
 
 	githubUsername := p.getConfigValue(settings, "github.username", "")
+
+	p.mutex.RLock()
+	allRepoLanguages := p.allRepoLanguages
+	p.mutex.RUnlock()
 
 	tmpl := `
 	<div class="code-section section" data-w="2">
@@ -207,6 +136,22 @@ func (p *CodePlugin) Render(ctx context.Context) (string, error) {
 			<h3 class="plugin-title">{{.SectionTitle}}</h3>
 		</div>
 		<div class="plugin__inner">
+			{{if .AllRepoLanguages}}
+			<div class="code-lang-summary">
+				<div class="lang-summary-label">Languages across all repositories</div>
+				<div class="lang-summary-bar">
+					{{range .AllRepoLanguages}}
+					<div class="lang-segment" style="flex: {{printf "%.2f" .Percentage}}; background: {{.Color}};" title="{{.Name}} {{printf "%.1f" .Percentage}}%"></div>
+					{{end}}
+				</div>
+				<div class="lang-summary-legend">
+					{{range .AllRepoLanguages}}
+					<span class="lang-legend-item"><span class="lang-dot" style="background: {{.Color}};"></span>{{.Name}} <span class="lang-pct">{{printf "%.1f" .Percentage}}%</span></span>
+					{{end}}
+				</div>
+			</div>
+			{{end}}
+
 			{{if and .ShowGitHub .GitHubData}}
 			<div class="stats-overview">
 				<div class="stat-card">
@@ -237,31 +182,6 @@ func (p *CodePlugin) Render(ctx context.Context) (string, error) {
 				<div class="time-card">
 					<span class="time-value">{{.WakatimeData.TotalTime.Text}}</span>
 					<span class="time-label">all time</span>
-				</div>
-			</div>
-			{{end}}
-
-			{{if and .ShowLanguages .GitHubData .GitHubData.TopLanguages}}
-			<div class="code-subsection">
-				<button class="section-toggle" data-target="languages" type="button" aria-expanded="false">
-					<span class="toggle-icon">▶</span>
-					<span>Languages</span>
-					<span class="section-count">({{len .GitHubData.TopLanguages}})</span>
-				</button>
-				<div class="collapsible-content collapsed" id="languages">
-					<div class="language-chart">
-						{{range .GitHubData.TopLanguages}}
-						<div class="language-item">
-							<div class="lang-info">
-								<span class="lang-name">{{.Name}}</span>
-								<span class="lang-percent">{{printf "%.1f" .Percentage}}%</span>
-							</div>
-							<div class="lang-bar">
-								<div class="lang-fill" style="width: {{.Percentage}}%; background-color: {{.Color}};"></div>
-							</div>
-						</div>
-						{{end}}
-					</div>
 				</div>
 			</div>
 			{{end}}
@@ -297,6 +217,31 @@ func (p *CodePlugin) Render(ctx context.Context) (string, error) {
 						{{end}}
 					</div>
 					{{end}}
+				</div>
+			</div>
+			{{end}}
+
+			{{if and .ShowLanguages .GitHubData .GitHubData.TopLanguages}}
+			<div class="code-subsection">
+				<button class="section-toggle" data-target="languages" type="button" aria-expanded="false">
+					<span class="toggle-icon">▶</span>
+					<span>Top Languages</span>
+					<span class="section-count">({{len .GitHubData.TopLanguages}})</span>
+				</button>
+				<div class="collapsible-content collapsed" id="languages">
+					<div class="language-chart">
+						{{range .GitHubData.TopLanguages}}
+						<div class="language-item">
+							<div class="lang-info">
+								<span class="lang-name">{{.Name}}</span>
+								<span class="lang-percent">{{printf "%.1f" .Percentage}}%</span>
+							</div>
+							<div class="lang-bar">
+								<div class="lang-fill" style="width: {{.Percentage}}%; background-color: {{.Color}};"></div>
+							</div>
+						</div>
+						{{end}}
+					</div>
 				</div>
 			</div>
 			{{end}}
@@ -350,24 +295,14 @@ func (p *CodePlugin) Render(ctx context.Context) (string, error) {
 		</div>
 	</div>`
 
-	maxWeeklyCommits := 1
-	if p.githubData != nil && len(p.githubData.CommitStats.WeeklyCommits) > 0 {
-		for _, commits := range p.githubData.CommitStats.WeeklyCommits {
-			if commits > maxWeeklyCommits {
-				maxWeeklyCommits = commits
-			}
-		}
-	}
-
 	data := struct {
 		SectionTitle     string
 		ShowGitHub       bool
 		ShowWakatime     bool
 		ShowLanguages    bool
-		ShowCommitGraph  bool
 		GitHubData       *GitHubUserData
 		WakatimeData     *WakatimeData
-		MaxWeeklyCommits int
+		AllRepoLanguages []LanguageStat
 		GitHubUsername   string
 		GetLanguageColor func(string) string
 	}{
@@ -375,12 +310,11 @@ func (p *CodePlugin) Render(ctx context.Context) (string, error) {
 		ShowGitHub:       showGitHub,
 		ShowWakatime:     showWakatime,
 		ShowLanguages:    showLanguages,
-		ShowCommitGraph:  showCommitGraph,
 		GitHubData:       p.githubData,
 		WakatimeData:     p.wakatimeData,
-		MaxWeeklyCommits: maxWeeklyCommits,
+		AllRepoLanguages: allRepoLanguages,
 		GitHubUsername:   githubUsername,
-		GetLanguageColor: p.getLanguageColor,
+		GetLanguageColor: GetLanguageColor,
 	}
 
 	funcMap := template.FuncMap{
@@ -470,6 +404,87 @@ func (p *CodePlugin) UpdateData(ctx context.Context) error {
 	return nil
 }
 
+func (p *CodePlugin) fetchAllRepoLanguages(client *http.Client, username string, repos []GitHubRepo) []LanguageStat {
+	config := p.storage.GetPluginConfig(p.Name())
+	token := p.getConfigValue(config.Settings, "github.token", "")
+
+	allLanguageBytes := make(map[string]int)
+
+	for _, repo := range repos {
+		if repo.LanguagesURL == "" {
+			continue
+		}
+
+		req, err := http.NewRequest("GET", repo.LanguagesURL, nil)
+		if err != nil {
+			continue
+		}
+
+		if token != "" {
+			req.Header.Set("Authorization", "token "+token)
+		}
+		req.Header.Set("User-Agent", "AboutPage/1.0")
+		req.Header.Set("Accept", "application/vnd.github.v3+json")
+
+		resp, err := client.Do(req)
+		if err != nil {
+			continue
+		}
+
+		if resp.StatusCode != 200 {
+			resp.Body.Close()
+			continue
+		}
+
+		var languages map[string]int
+		if err := json.NewDecoder(resp.Body).Decode(&languages); err != nil {
+			resp.Body.Close()
+			continue
+		}
+		resp.Body.Close()
+
+		for lang, bytes := range languages {
+			allLanguageBytes[lang] += bytes
+		}
+
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	totalBytes := 0
+	for _, bytes := range allLanguageBytes {
+		totalBytes += bytes
+	}
+
+	var avgLanguages []LanguageStat
+	if totalBytes > 0 {
+		for lang, bytes := range allLanguageBytes {
+			percentage := float64(bytes) / float64(totalBytes) * 100
+			if percentage >= 0.5 {
+				avgLanguages = append(avgLanguages, LanguageStat{
+					Name:       lang,
+					Percentage: percentage,
+					Color:      GetLanguageColor(lang),
+					Bytes:      bytes,
+				})
+			}
+		}
+
+		for i := 0; i < len(avgLanguages); i++ {
+			for j := i + 1; j < len(avgLanguages); j++ {
+				if avgLanguages[i].Percentage < avgLanguages[j].Percentage {
+					avgLanguages[i], avgLanguages[j] = avgLanguages[j], avgLanguages[i]
+				}
+			}
+		}
+
+		if len(avgLanguages) > 12 {
+			avgLanguages = avgLanguages[:12]
+		}
+	}
+
+	return avgLanguages
+}
+
 func (p *CodePlugin) updateGitHubData(username string) error {
 	client := &http.Client{Timeout: 15 * time.Second}
 	fmt.Println("Updating github info...")
@@ -538,6 +553,8 @@ func (p *CodePlugin) updateGitHubData(username string) error {
 		return fmt.Errorf("failed to decode repos (status %d): %w", resp.StatusCode, err)
 	}
 
+	allRepoLanguages := p.fetchAllRepoLanguages(client, username, repos)
+
 	totalStars := 0
 	languageBytes := make(map[string]int)
 	for _, repo := range repos {
@@ -557,7 +574,7 @@ func (p *CodePlugin) updateGitHubData(username string) error {
 		if totalBytes > 0 {
 			percentage := float64(bytes) / float64(totalBytes) * 100
 			if percentage >= 1.0 {
-				color := p.getLanguageColor(lang)
+				color := GetLanguageColor(lang)
 				topLanguages = append(topLanguages, LanguageStat{
 					Name:       lang,
 					Percentage: percentage,
@@ -620,6 +637,10 @@ func (p *CodePlugin) updateGitHubData(username string) error {
 	userData.CommitStats = commitStats
 
 	p.githubData = &userData
+
+	p.mutex.Lock()
+	p.allRepoLanguages = allRepoLanguages
+	p.mutex.Unlock()
 
 	p.hub.Broadcast("github_update", map[string]interface{}{
 		"repos":     userData.PublicRepos,
@@ -721,7 +742,7 @@ func (p *CodePlugin) updateWakatimeData(apiKey string) error {
 			TotalSeconds: lang.TotalSeconds,
 			Percent:      lang.Percent,
 			Text:         lang.Text,
-			Color:        p.getLanguageColor(lang.Name),
+			Color:        GetLanguageColor(lang.Name),
 		})
 	}
 
@@ -821,6 +842,7 @@ func (p *CodePlugin) getConfigBool(settings map[string]interface{}, key string, 
 
 	return defaultValue
 }
+
 func (p *CodePlugin) RenderText(ctx context.Context) (string, error) {
 	if p.githubData == nil && p.wakatimeData == nil {
 		return "Code: No data available", nil
@@ -888,12 +910,11 @@ func (p *CodePlugin) fetchRepoLanguages(client *http.Client, languagesURL string
 			breakdown = append(breakdown, RepoLanguageBreakdown{
 				Name:       lang,
 				Percentage: percentage,
-				Color:      p.getLanguageColor(lang),
+				Color:      GetLanguageColor(lang),
 			})
 		}
 	}
 
-	// Sort by percentage
 	for i := 0; i < len(breakdown); i++ {
 		for j := i + 1; j < len(breakdown); j++ {
 			if breakdown[i].Percentage < breakdown[j].Percentage {
@@ -912,7 +933,6 @@ func (p *CodePlugin) fetchCommitStats(client *http.Client, username string, repo
 
 	oneWeekAgo := time.Now().AddDate(0, 0, -7)
 
-	// Limit to first 20 repos to avoid rate limiting
 	maxRepos := len(repos)
 	if maxRepos > 20 {
 		maxRepos = 20
@@ -961,7 +981,6 @@ func (p *CodePlugin) fetchCommitStats(client *http.Client, username string, repo
 		}
 		resp.Body.Close()
 
-		// Count commits by day of week
 		for _, commit := range commits {
 			daysSince := int(time.Since(commit.Commit.Author.Date).Hours() / 24)
 			if daysSince >= 0 && daysSince < 7 {
@@ -969,7 +988,6 @@ func (p *CodePlugin) fetchCommitStats(client *http.Client, username string, repo
 			}
 		}
 
-		// Small delay to avoid rate limiting
 		time.Sleep(100 * time.Millisecond)
 	}
 

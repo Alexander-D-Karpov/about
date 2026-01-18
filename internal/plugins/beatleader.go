@@ -420,7 +420,7 @@ func (p *BeatLeaderPlugin) Render(ctx context.Context) (string, error) {
 
 	var processedScores []map[string]interface{}
 	for i, score := range p.recentScores {
-		if i >= 5 {
+		if i >= 10 {
 			break
 		}
 

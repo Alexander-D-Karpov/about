@@ -1,6 +1,8 @@
 (function(){
     'use strict';
 
+    let isShuffling = false;
+
     const $  = (q, c=document) => c.querySelector(q);
     const $$ = (q, c=document) => Array.from(c.querySelectorAll(q));
     const on = (el, ev, fn, opts) => el && el.addEventListener(ev, fn, opts);
@@ -560,6 +562,84 @@
             io.observe(el);
         });
     }
+
+
+    function shufflePlugins() {
+        if (isShuffling) return;
+
+        const mosaic = document.querySelector('.mosaic');
+        if (!mosaic) return;
+
+        const plugins = Array.from(mosaic.querySelectorAll('.plugin'));
+        if (plugins.length < 2) return;
+
+        isShuffling = true;
+
+        const originalPositions = plugins.map(plugin => {
+            const rect = plugin.getBoundingClientRect();
+            return {el: plugin, x: rect.left, y: rect.top};
+        });
+
+        for (let i = plugins.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [plugins[i], plugins[j]] = [plugins[j], plugins[i]];
+        }
+
+        originalPositions.forEach(({el, x, y}) => {
+            const newRect = el.getBoundingClientRect();
+            const deltaX = x - newRect.left;
+            const deltaY = y - newRect.top;
+
+            el.style.transition = 'none';
+            el.style.transform = `translate(${deltaX}px, ${deltaY}px)`;
+        });
+
+        requestAnimationFrame(() => {
+            plugins.forEach(plugin => mosaic.appendChild(plugin));
+
+            requestAnimationFrame(() => {
+                originalPositions.forEach(({el}) => {
+                    el.style.transition = 'transform 0.6s cubic-bezier(0.34, 1.56, 0.64, 1)';
+                    el.style.transform = '';
+                });
+
+                setTimeout(() => {
+                    originalPositions.forEach(({el}) => {
+                        el.style.transition = '';
+                    });
+
+                    if (window.mosaicUtils) {
+                        window.mosaicUtils.resizeAll();
+                    }
+
+                    isShuffling = false;
+                }, 700);
+            });
+        });
+    }
+
+    function initEasterEgg() {
+        const statusIndicator = document.getElementById('connection-status');
+        if (!statusIndicator) return;
+
+        statusIndicator.addEventListener('click', function (e) {
+            if (this.classList.contains('status-online')) {
+                e.preventDefault();
+                e.stopPropagation();
+                shufflePlugins();
+            }
+        });
+
+        statusIndicator.style.cursor = 'pointer';
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initEasterEgg);
+    } else {
+        setTimeout(initEasterEgg, 100);
+    }
+
+    window.shufflePlugins = shufflePlugins;
 
     function init(){
         const waitForMosaic = () => {
