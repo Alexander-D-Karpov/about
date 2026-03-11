@@ -1,0 +1,1986 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta content="width=device-width, initial-scale=1.0" name="viewport">
+    <title>{{.Title}}</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            background: #1a1a2e;
+            color: #e0e0e0;
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 16px;
+        }
+
+        .container.side-layout {
+            max-width: 100%;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .toolbar {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            align-items: center;
+            margin-bottom: 12px;
+            padding: 10px 14px;
+            background: #16213e;
+            border: 1px solid #1a1a40;
+            border-radius: 6px;
+        }
+
+        .toolbar input[type="text"] {
+            flex: 1;
+            min-width: 180px;
+            padding: 7px 10px;
+            background: #0f3460;
+            border: 1px solid #1a1a40;
+            border-radius: 4px;
+            color: #e0e0e0;
+            font-size: 0.9rem;
+        }
+
+        .toolbar input:focus {
+            outline: none;
+            border-color: #6a9fff;
+        }
+
+        .btn {
+            padding: 7px 14px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.85rem;
+            font-weight: 600;
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            transition: background 0.15s;
+        }
+
+        .btn svg {
+            width: 14px;
+            height: 14px;
+            flex-shrink: 0;
+        }
+
+        .btn-primary {
+            background: #0f3460;
+            color: #e0e0e0;
+            border: 1px solid #1a1a40;
+        }
+
+        .btn-primary:hover {
+            background: #1a4a80;
+        }
+
+        .btn-publish {
+            background: #1b8a2e;
+            color: #fff;
+        }
+
+        .btn-publish:hover {
+            background: #22a038;
+        }
+
+        .btn-unpublish {
+            background: #c67d18;
+            color: #fff;
+        }
+
+        .btn-unpublish:hover {
+            background: #d48a1a;
+        }
+
+        .btn-secondary {
+            background: #2a2a4a;
+            color: #e0e0e0;
+            border: 1px solid #333360;
+        }
+
+        .btn-secondary:hover {
+            background: #3a3a5a;
+        }
+
+        .btn-danger {
+            background: #8b1a1a;
+            color: #fff;
+        }
+
+        .btn-danger:hover {
+            background: #a02020;
+        }
+
+        .btn-back {
+            color: #6a9fff;
+            text-decoration: none;
+            font-size: 0.85rem;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            margin-bottom: 10px;
+        }
+
+        .btn-back:hover {
+            text-decoration: underline;
+        }
+
+        .btn-back svg {
+            width: 14px;
+            height: 14px;
+        }
+
+        .btn-layout {
+            background: #2a2a4a;
+            color: #e0e0e0;
+            border: 1px solid #333360;
+        }
+
+        .btn-layout:hover {
+            background: #3a3a5a;
+        }
+
+        .btn-layout.active {
+            background: #0f3460;
+            border-color: #6a9fff;
+        }
+
+        .status-bar {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+            margin-bottom: 12px;
+            font-size: 0.8rem;
+            color: #888;
+        }
+
+        .status-saved {
+            color: #4caf50;
+        }
+
+        .status-unsaved {
+            color: #ff9800;
+        }
+
+        .status-saving {
+            color: #6a9fff;
+        }
+
+        .main-area {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .side-layout .main-area {
+            flex-direction: row;
+            gap: 16px;
+            height: calc(100vh - 200px);
+        }
+
+        .side-layout .board-column {
+            flex: 1;
+            overflow-y: auto;
+            min-width: 0;
+        }
+
+        .side-layout .unsorted-column {
+            width: 340px;
+            min-width: 280px;
+            max-width: 400px;
+            overflow-y: auto;
+            flex-shrink: 0;
+            position: sticky;
+            top: 0;
+        }
+
+        .side-layout .unsorted-section {
+            margin-bottom: 0;
+        }
+
+        .side-layout .upload-zone {
+            margin-bottom: 0;
+        }
+
+        .tier-board {
+            display: flex;
+            flex-direction: column;
+            gap: 1px;
+            margin-bottom: 16px;
+            background: #111;
+            border: 1px solid #222;
+        }
+
+        .tier-row {
+            display: flex;
+            min-height: 80px;
+            background: #1a1a2e;
+        }
+
+        .tier-label {
+            width: 100px;
+            min-width: 100px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+            position: relative;
+            padding: 4px;
+        }
+
+        .tier-label-name {
+            font-weight: 700;
+            font-size: 1.2rem;
+            color: #000;
+            text-align: center;
+            background: none;
+            border: none;
+            width: 100%;
+            height: 100%;
+            cursor: text;
+            padding: 4px;
+            word-break: break-word;
+            overflow-wrap: break-word;
+            line-height: 1.2;
+        }
+
+        .tier-label-name:focus {
+            outline: 2px solid rgba(255, 255, 255, 0.6);
+            outline-offset: -2px;
+        }
+
+        .tier-entries {
+            flex: 1;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 3px;
+            padding: 5px;
+            background: #2a2a3e;
+            align-content: flex-start;
+            min-height: 80px;
+            transition: background 0.15s;
+        }
+
+        .tier-entries.drag-over {
+            background: #3a3a5e;
+            outline: 2px dashed #6a9fff;
+            outline-offset: -2px;
+        }
+
+        .tier-controls {
+            width: 50px;
+            min-width: 50px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 2px;
+            background: #16213e;
+        }
+
+        .tier-ctrl-btn {
+            width: 28px;
+            height: 28px;
+            background: none;
+            border: 1px solid #333360;
+            border-radius: 4px;
+            color: #999;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.15s;
+        }
+
+        .tier-ctrl-btn:hover {
+            background: #2a2a4a;
+            color: #e0e0e0;
+            border-color: #6a9fff;
+        }
+
+        .tier-ctrl-btn svg {
+            width: 14px;
+            height: 14px;
+        }
+
+        .tier-ctrl-btn.del:hover {
+            border-color: #c62828;
+            color: #ef5350;
+        }
+
+        .entry-card {
+            width: 75px;
+            height: 75px;
+            position: relative;
+            border-radius: 3px;
+            overflow: hidden;
+            cursor: grab;
+            background: #333;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            user-select: none;
+            transition: transform 0.1s, opacity 0.1s;
+            border: 2px solid transparent;
+        }
+
+        .entry-card:hover {
+            border-color: rgba(106, 159, 255, 0.5);
+        }
+
+        .entry-card:active {
+            cursor: grabbing;
+        }
+
+        .entry-card.dragging {
+            opacity: 0.3;
+            transform: scale(0.9);
+        }
+
+        .entry-card img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            pointer-events: none;
+        }
+
+        .entry-card .text-entry {
+            padding: 4px;
+            font-size: 0.65rem;
+            text-align: center;
+            word-break: break-word;
+            pointer-events: none;
+            color: #ccc;
+        }
+
+        .entry-overlay {
+            position: absolute;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.8);
+            display: none;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 3px;
+            z-index: 10;
+        }
+
+        .entry-card:hover .entry-overlay {
+            display: flex;
+        }
+
+        @media (hover: none) {
+            .entry-card .entry-overlay {
+                display: none;
+            }
+
+            .entry-card.overlay-active .entry-overlay {
+                display: flex;
+            }
+        }
+
+        .entry-name-display {
+            font-size: 0.55rem;
+            color: #fff;
+            text-align: center;
+            max-width: 100%;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            padding: 0 4px;
+        }
+
+        .entry-actions {
+            display: flex;
+            gap: 2px;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+
+        .entry-btn {
+            width: 22px;
+            height: 22px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .entry-btn svg {
+            width: 11px;
+            height: 11px;
+        }
+
+        .entry-btn-edit {
+            background: #0f3460;
+            color: #e0e0e0;
+        }
+
+        .entry-btn-edit:hover {
+            background: #1a5a90;
+        }
+
+        .entry-btn-del {
+            background: #8b1a1a;
+            color: #fff;
+        }
+
+        .entry-btn-del:hover {
+            background: #a02020;
+        }
+
+        .entry-btn-preview {
+            background: #2a5a2a;
+            color: #fff;
+        }
+
+        .entry-btn-preview:hover {
+            background: #3a7a3a;
+        }
+
+        .entry-btn-move {
+            background: #6a4a0a;
+            color: #fff;
+        }
+
+        .entry-btn-move:hover {
+            background: #8a6a1a;
+        }
+
+        .move-dropdown {
+            position: absolute;
+            top: 100%;
+            left: 50%;
+            transform: translateX(-50%);
+            background: #16213e;
+            border: 1px solid #333360;
+            border-radius: 6px;
+            padding: 4px;
+            z-index: 50;
+            min-width: 120px;
+            display: none;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+        }
+
+        .move-dropdown.active {
+            display: block;
+        }
+
+        .move-dropdown-item {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 5px 8px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.75rem;
+            color: #e0e0e0;
+            white-space: nowrap;
+            border: none;
+            background: none;
+            width: 100%;
+            text-align: left;
+        }
+
+        .move-dropdown-item:hover {
+            background: #2a2a4a;
+        }
+
+        .move-dropdown-item .tier-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 2px;
+            flex-shrink: 0;
+        }
+
+        .move-dropdown-item.current {
+            opacity: 0.4;
+            pointer-events: none;
+        }
+
+        .unsorted-section {
+            margin-bottom: 16px;
+        }
+
+        .unsorted-section h3 {
+            font-size: 0.85rem;
+            color: #888;
+            margin-bottom: 6px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .unsorted-section h3 svg {
+            width: 14px;
+            height: 14px;
+        }
+
+        .unsorted-entries {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 3px;
+            padding: 10px;
+            background: #2a2a3e;
+            border: 2px dashed #333360;
+            border-radius: 6px;
+            min-height: 90px;
+            transition: background 0.15s, border-color 0.15s;
+        }
+
+        .unsorted-entries.drag-over {
+            background: #2a3a4e;
+            border-color: #6a9fff;
+        }
+
+        .upload-zone {
+            margin-bottom: 16px;
+            padding: 20px;
+            border: 2px dashed #333360;
+            border-radius: 6px;
+            text-align: center;
+            cursor: pointer;
+            transition: border-color 0.15s, background 0.15s;
+        }
+
+        .upload-zone:hover, .upload-zone.drag-over {
+            border-color: #6a9fff;
+            background: #16213e;
+        }
+
+        .upload-zone p {
+            color: #888;
+            font-size: 0.85rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+        }
+
+        .upload-zone p svg {
+            width: 18px;
+            height: 18px;
+        }
+
+        .upload-zone input {
+            display: none;
+        }
+
+        .modal-backdrop {
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.6);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 100;
+        }
+
+        .modal-backdrop.active {
+            display: flex;
+        }
+
+        .modal {
+            background: #16213e;
+            border: 1px solid #1a1a40;
+            border-radius: 8px;
+            padding: 20px;
+            min-width: 320px;
+        }
+
+        .modal h3 {
+            margin-bottom: 12px;
+            font-size: 1rem;
+        }
+
+        .modal label {
+            display: block;
+            font-size: 0.8rem;
+            color: #999;
+            margin-bottom: 4px;
+        }
+
+        .modal input[type="text"], .modal input[type="color"] {
+            width: 100%;
+            padding: 8px 10px;
+            background: #0f3460;
+            border: 1px solid #1a1a40;
+            border-radius: 4px;
+            color: #e0e0e0;
+            font-size: 0.9rem;
+            margin-bottom: 10px;
+        }
+
+        .modal input:focus {
+            outline: none;
+            border-color: #6a9fff;
+        }
+
+        .modal input[type="color"] {
+            height: 40px;
+            padding: 2px;
+            cursor: pointer;
+        }
+
+        .modal-actions {
+            display: flex;
+            gap: 8px;
+            justify-content: flex-end;
+        }
+
+        .preview-backdrop {
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.8);
+            z-index: 150;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+        }
+
+        .preview-backdrop.active {
+            display: flex;
+        }
+
+        .preview-card {
+            background: #1a1a2e;
+            border: 1px solid #333;
+            border-radius: 12px;
+            overflow: hidden;
+            max-width: 90vw;
+            max-height: 90vh;
+            display: flex;
+            flex-direction: column;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+        }
+
+        .preview-card img {
+            max-width: 80vw;
+            max-height: 75vh;
+            object-fit: contain;
+            display: block;
+        }
+
+        .preview-info {
+            padding: 12px 16px;
+        }
+
+        .preview-info .preview-name {
+            font-size: 1rem;
+            font-weight: 600;
+            margin-bottom: 4px;
+        }
+
+        .preview-info .preview-tier {
+            font-size: 0.8rem;
+            color: #999;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .preview-info .preview-tier-badge {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border-radius: 3px;
+        }
+
+        .preview-text-only {
+            padding: 40px 60px;
+            font-size: 1.4rem;
+            text-align: center;
+            color: #ccc;
+        }
+
+        .preview-close {
+            position: absolute;
+            top: 16px;
+            right: 16px;
+            width: 36px;
+            height: 36px;
+            background: rgba(0, 0, 0, 0.6);
+            border: 1px solid #555;
+            border-radius: 50%;
+            color: #fff;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 160;
+        }
+
+        .preview-close:hover {
+            background: rgba(255, 255, 255, 0.1);
+        }
+
+        .preview-close svg {
+            width: 18px;
+            height: 18px;
+        }
+
+        .toast {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            padding: 10px 18px;
+            border-radius: 6px;
+            font-size: 0.85rem;
+            z-index: 200;
+            transition: opacity 0.3s, transform 0.3s;
+            opacity: 0;
+            transform: translateY(10px);
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .toast svg {
+            width: 14px;
+            height: 14px;
+            flex-shrink: 0;
+        }
+
+        .toast.show {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        .toast-success {
+            background: #1a3a1a;
+            color: #4caf50;
+            border: 1px solid #2a4a2a;
+        }
+
+        .toast-error {
+            background: #3a1a1a;
+            color: #ef5350;
+            border: 1px solid #4a2a2a;
+        }
+
+        .drop-indicator {
+            width: 3px;
+            height: 75px;
+            background: #6a9fff;
+            border-radius: 2px;
+            flex-shrink: 0;
+            pointer-events: none;
+            transition: opacity 0.1s;
+        }
+
+        .upload-progress {
+            margin-bottom: 12px;
+            padding: 8px 14px;
+            background: #16213e;
+            border: 1px solid #1a1a40;
+            border-radius: 6px;
+            font-size: 0.8rem;
+            color: #6a9fff;
+            display: none;
+        }
+
+        .upload-progress.active {
+            display: block;
+        }
+
+        .tier-entry-count {
+            font-size: 0.65rem;
+            color: rgba(0, 0, 0, 0.5);
+            position: absolute;
+            bottom: 2px;
+            right: 4px;
+            pointer-events: none;
+        }
+    </style>
+</head>
+<body>
+<div class="container" id="app-container">
+    <a class="btn-back" href="/ranking/admin/">
+        <svg fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+             viewBox="0 0 24 24">
+            <path d="M19 12H5"/>
+            <polyline points="12 19 5 12 12 5"/>
+        </svg>
+        Back to list
+    </a>
+
+    <div class="toolbar">
+        <input id="tl-title" placeholder="Title" type="text" value="{{.Tierlist.Title}}">
+        <input id="tl-desc" placeholder="Description (optional)" type="text" value="{{.Tierlist.Description}}">
+        <button class="btn {{if .Tierlist.Published}}btn-unpublish{{else}}btn-publish{{end}}" id="pub-btn"
+                onclick="togglePublish()">
+            {{if .Tierlist.Published}}
+            <svg fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                 viewBox="0 0 24 24">
+                <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/>
+                <line x1="1" x2="23" y1="1" y2="23"/>
+            </svg>
+            Unpublish
+            {{else}}
+            <svg fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                 viewBox="0 0 24 24">
+                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                <circle cx="12" cy="12" r="3"/>
+            </svg>
+            Publish
+            {{end}}
+        </button>
+        <button class="btn btn-secondary" onclick="addTier()">
+            <svg fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                 viewBox="0 0 24 24">
+                <line x1="12" x2="12" y1="5" y2="19"/>
+                <line x1="5" x2="19" y1="12" y2="12"/>
+            </svg>
+            Tier
+        </button>
+        <button class="btn btn-secondary" onclick="addTextEntry()">
+            <svg fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                 viewBox="0 0 24 24">
+                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+            </svg>
+            Text Entry
+        </button>
+        <button class="btn btn-layout" id="layout-btn" onclick="toggleLayout()" title="Toggle side layout for unsorted">
+            <svg fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                 viewBox="0 0 24 24">
+                <rect height="18" rx="2" width="18" x="3" y="3"/>
+                <line x1="15" x2="15" y1="3" y2="21"/>
+            </svg>
+            Side
+        </button>
+        <button class="btn btn-danger" onclick="deleteTierlist()">
+            <svg fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                 viewBox="0 0 24 24">
+                <polyline points="3 6 5 6 21 6"/>
+                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+            </svg>
+            Delete
+        </button>
+    </div>
+
+    <div class="status-bar">
+        <span class="status-saved" id="status-text">All changes saved</span>
+        <span id="status-slug">/ranking/{{.Tierlist.Slug}}</span>
+        <span id="entry-count"></span>
+    </div>
+
+    <div class="upload-progress" id="upload-progress"></div>
+
+    <div class="main-area" id="main-area">
+        <div class="board-column" id="board-column">
+            <div class="tier-board" id="tier-board"></div>
+        </div>
+        <div class="unsorted-column" id="unsorted-column">
+            <div class="unsorted-section">
+                <h3>
+                    <svg fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                         viewBox="0 0 24 24">
+                        <rect height="7" width="7" x="3" y="3"/>
+                        <rect height="7" width="7" x="14" y="3"/>
+                        <rect height="7" width="7" x="14" y="14"/>
+                        <rect height="7" width="7" x="3" y="14"/>
+                    </svg>
+                    Unsorted <span id="unsorted-count" style="color:#666"></span>
+                </h3>
+                <div class="unsorted-entries" id="unsorted-zone"></div>
+            </div>
+            <div class="upload-zone" id="upload-zone">
+                <p>
+                    <svg fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                         viewBox="0 0 24 24">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                        <polyline points="17 8 12 3 7 8"/>
+                        <line x1="12" x2="12" y1="3" y2="15"/>
+                    </svg>
+                    Drop images here or click to upload
+                </p>
+                <input accept="image/*" id="file-input" multiple type="file">
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal-backdrop" id="edit-modal">
+    <div class="modal">
+        <h3>Edit Entry</h3>
+        <label for="edit-name">Name</label>
+        <input id="edit-name" placeholder="Entry name" type="text">
+        <div class="modal-actions">
+            <button class="btn btn-secondary" onclick="closeEditModal()">Cancel</button>
+            <button class="btn btn-primary" onclick="saveEntryName()">
+                <svg fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                     viewBox="0 0 24 24">
+                    <polyline points="20 6 9 17 4 12"/>
+                </svg>
+                Save
+            </button>
+        </div>
+    </div>
+</div>
+
+<div class="modal-backdrop" id="tier-modal">
+    <div class="modal">
+        <h3>Edit Tier</h3>
+        <label for="tier-edit-name">Name</label>
+        <input id="tier-edit-name" placeholder="Tier name" type="text">
+        <label for="tier-edit-color">Color</label>
+        <input id="tier-edit-color" type="color" value="#CCCCCC">
+        <div class="modal-actions">
+            <button class="btn btn-secondary" onclick="closeTierModal()">Cancel</button>
+            <button class="btn btn-primary" onclick="saveTierEdit()">
+                <svg fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                     viewBox="0 0 24 24">
+                    <polyline points="20 6 9 17 4 12"/>
+                </svg>
+                Save
+            </button>
+        </div>
+    </div>
+</div>
+
+<div class="preview-backdrop" id="preview-backdrop" onclick="closePreview(event)">
+    <button class="preview-close" onclick="closePreview(event)">
+        <svg fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+             viewBox="0 0 24 24">
+            <line x1="18" x2="6" y1="6" y2="18"/>
+            <line x1="6" x2="18" y1="6" y2="18"/>
+        </svg>
+    </button>
+    <div class="preview-card" id="preview-card" onclick="event.stopPropagation()"></div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+    const SLUG = "{{.Tierlist.Slug}}";
+    const DATA = {
+    {
+        json.Tierlist
+    }
+    }
+    ;
+
+    const ICONS = {
+        chevronUp: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"/></svg>',
+        chevronDown: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>',
+        settings: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>',
+        trash: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>',
+        edit: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>',
+        x: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>',
+        check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>',
+        eye: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>',
+        move: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="5 9 2 12 5 15"/><polyline points="9 5 12 2 15 5"/><polyline points="15 19 12 22 9 19"/><polyline points="19 9 22 12 19 15"/><line x1="2" y1="12" x2="22" y2="12"/><line x1="12" y1="2" x2="12" y2="22"/></svg>',
+    };
+
+    let tiers = DATA.tiers || [];
+    let entries = DATA.entries || [];
+    let dirty = false;
+    let editingEntryId = null;
+    let editingTierId = null;
+    let ws = null;
+    let uploadsInFlight = 0;
+    let sideLayout = false;
+    let activeMoveDropdown = null;
+
+    function updateEntryCount() {
+        document.getElementById("entry-count").textContent = entries.length + " entries";
+        const unsortedCount = entries.filter(e => !e.tier_id).length;
+        document.getElementById("unsorted-count").textContent = "(" + unsortedCount + ")";
+    }
+
+    function toggleLayout() {
+        sideLayout = !sideLayout;
+        const container = document.getElementById("app-container");
+        const btn = document.getElementById("layout-btn");
+        if (sideLayout) {
+            container.classList.add("side-layout");
+            btn.classList.add("active");
+        } else {
+            container.classList.remove("side-layout");
+            btn.classList.remove("active");
+        }
+        try {
+            localStorage.setItem("ranking-side-layout", sideLayout ? "1" : "0");
+        } catch (_) {
+        }
+    }
+
+    try {
+        if (localStorage.getItem("ranking-side-layout") === "1") toggleLayout();
+    } catch (_) {
+    }
+
+    function connectWS() {
+        const proto = location.protocol === "https:" ? "wss:" : "ws:";
+        ws = new WebSocket(proto + "//" + location.host + "/ranking/" + SLUG + "/ws");
+        ws.onclose = () => setTimeout(connectWS, 3000);
+        ws.onerror = () => {
+        };
+    }
+
+    connectWS();
+
+    let broadcastTimer = null;
+
+    function broadcastState() {
+        if (broadcastTimer) return;
+        broadcastTimer = setTimeout(() => {
+            broadcastTimer = null;
+            if (!ws || ws.readyState !== WebSocket.OPEN) return;
+            ws.send(JSON.stringify({
+                id: DATA.id, slug: SLUG,
+                title: document.getElementById("tl-title").value,
+                description: document.getElementById("tl-desc").value,
+                published: DATA.published, tiers: tiers, entries: entries
+            }));
+        }, 2000);
+    }
+
+    let saveTimer = null;
+    let saving = false;
+
+    function markDirty() {
+        dirty = true;
+        document.getElementById("status-text").textContent = "Unsaved changes";
+        document.getElementById("status-text").className = "status-unsaved";
+        scheduleAutoSave();
+    }
+
+    function markClean() {
+        dirty = false;
+        document.getElementById("status-text").textContent = "All changes saved";
+        document.getElementById("status-text").className = "status-saved";
+    }
+
+    function markSaving() {
+        document.getElementById("status-text").textContent = "Saving...";
+        document.getElementById("status-text").className = "status-saving";
+    }
+
+    function scheduleAutoSave() {
+        if (saveTimer) clearTimeout(saveTimer);
+        saveTimer = setTimeout(() => autoSave(), 1200);
+    }
+
+    async function autoSave() {
+        if (saving || !dirty) return;
+        if (uploadsInFlight > 0) {
+            scheduleAutoSave();
+            return;
+        }
+        saving = true;
+        markSaving();
+
+        const payload = {
+            title: document.getElementById("tl-title").value,
+            description: document.getElementById("tl-desc").value,
+            tiers: tiers.map((t, i) => ({id: t.id, name: t.name, color: t.color, position: i})),
+            entries: entries.map(e => ({id: e.id, tier_id: e.tier_id, name: e.name, position: e.position}))
+        };
+
+        try {
+            const res = await fetch("/ranking/admin/" + SLUG + "/save", {
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify(payload)
+            });
+            const data = await res.json();
+            if (data.success) {
+                markClean();
+                broadcastState();
+            } else showToast("Save failed: " + (data.error || "unknown"), "error");
+        } catch (err) {
+            showToast("Save failed: " + err.message, "error");
+        } finally {
+            saving = false;
+            if (dirty) scheduleAutoSave();
+        }
+    }
+
+    function showToast(msg, type) {
+        const t = document.getElementById("toast");
+        const icon = type === "success" ? ICONS.check : ICONS.x;
+        t.innerHTML = icon + esc(msg);
+        t.className = "toast toast-" + type + " show";
+        setTimeout(() => t.classList.remove("show"), 3000);
+    }
+
+    function getInsertIndex(cards, x, y) {
+        for (let i = 0; i < cards.length; i++) {
+            const rect = cards[i].getBoundingClientRect();
+            if (y < rect.top) return i;
+            if (y < rect.bottom) {
+                if (x < rect.left + rect.width / 2) return i;
+            }
+        }
+        return cards.length;
+    }
+
+    function clearIndicators() {
+        document.querySelectorAll(".drop-indicator").forEach(el => el.remove());
+    }
+
+    function setupDropZone(zone, tierId) {
+        zone.addEventListener("dragover", e => {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = "move";
+            zone.classList.add("drag-over");
+            const cards = Array.from(zone.querySelectorAll(".entry-card:not(.dragging)"));
+            clearIndicators();
+            const idx = getInsertIndex(cards, e.clientX, e.clientY);
+            const indicator = document.createElement("div");
+            indicator.className = "drop-indicator";
+            if (idx < cards.length) cards[idx].before(indicator);
+            else zone.appendChild(indicator);
+        });
+
+        zone.addEventListener("dragleave", e => {
+            if (!zone.contains(e.relatedTarget)) {
+                zone.classList.remove("drag-over");
+                clearIndicators();
+            }
+        });
+
+        zone.addEventListener("drop", e => {
+            e.preventDefault();
+            zone.classList.remove("drag-over");
+            clearIndicators();
+            const types = Array.from(e.dataTransfer.types);
+
+            if (types.includes("text/entry-id")) {
+                const entryId = parseInt(e.dataTransfer.getData("text/entry-id"));
+                moveEntry(entryId, tierId, zone, e);
+                return;
+            }
+
+            uploadedURLs.clear();
+            if (e.dataTransfer.files.length > 0) {
+                const images = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith("image/"));
+                if (images.length) {
+                    images.forEach(f => uploadFile(f, tierId));
+                    return;
+                }
+            }
+            const imageURLs = extractAllImageURLs(e.dataTransfer);
+            const fallback = imageURLs._fallback || null;
+            if (imageURLs.length > 0) imageURLs.forEach(u => uploadFromURL(u, tierId, fallback));
+        });
+    }
+
+    let renderScheduled = false;
+
+    function scheduleRender() {
+        if (renderScheduled) return;
+        renderScheduled = true;
+        requestAnimationFrame(() => {
+            renderScheduled = false;
+            render();
+        });
+    }
+
+    function render() {
+        const board = document.getElementById("tier-board");
+        board.innerHTML = "";
+        tiers.sort((a, b) => a.position - b.position);
+
+        tiers.forEach((tier, idx) => {
+            const row = document.createElement("div");
+            row.className = "tier-row";
+
+            const label = document.createElement("div");
+            label.className = "tier-label";
+            label.style.background = tier.color;
+
+            const nameInput = document.createElement("input");
+            nameInput.className = "tier-label-name";
+            nameInput.value = tier.name;
+            const nameLen = tier.name.length;
+            if (nameLen > 6) nameInput.style.fontSize = "0.85rem";
+            if (nameLen > 10) nameInput.style.fontSize = "0.7rem";
+            nameInput.addEventListener("change", () => {
+                tier.name = nameInput.value;
+                markDirty();
+            });
+            nameInput.addEventListener("click", () => nameInput.select());
+            label.appendChild(nameInput);
+
+            const tierEntries = entries.filter(e => e.tier_id === tier.id);
+            const countBadge = document.createElement("span");
+            countBadge.className = "tier-entry-count";
+            countBadge.textContent = tierEntries.length;
+            label.appendChild(countBadge);
+
+            const zone = document.createElement("div");
+            zone.className = "tier-entries";
+            zone.dataset.tierId = tier.id;
+            setupDropZone(zone, tier.id);
+
+            tierEntries.sort((a, b) => a.position - b.position).forEach(e => zone.appendChild(createEntryCard(e)));
+
+            const controls = document.createElement("div");
+            controls.className = "tier-controls";
+
+            const upBtn = document.createElement("button");
+            upBtn.className = "tier-ctrl-btn";
+            upBtn.innerHTML = ICONS.chevronUp;
+            upBtn.title = "Move up";
+            upBtn.disabled = idx === 0;
+            upBtn.addEventListener("click", () => moveTier(tier.id, -1));
+
+            const settingsBtn = document.createElement("button");
+            settingsBtn.className = "tier-ctrl-btn";
+            settingsBtn.innerHTML = ICONS.settings;
+            settingsBtn.title = "Settings";
+            settingsBtn.addEventListener("click", () => openTierModal(tier.id));
+
+            const downBtn = document.createElement("button");
+            downBtn.className = "tier-ctrl-btn";
+            downBtn.innerHTML = ICONS.chevronDown;
+            downBtn.title = "Move down";
+            downBtn.disabled = idx === tiers.length - 1;
+            downBtn.addEventListener("click", () => moveTier(tier.id, 1));
+
+            const delBtn = document.createElement("button");
+            delBtn.className = "tier-ctrl-btn del";
+            delBtn.innerHTML = ICONS.x;
+            delBtn.title = "Delete tier";
+            delBtn.addEventListener("click", () => removeTier(tier.id));
+
+            controls.appendChild(upBtn);
+            controls.appendChild(settingsBtn);
+            controls.appendChild(downBtn);
+            controls.appendChild(delBtn);
+
+            row.appendChild(label);
+            row.appendChild(zone);
+            row.appendChild(controls);
+            board.appendChild(row);
+        });
+
+        const unsorted = document.getElementById("unsorted-zone");
+        unsorted.innerHTML = "";
+        entries.filter(e => !e.tier_id).sort((a, b) => a.position - b.position).forEach(e => {
+            unsorted.appendChild(createEntryCard(e));
+        });
+
+        updateEntryCount();
+    }
+
+    function createEntryCard(entry) {
+        const card = document.createElement("div");
+        card.className = "entry-card";
+        card.draggable = true;
+        card.dataset.entryId = entry.id;
+
+        let inner = "";
+        if (entry.thumb_path) {
+            inner = '<img src="' + esc(entry.thumb_path) + '" alt="' + esc(entry.name) + '" loading="lazy">';
+        } else if (entry.image_path) {
+            inner = '<img src="' + esc(entry.image_path) + '" alt="' + esc(entry.name) + '" loading="lazy">';
+        } else {
+            inner = '<div class="text-entry">' + esc(entry.name || "\u2014") + '</div>';
+        }
+
+        const overlay = document.createElement("div");
+        overlay.className = "entry-overlay";
+
+        const nameSpan = document.createElement("span");
+        nameSpan.className = "entry-name-display";
+        nameSpan.textContent = entry.name || "No name";
+
+        const actions = document.createElement("div");
+        actions.className = "entry-actions";
+
+        if (entry.image_path) {
+            const previewBtn = document.createElement("button");
+            previewBtn.className = "entry-btn entry-btn-preview";
+            previewBtn.innerHTML = ICONS.eye;
+            previewBtn.title = "Preview";
+            previewBtn.addEventListener("click", (e) => {
+                e.stopPropagation();
+                openPreview(entry);
+            });
+            actions.appendChild(previewBtn);
+        }
+
+        const editBtn = document.createElement("button");
+        editBtn.className = "entry-btn entry-btn-edit";
+        editBtn.innerHTML = ICONS.edit;
+        editBtn.title = "Edit name";
+        editBtn.addEventListener("click", (e) => {
+            e.stopPropagation();
+            openEditModal(entry.id);
+        });
+
+        const moveBtn = document.createElement("button");
+        moveBtn.className = "entry-btn entry-btn-move";
+        moveBtn.innerHTML = ICONS.move;
+        moveBtn.title = "Move to tier";
+        moveBtn.addEventListener("click", (e) => {
+            e.stopPropagation();
+            showMoveDropdown(entry.id, card);
+        });
+
+        const delBtn = document.createElement("button");
+        delBtn.className = "entry-btn entry-btn-del";
+        delBtn.innerHTML = ICONS.x;
+        delBtn.title = "Delete";
+        delBtn.addEventListener("click", (e) => {
+            e.stopPropagation();
+            deleteEntry(entry.id);
+        });
+
+        actions.appendChild(editBtn);
+        actions.appendChild(moveBtn);
+        actions.appendChild(delBtn);
+        overlay.appendChild(nameSpan);
+        overlay.appendChild(actions);
+
+        card.innerHTML = inner;
+        card.appendChild(overlay);
+
+        card.addEventListener("touchstart", () => {
+            document.querySelectorAll(".entry-card.overlay-active").forEach(c => c.classList.remove("overlay-active"));
+            card.classList.add("overlay-active");
+        }, {passive: true});
+
+        card.addEventListener("dragstart", e => {
+            e.dataTransfer.setData("text/entry-id", String(entry.id));
+            e.dataTransfer.effectAllowed = "move";
+            card.classList.add("dragging");
+        });
+        card.addEventListener("dragend", () => {
+            card.classList.remove("dragging");
+            clearIndicators();
+        });
+
+        return card;
+    }
+
+    function showMoveDropdown(entryId, cardEl) {
+        closeMoveDropdown();
+        const entry = entries.find(e => e.id === entryId);
+        if (!entry) return;
+
+        const dd = document.createElement("div");
+        dd.className = "move-dropdown active";
+
+        const unsortedItem = document.createElement("button");
+        unsortedItem.className = "move-dropdown-item" + (!entry.tier_id ? " current" : "");
+        unsortedItem.innerHTML = '<span class="tier-dot" style="background:#666"></span>Unsorted';
+        unsortedItem.addEventListener("click", (e) => {
+            e.stopPropagation();
+            assignEntryToTier(entryId, null);
+            closeMoveDropdown();
+        });
+        dd.appendChild(unsortedItem);
+
+        tiers.slice().sort((a, b) => a.position - b.position).forEach(tier => {
+            const item = document.createElement("button");
+            item.className = "move-dropdown-item" + (entry.tier_id === tier.id ? " current" : "");
+            item.innerHTML = '<span class="tier-dot" style="background:' + esc(tier.color) + '"></span>' + esc(tier.name);
+            item.addEventListener("click", (e) => {
+                e.stopPropagation();
+                assignEntryToTier(entryId, tier.id);
+                closeMoveDropdown();
+            });
+            dd.appendChild(item);
+        });
+
+        cardEl.style.overflow = "visible";
+        cardEl.appendChild(dd);
+        activeMoveDropdown = {el: dd, card: cardEl};
+    }
+
+    function closeMoveDropdown() {
+        if (activeMoveDropdown) {
+            activeMoveDropdown.el.remove();
+            activeMoveDropdown.card.style.overflow = "hidden";
+            activeMoveDropdown = null;
+        }
+    }
+
+    function assignEntryToTier(entryId, tierId) {
+        const entry = entries.find(e => e.id === entryId);
+        if (!entry) return;
+        entry.tier_id = tierId;
+        const targetEntries = entries.filter(e => e.tier_id === tierId);
+        entry.position = targetEntries.length;
+        markDirty();
+        render();
+        broadcastState();
+    }
+
+    document.addEventListener("click", (e) => {
+        if (activeMoveDropdown && !activeMoveDropdown.el.contains(e.target)) {
+            closeMoveDropdown();
+        }
+        if (!e.target.closest(".entry-card")) {
+            document.querySelectorAll(".entry-card.overlay-active").forEach(c => c.classList.remove("overlay-active"));
+        }
+    });
+
+    function openPreview(entry) {
+        const card = document.getElementById("preview-card");
+        let html = "";
+        if (entry.image_path) {
+            html += '<img src="' + esc(entry.image_path) + '" alt="' + esc(entry.name) + '">';
+        } else {
+            html += '<div class="preview-text-only">' + esc(entry.name || "\u2014") + '</div>';
+        }
+        const tier = entry.tier_id ? tiers.find(t => t.id === entry.tier_id) : null;
+        if (entry.name || tier) {
+            html += '<div class="preview-info">';
+            if (entry.name) html += '<div class="preview-name">' + esc(entry.name) + '</div>';
+            if (tier) html += '<div class="preview-tier"><span class="preview-tier-badge" style="background:' + esc(tier.color) + '"></span>' + esc(tier.name) + ' tier</div>';
+            html += '</div>';
+        }
+        card.innerHTML = html;
+        document.getElementById("preview-backdrop").classList.add("active");
+        document.body.style.overflow = "hidden";
+    }
+
+    function closePreview(e) {
+        if (e) e.stopPropagation();
+        document.getElementById("preview-backdrop").classList.remove("active");
+        document.body.style.overflow = "";
+    }
+
+    function moveEntry(entryId, tierId, zone, event) {
+        const entry = entries.find(e => e.id === entryId);
+        if (!entry) return;
+        const oldTierId = entry.tier_id;
+        entry.tier_id = tierId;
+
+        const cards = Array.from(zone.querySelectorAll(".entry-card:not(.dragging)"));
+        const insertIndex = getInsertIndex(cards, event.clientX, event.clientY);
+        const targetEntries = entries.filter(e => e.tier_id === tierId && e.id !== entryId).sort((a, b) => a.position - b.position);
+        targetEntries.splice(insertIndex, 0, entry);
+        targetEntries.forEach((e, i) => e.position = i);
+
+        if (oldTierId !== tierId) {
+            const sourceEntries = entries.filter(e => e.tier_id === oldTierId && e.id !== entryId).sort((a, b) => a.position - b.position);
+            sourceEntries.forEach((e, i) => e.position = i);
+        }
+
+        markDirty();
+        render();
+        broadcastState();
+    }
+
+    function extractImageURL(dt) {
+        const html = dt.getData("text/html");
+        if (html) {
+            const urls = extractImageURLsFromHTML(html);
+            if (urls.length > 0) return urls[0];
+        }
+        const uriList = dt.getData("text/uri-list");
+        if (uriList) {
+            const urls = uriList.split("\n").map(u => u.trim()).filter(u => u && !u.startsWith("#"));
+            for (const u of urls) {
+                const parsed = parseGoogleImgURL(u);
+                if (parsed) return parsed;
+            }
+            const imgUrl = urls.find(u => isImageURL(u));
+            if (imgUrl) return imgUrl;
+            if (urls.length > 0) {
+                const parsed = parseGoogleImgURL(urls[0]);
+                return parsed || urls[0];
+            }
+        }
+        const plain = dt.getData("text/plain");
+        if (plain) {
+            const trimmed = plain.trim();
+            const parsed = parseGoogleImgURL(trimmed);
+            if (parsed) return parsed;
+            if (trimmed.startsWith("http")) return trimmed;
+        }
+        return null;
+    }
+
+    function extractImageURLsFromHTML(html) {
+        const results = [];
+        const thumbnails = [];
+        const div = document.createElement("div");
+        div.innerHTML = html;
+
+        const links = div.querySelectorAll("a[href]");
+        for (const a of links) {
+            const href = a.getAttribute("href");
+            if (!href) continue;
+            const resolved = parseGoogleImgURL(href);
+            if (resolved && !results.includes(resolved)) results.push(resolved);
+        }
+
+        const imgs = div.querySelectorAll("img");
+        for (const img of imgs) {
+            const src = img.getAttribute("src") || img.getAttribute("data-src") || img.getAttribute("data-original") || img.getAttribute("data-lazy-src") || img.getAttribute("data-srcset")?.split(",")[0]?.trim()?.split(" ")[0];
+            if (!src) continue;
+            if (src.startsWith("data:")) continue;
+            if (src.includes("encrypted-tbn")) {
+                if (!thumbnails.includes(src)) thumbnails.push(src);
+                continue;
+            }
+            const resolved = parseGoogleImgURL(src) || src;
+            if (resolved.startsWith("http") && !results.includes(resolved)) results.push(resolved);
+        }
+
+        const srcset = div.querySelectorAll("img[srcset], source[srcset]");
+        for (const el of srcset) {
+            const ss = el.getAttribute("srcset");
+            if (!ss) continue;
+            const parts = ss.split(",").map(s => s.trim().split(/\s+/)[0]).filter(u => u.startsWith("http"));
+            const best = parts[parts.length - 1];
+            if (best && !results.includes(best)) results.push(best);
+        }
+
+        if (results.length === 0) {
+            const match = html.match(/https?:\/\/[^\s"'<>]+\.(?:jpg|jpeg|png|gif|webp|avif|svg)(?:\?[^\s"'<>]*)?/gi);
+            if (match) {
+                for (const u of match) {
+                    if (!u.includes("encrypted-tbn") && !results.includes(u)) results.push(u);
+                }
+            }
+        }
+        results._thumbnails = thumbnails;
+        return results;
+    }
+
+    function parseGoogleImgURL(url) {
+        if (!url) return null;
+        try {
+            const u = new URL(url);
+            if (u.hostname.includes("google.")) {
+                if (u.pathname === "/imgres") {
+                    const imgurl = u.searchParams.get("imgurl");
+                    if (imgurl) return imgurl;
+                }
+                if (u.pathname === "/url") {
+                    const dest = u.searchParams.get("url");
+                    if (dest) return dest;
+                }
+            }
+        } catch (_) {
+        }
+        return null;
+    }
+
+    function extractAllImageURLs(dt) {
+        const seen = new Set();
+        const imageURLs = [];
+        const otherURLs = [];
+        let fallbackThumbnail = null;
+
+        function addResolved(u) {
+            const resolved = parseGoogleImgURL(u) || u;
+            if (!resolved || seen.has(resolved)) return;
+            seen.add(resolved);
+            if (isImageURL(resolved)) imageURLs.push(resolved);
+            else otherURLs.push(resolved);
+        }
+
+        const html = dt.getData("text/html");
+        if (html) {
+            const htmlURLs = extractImageURLsFromHTML(html);
+            if (htmlURLs._thumbnails && htmlURLs._thumbnails.length > 0) fallbackThumbnail = htmlURLs._thumbnails[0];
+            htmlURLs.forEach(addResolved);
+            if (imageURLs.length > 0) {
+                imageURLs._fallback = fallbackThumbnail;
+                return imageURLs;
+            }
+        }
+
+        const uriList = dt.getData("text/uri-list");
+        if (uriList) uriList.split("\n").map(u => u.trim()).filter(u => u && !u.startsWith("#")).forEach(addResolved);
+
+        const plain = dt.getData("text/plain");
+        if (plain) {
+            const trimmed = plain.trim();
+            if (trimmed.startsWith("http")) addResolved(trimmed);
+        }
+
+        const result = imageURLs.length > 0 ? imageURLs : otherURLs;
+        result._fallback = fallbackThumbnail;
+        return result;
+    }
+
+    async function uploadFromURL(url, tierId, fallbackUrl) {
+        const resolved = parseGoogleImgURL(url) || url;
+        if (uploadedURLs.has(resolved)) return;
+        uploadedURLs.add(resolved);
+        uploadsInFlight++;
+        updateUploadProgress();
+        try {
+            const body = {url: resolved, tier_id: tierId};
+            if (fallbackUrl) body.fallback_url = fallbackUrl;
+            const res = await fetch("/ranking/admin/" + SLUG + "/upload-url", {
+                method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)
+            });
+            const entry = await res.json();
+            if (entry.id) {
+                entries.push(entry);
+                scheduleRender();
+            } else showToast("Failed: " + (entry.error || "unknown"), "error");
+        } catch (err) {
+            showToast("Failed: " + err.message, "error");
+        } finally {
+            uploadsInFlight--;
+            updateUploadProgress();
+        }
+    }
+
+    function isImageURL(url) {
+        if (!url) return false;
+        if (/\/wiki\/File:/i.test(url)) return false;
+        if (/\/wiki\/Special:/i.test(url)) return false;
+        const lower = url.toLowerCase().split("?")[0];
+        return /\.(jpg|jpeg|png|gif|webp|svg|bmp|avif)$/.test(lower) || lower.includes("i.imgur.com") || lower.includes("i.redd.it") || lower.includes("pbs.twimg.com") || lower.includes("upload.wikimedia.org");
+    }
+
+    function updateUploadProgress() {
+        const el = document.getElementById("upload-progress");
+        if (uploadsInFlight > 0) {
+            el.textContent = "Uploading... " + uploadsInFlight + " remaining";
+            el.classList.add("active");
+        } else el.classList.remove("active");
+    }
+
+    let uploadedURLs = new Set();
+
+    function handlePaste(e) {
+        if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA") return;
+        const items = Array.from(e.clipboardData.items);
+        const imageItem = items.find(item => item.type.startsWith("image/"));
+        if (imageItem) {
+            e.preventDefault();
+            const blob = imageItem.getAsFile();
+            if (blob) {
+                const ext = {
+                    "image/jpeg": ".jpg",
+                    "image/png": ".png",
+                    "image/gif": ".gif",
+                    "image/webp": ".webp"
+                }[blob.type] || ".png";
+                const file = new File([blob], "pasted" + ext, {type: blob.type});
+                uploadFile(file, null);
+            }
+            return;
+        }
+        uploadedURLs.clear();
+        const html = e.clipboardData.getData("text/html");
+        if (html) {
+            const urls = extractImageURLsFromHTML(html);
+            if (urls.length > 0) {
+                e.preventDefault();
+                urls.forEach(u => uploadFromURL(u, null));
+                return;
+            }
+        }
+        const textItem = items.find(item => item.type === "text/plain");
+        if (textItem) {
+            textItem.getAsString(text => {
+                const trimmed = text.trim();
+                if (trimmed.startsWith("http")) uploadFromURL(trimmed, null);
+            });
+        }
+    }
+
+    document.addEventListener("paste", handlePaste);
+
+    function moveTier(tierId, direction) {
+        const sorted = tiers.slice().sort((a, b) => a.position - b.position);
+        const idx = sorted.findIndex(t => t.id === tierId);
+        if (idx < 0) return;
+        const newIdx = idx + direction;
+        if (newIdx < 0 || newIdx >= sorted.length) return;
+        const temp = sorted[idx].position;
+        sorted[idx].position = sorted[newIdx].position;
+        sorted[newIdx].position = temp;
+        markDirty();
+        render();
+        broadcastState();
+    }
+
+    function removeTier(tierId) {
+        if (!confirm("Delete this tier? Entries will move to unsorted.")) return;
+        entries.forEach(e => {
+            if (e.tier_id === tierId) e.tier_id = null;
+        });
+        tiers = tiers.filter(t => t.id !== tierId);
+        markDirty();
+        render();
+        broadcastState();
+    }
+
+    function openTierModal(tierId) {
+        editingTierId = tierId;
+        const tier = tiers.find(t => t.id === tierId);
+        if (!tier) return;
+        document.getElementById("tier-edit-name").value = tier.name;
+        document.getElementById("tier-edit-color").value = tier.color;
+        document.getElementById("tier-modal").classList.add("active");
+        document.getElementById("tier-edit-name").focus();
+    }
+
+    function closeTierModal() {
+        document.getElementById("tier-modal").classList.remove("active");
+        editingTierId = null;
+    }
+
+    function saveTierEdit() {
+        if (editingTierId === null) return;
+        const tier = tiers.find(t => t.id === editingTierId);
+        if (tier) {
+            tier.name = document.getElementById("tier-edit-name").value;
+            tier.color = document.getElementById("tier-edit-color").value;
+            markDirty();
+            render();
+            broadcastState();
+        }
+        closeTierModal();
+    }
+
+    document.getElementById("tier-edit-name").addEventListener("keydown", e => {
+        if (e.key === "Enter") saveTierEdit();
+        if (e.key === "Escape") closeTierModal();
+    });
+
+    async function addTier() {
+        const maxPos = tiers.reduce((m, t) => Math.max(m, t.position), -1);
+        const res = await fetch("/ranking/admin/" + SLUG + "/tier", {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({name: "New", color: "#CCCCCC"})
+        });
+        const tier = await res.json();
+        if (tier.id) {
+            tier.position = maxPos + 1;
+            tiers.push(tier);
+            markDirty();
+            render();
+            broadcastState();
+        }
+    }
+
+    async function addTextEntry() {
+        const name = prompt("Entry name:");
+        if (!name) return;
+        const res = await fetch("/ranking/admin/" + SLUG + "/entry", {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({name: name, tier_id: null})
+        });
+        const entry = await res.json();
+        if (entry.id) {
+            entries.push(entry);
+            render();
+            broadcastState();
+        }
+    }
+
+    async function deleteEntry(entryId) {
+        try {
+            const res = await fetch("/ranking/admin/" + SLUG + "/entry/" + entryId + "/delete", {method: "POST"});
+            const data = await res.json();
+            if (data.success) {
+                entries = entries.filter(e => e.id !== entryId);
+                render();
+                broadcastState();
+            } else showToast("Delete failed: " + (data.error || "unknown"), "error");
+        } catch (err) {
+            showToast("Delete failed: " + err.message, "error");
+        }
+    }
+
+    function openEditModal(entryId) {
+        editingEntryId = entryId;
+        const entry = entries.find(e => e.id === entryId);
+        document.getElementById("edit-name").value = entry ? entry.name : "";
+        document.getElementById("edit-modal").classList.add("active");
+        document.getElementById("edit-name").focus();
+    }
+
+    function closeEditModal() {
+        document.getElementById("edit-modal").classList.remove("active");
+        editingEntryId = null;
+    }
+
+    function saveEntryName() {
+        if (editingEntryId === null) return;
+        const entry = entries.find(e => e.id === editingEntryId);
+        if (entry) {
+            entry.name = document.getElementById("edit-name").value;
+            markDirty();
+            render();
+            broadcastState();
+        }
+        closeEditModal();
+    }
+
+    document.getElementById("edit-name").addEventListener("keydown", e => {
+        if (e.key === "Enter") saveEntryName();
+        if (e.key === "Escape") closeEditModal();
+    });
+
+    document.addEventListener("keydown", e => {
+        if (e.key === "Escape") closePreview();
+    });
+
+    async function togglePublish() {
+        try {
+            const res = await fetch("/ranking/admin/" + SLUG + "/publish", {method: "POST"});
+            const data = await res.json();
+            if (data.success) {
+                DATA.published = data.published;
+                const btn = document.getElementById("pub-btn");
+                if (data.published) {
+                    btn.className = "btn btn-unpublish";
+                    btn.innerHTML = ICONS.x + " Unpublish";
+                } else {
+                    btn.className = "btn btn-publish";
+                    btn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg> Publish';
+                }
+                showToast(data.published ? "Published!" : "Unpublished", "success");
+            }
+        } catch (err) {
+            showToast("Failed: " + err.message, "error");
+        }
+    }
+
+    async function deleteTierlist() {
+        if (!confirm("Delete this entire tierlist? This cannot be undone.")) return;
+        try {
+            await fetch("/ranking/admin/" + SLUG + "/delete", {method: "POST"});
+            window.location.href = "/ranking/admin/";
+        } catch (err) {
+            showToast("Delete failed", "error");
+        }
+    }
+
+    const UPLOAD_CONCURRENCY = 4;
+    let uploadQueue = [];
+    let activeUploads = 0;
+
+    function enqueueUpload(file, tierId) {
+        uploadQueue.push({file, tierId});
+        uploadsInFlight++;
+        updateUploadProgress();
+        drainUploadQueue();
+    }
+
+    function drainUploadQueue() {
+        while (activeUploads < UPLOAD_CONCURRENCY && uploadQueue.length > 0) {
+            const {file, tierId} = uploadQueue.shift();
+            activeUploads++;
+            doUpload(file, tierId).finally(() => {
+                activeUploads--;
+                uploadsInFlight--;
+                updateUploadProgress();
+                drainUploadQueue();
+                if (uploadsInFlight === 0 && dirty) scheduleAutoSave();
+            });
+        }
+    }
+
+    async function doUpload(file, tierId) {
+        const form = new FormData();
+        form.append("file", file);
+        if (tierId) form.append("tier_id", String(tierId));
+        try {
+            const res = await fetch("/ranking/admin/" + SLUG + "/upload", {method: "POST", body: form});
+            const entry = await res.json();
+            if (entry.id) {
+                entries.push(entry);
+                scheduleRender();
+            } else showToast("Upload failed: " + (entry.error || "unknown"), "error");
+        } catch (err) {
+            showToast("Upload failed: " + err.message, "error");
+        }
+    }
+
+    function uploadFile(file, tierId) {
+        if (!file.type.startsWith("image/")) {
+            showToast("Not an image: " + file.name, "error");
+            return;
+        }
+        enqueueUpload(file, tierId);
+    }
+
+    const uploadZone = document.getElementById("upload-zone");
+    const fileInput = document.getElementById("file-input");
+
+    uploadZone.addEventListener("click", () => fileInput.click());
+    uploadZone.addEventListener("dragover", e => {
+        e.preventDefault();
+        uploadZone.classList.add("drag-over");
+    });
+    uploadZone.addEventListener("dragleave", () => uploadZone.classList.remove("drag-over"));
+    uploadZone.addEventListener("drop", e => {
+        e.preventDefault();
+        uploadZone.classList.remove("drag-over");
+        uploadedURLs.clear();
+        if (e.dataTransfer.files.length > 0) {
+            Array.from(e.dataTransfer.files).filter(f => f.type.startsWith("image/")).forEach(f => uploadFile(f, null));
+            return;
+        }
+        const imageURLs = extractAllImageURLs(e.dataTransfer);
+        const fallback = imageURLs._fallback || null;
+        if (imageURLs.length > 0) imageURLs.forEach(u => uploadFromURL(u, null, fallback));
+    });
+    fileInput.addEventListener("change", () => {
+        Array.from(fileInput.files).forEach(f => uploadFile(f, null));
+        fileInput.value = "";
+    });
+
+    document.getElementById("tl-title").addEventListener("input", () => {
+        dirty = true;
+        document.getElementById("status-text").textContent = "Unsaved changes";
+        document.getElementById("status-text").className = "status-unsaved";
+    });
+    document.getElementById("tl-title").addEventListener("change", markDirty);
+    document.getElementById("tl-desc").addEventListener("input", () => {
+        dirty = true;
+        document.getElementById("status-text").textContent = "Unsaved changes";
+        document.getElementById("status-text").className = "status-unsaved";
+    });
+    document.getElementById("tl-desc").addEventListener("change", markDirty);
+
+    window.addEventListener("beforeunload", e => {
+        if (dirty) {
+            if (saveTimer) {
+                clearTimeout(saveTimer);
+                autoSave();
+            }
+            e.preventDefault();
+            e.returnValue = "";
+        }
+    });
+
+    function esc(s) {
+        if (!s) return "";
+        const d = document.createElement("div");
+        d.textContent = s;
+        return d.innerHTML;
+    }
+
+    setupDropZone(document.getElementById("unsorted-zone"), null);
+    render();
+</script>
+</body>
+</html>

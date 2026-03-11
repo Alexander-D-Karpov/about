@@ -1,11 +1,10 @@
 .profile-titles {
     display: flex;
-    flex-direction: column; /* title on one line, subtitle on next */
+    flex-direction: column;
     gap: 4px;
     margin: .25rem 0 .5rem;
 }
 
-/* title line */
 .profile-title {
     font-weight: 700;
 }
@@ -18,10 +17,9 @@
     color: var(--ink-2);
 }
 
-/* DevSecOps line – single word with colored segments */
 .profile-subtitle {
     font-weight: 700;
-    display: inline-block; /* no flex, so no gaps added */
+    display: inline-block;
 }
 
 .subtitle-dev {

@@ -180,3 +180,41 @@ func (p *ProjectsPlugin) RenderText(ctx context.Context) (string, error) {
 
 	return fmt.Sprintf("Projects: %s (%d total)", strings.Join(projectNames, ", "), len(projectNames)), nil
 }
+
+func (p *ProjectsPlugin) GetMetrics() map[string]interface{} {
+	config := p.storage.GetPluginConfig(p.Name())
+	projects, ok := config.Settings["projects"].([]interface{})
+
+	metrics := map[string]interface{}{
+		"total_projects":       0,
+		"projects_with_github": 0,
+		"projects_with_demo":   0,
+	}
+
+	if !ok {
+		return metrics
+	}
+
+	metrics["total_projects"] = len(projects)
+
+	githubCount := 0
+	demoCount := 0
+
+	for _, proj := range projects {
+		projMap, ok := proj.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		if github, ok := projMap["github"].(string); ok && github != "" {
+			githubCount++
+		}
+		if live, ok := projMap["live"].(string); ok && live != "" {
+			demoCount++
+		}
+	}
+
+	metrics["projects_with_github"] = githubCount
+	metrics["projects_with_demo"] = demoCount
+
+	return metrics
+}

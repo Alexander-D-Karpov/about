@@ -116,7 +116,8 @@
             zoomControl: true,
             attributionControl: true,
             minZoom: 2,
-            maxZoom: 18
+            maxZoom: 18,
+            preferCanvas: true // OPTIMIZATION: Use Canvas instead of SVGs for vector layers
         });
 
         const isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
@@ -485,4 +486,10 @@
         initialFitDone = false;
         initPlacesMap();
     };
+
+    setTimeout(() => {
+        if (map) {
+            map.invalidateSize();
+        }
+    }, 100);
 })();

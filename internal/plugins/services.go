@@ -579,3 +579,34 @@ func isInlineSVGMarkup(s string) bool {
 	// Simple check; admin-provided content only
 	return strings.HasPrefix(trim, "<svg") && strings.Contains(trim, "</svg>")
 }
+
+func (p *ServicesPlugin) GetMetrics() map[string]interface{} {
+	p.mutex.RLock()
+	defer p.mutex.RUnlock()
+
+	onlineCount := 0
+	offlineCount := 0
+	totalResponseTime := int64(0)
+
+	for _, status := range p.serviceStatuses {
+		switch status.Status {
+		case "online":
+			onlineCount++
+		case "offline":
+			offlineCount++
+		}
+		totalResponseTime += status.ResponseTime
+	}
+
+	avgResponseTime := 0.0
+	if len(p.serviceStatuses) > 0 {
+		avgResponseTime = float64(totalResponseTime) / float64(len(p.serviceStatuses))
+	}
+
+	return map[string]interface{}{
+		"online_count":         onlineCount,
+		"offline_count":        offlineCount,
+		"total_count":          len(p.serviceStatuses),
+		"avg_response_time_ms": avgResponseTime,
+	}
+}

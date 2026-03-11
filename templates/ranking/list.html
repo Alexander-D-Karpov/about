@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta content="width=device-width, initial-scale=1.0" name="viewport">
+    <title>{{.Title}}</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            background: #0a0a0a;
+            color: #e0e0e0;
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 40px 20px;
+        }
+
+        h1 {
+            font-size: 2rem;
+            margin-bottom: 8px;
+        }
+
+        .subtitle {
+            color: #888;
+            margin-bottom: 32px;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 20px;
+        }
+
+        .card {
+            background: #161616;
+            border: 1px solid #2a2a2a;
+            border-radius: 12px;
+            padding: 24px;
+            transition: border-color 0.2s, transform 0.2s;
+            text-decoration: none;
+            color: inherit;
+            display: block;
+        }
+
+        .card:hover {
+            border-color: #4a4a4a;
+            transform: translateY(-2px);
+        }
+
+        .card h2 {
+            font-size: 1.2rem;
+            margin-bottom: 8px;
+        }
+
+        .card p {
+            color: #888;
+            font-size: 0.9rem;
+            margin-bottom: 12px;
+        }
+
+        .card-meta {
+            display: flex;
+            gap: 12px;
+            font-size: 0.8rem;
+            color: #666;
+        }
+
+        .preview-tiers {
+            display: flex;
+            gap: 2px;
+            margin-bottom: 12px;
+        }
+
+        .preview-tier {
+            height: 6px;
+            flex: 1;
+            border-radius: 3px;
+        }
+
+        .empty {
+            text-align: center;
+            padding: 80px 20px;
+            color: #666;
+        }
+
+        a.back {
+            color: #6a9fff;
+            text-decoration: none;
+            display: inline-block;
+            margin-bottom: 20px;
+        }
+
+        a.back:hover {
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <a class="back" href="/">← Back</a>
+    <h1>{{.Title}}</h1>
+    <p class="subtitle">Tier rankings and lists</p>
+
+    {{if .Tierlists}}
+    <div class="grid">
+        {{range .Tierlists}}
+        <a class="card" href="/ranking/{{.Slug}}">
+            <div class="preview-tiers">
+                {{range .Tiers}}
+                <div class="preview-tier" style="background:{{.Color}}"></div>
+                {{end}}
+            </div>
+            <h2>{{.Title}}</h2>
+            {{if .Description}}<p>{{.Description}}</p>{{end}}
+            <div class="card-meta">
+                <span>{{len .Tiers}} tiers</span>
+                <span>{{len .Entries}} entries</span>
+            </div>
+        </a>
+        {{end}}
+    </div>
+    {{else}}
+    <div class="empty">
+        <p>No tier lists published yet.</p>
+    </div>
+    {{end}}
+</div>
+</body>
+</html>

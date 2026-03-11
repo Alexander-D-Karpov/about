@@ -351,3 +351,37 @@ func (p *PlacesPlugin) getFloatFromMap(m map[string]interface{}, key string, def
 	}
 	return defaultValue
 }
+
+func (p *PlacesPlugin) GetMetrics() map[string]interface{} {
+	p.mutex.RLock()
+	defer p.mutex.RUnlock()
+
+	metrics := map[string]interface{}{
+		"total_places":    0,
+		"countries_count": 0,
+		"cities_count":    0,
+	}
+
+	if len(p.places) == 0 {
+		return metrics
+	}
+
+	metrics["total_places"] = len(p.places)
+
+	countriesMap := make(map[string]bool)
+	citiesMap := make(map[string]bool)
+
+	for _, place := range p.places {
+		if place.Country != "" {
+			countriesMap[place.Country] = true
+		}
+		if place.City != "" {
+			citiesMap[place.City] = true
+		}
+	}
+
+	metrics["countries_count"] = len(countriesMap)
+	metrics["cities_count"] = len(citiesMap)
+
+	return metrics
+}

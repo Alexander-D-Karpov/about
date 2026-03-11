@@ -1,4 +1,6 @@
-.lastfm-section{position:relative}
+.lastfm-section {
+    position: relative;
+}
 
 .lastfm-stats{
     display:flex;align-items:center;justify-content:space-between;gap:12px;
@@ -12,19 +14,24 @@
 
 .track-cover-large{
     width:140px;height:140px;border-radius:14px;overflow:hidden;flex-shrink:0;
-    position:relative;box-shadow:0 4px 18px rgba(0,0,0,.4), inset 0 0 0 1px rgba(255,255,255,.08);
-    transition:transform .2s ease,box-shadow .3s ease
+    position: relative;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, .3), inset 0 0 0 1px rgba(255, 255, 255, .08);
+    transition: transform .2s ease, box-shadow .3s ease;
+    will-change: transform;
 }
 .track-cover-large:hover{
     transform:scale(1.02);
-    box-shadow:0 8px 28px rgba(0,0,0,.5), inset 0 0 0 1px rgba(255,255,255,.12)
+    box-shadow: 0 6px 18px rgba(0, 0, 0, .4), inset 0 0 0 1px rgba(255, 255, 255, .12);
 }
 .track-cover-large img{width:100%;height:100%;object-fit:cover;display:block}
 
 .track-overlay{
     position:absolute;inset:0;background:rgba(0,0,0,.6);
     display:flex;align-items:center;justify-content:center;
-    opacity:0;transition:opacity .25s ease;backdrop-filter:blur(4px)
+    opacity: 0;
+    transition: opacity .25s ease;
+    backdrop-filter: blur(4px);
+    will-change: opacity;
 }
 .track-cover-large:hover .track-overlay{opacity:1}
 
@@ -33,11 +40,13 @@
     background:rgba(122,162,255,.95);color:#fff;cursor:pointer;
     display:flex;align-items:center;justify-content:center;
     transition:transform .2s ease,background .2s ease,box-shadow .3s ease;
-    box-shadow:0 4px 16px rgba(122,162,255,.4);padding-left:4px
+    box-shadow: 0 4px 12px rgba(122, 162, 255, .4);
+    padding-left: 4px;
+    will-change: transform;
 }
 .play-btn:hover{
     transform:scale(1.08);background:var(--accent);
-    box-shadow:0 6px 24px rgba(122,162,255,.6)
+    box-shadow: 0 6px 18px rgba(122, 162, 255, .6)
 }
 .play-btn:active{transform:scale(.95)}
 
@@ -67,7 +76,8 @@
     display:flex;align-items:center;gap:10px;padding:8px 10px;
     border-radius:10px;background:rgba(255,255,255,.02);
     transition:background .2s ease,transform .15s ease;cursor:pointer;
-    box-shadow:inset 0 0 0 1px var(--edge-0)
+    box-shadow: inset 0 0 0 1px var(--edge-0);
+    will-change: transform;
 }
 .recent-track-item:hover{
     background:rgba(255,255,255,.05);transform:translateX(2px)
@@ -75,7 +85,7 @@
 
 .recent-track-cover{
     width:44px;height:44px;border-radius:8px;overflow:hidden;flex-shrink:0;
-    box-shadow:0 2px 8px rgba(0,0,0,.3), inset 0 0 0 1px rgba(255,255,255,.08)
+    box-shadow: 0 2px 6px rgba(0, 0, 0, .3), inset 0 0 0 1px rgba(255, 255, 255, .08)
 }
 .recent-track-cover img{width:100%;height:100%;object-fit:cover}
 
@@ -97,13 +107,12 @@
     display:flex;align-items:center;gap:12px;padding:12px;
     background:linear-gradient(135deg, rgba(122,162,255,.08) 0%, rgba(182,146,255,.06) 100%);
     border-radius:14px;margin-top:12px;
-    box-shadow:inset 0 0 0 1px rgba(255,255,255,.06), 0 4px 16px rgba(0,0,0,.2);
-    backdrop-filter:blur(8px)
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .06), 0 4px 12px rgba(0, 0, 0, .2);
 }
 
 .player-artwork-mini{
     width:48px;height:48px;border-radius:8px;overflow:hidden;flex-shrink:0;
-    box-shadow:0 2px 8px rgba(0,0,0,.3), inset 0 0 0 1px rgba(255,255,255,.1)
+    box-shadow: 0 2px 6px rgba(0, 0, 0, .3), inset 0 0 0 1px rgba(255, 255, 255, .1)
 }
 .player-artwork-mini img{width:100%;height:100%;object-fit:cover}
 
@@ -121,12 +130,14 @@
 .player-progress-bar{
     width:100%;height:6px;background:rgba(0,0,0,.25);border-radius:3px;
     position:relative;cursor:pointer;overflow:hidden;
-    box-shadow:inset 0 1px 3px rgba(0,0,0,.3)
+    box-shadow: inset 0 1px 2px rgba(0, 0, 0, .3)
 }
 .player-progress-fill{
     height:100%;background:linear-gradient(90deg, var(--accent) 0%, var(--accent-2) 100%);
     border-radius:3px;width:0%;transition:width .1s linear;
-    box-shadow:0 0 8px rgba(122,162,255,.4);position:relative
+    box-shadow: 0 0 6px rgba(122, 162, 255, .4);
+    position: relative;
+    will-change: width;
 }
 .player-progress-fill::after{
     content:'';position:absolute;right:0;top:0;bottom:0;width:8px;
@@ -145,21 +156,21 @@
     background:rgba(255,255,255,.08);color:var(--ink);cursor:pointer;
     display:flex;align-items:center;justify-content:center;
     transition:background .2s ease,transform .15s ease,box-shadow .2s ease;
-    box-shadow:0 2px 6px rgba(0,0,0,.2)
+    box-shadow: 0 2px 4px rgba(0, 0, 0, .2)
 }
 .player-btn:hover{
     background:rgba(255,255,255,.14);transform:scale(1.05);
-    box-shadow:0 4px 12px rgba(0,0,0,.3)
+    box-shadow: 0 3px 8px rgba(0, 0, 0, .3)
 }
 .player-btn:active{transform:scale(.95)}
 
 #player-play-pause{
     width:42px;height:42px;background:var(--accent);
-    box-shadow:0 4px 12px rgba(122,162,255,.3)
+    box-shadow: 0 3px 8px rgba(122, 162, 255, .3)
 }
 #player-play-pause:hover{
     background:color-mix(in oklab, var(--accent) 90%, white);
-    box-shadow:0 6px 18px rgba(122,162,255,.4)
+    box-shadow: 0 4px 12px rgba(122, 162, 255, .4)
 }
 
 .player-volume{
@@ -182,11 +193,12 @@
 
 .play-btn-large{
     width:64px !important;height:64px !important;
-    background:rgba(122,162,255,.95) !important;backdrop-filter:blur(8px)
+    background: rgba(122, 162, 255, .95) !important;
+    backdrop-filter: blur(4px)
 }
 .play-btn-large:hover{
     background:var(--accent) !important;
-    box-shadow:0 8px 24px rgba(122,162,255,.5) !important
+    box-shadow: 0 6px 18px rgba(122, 162, 255, .5) !important
 }
 
 #lastfm-audio-element{display:none}

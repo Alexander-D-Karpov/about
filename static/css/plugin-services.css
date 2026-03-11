@@ -57,15 +57,17 @@
     border-radius: 12px;
     background: var(--paper);
     box-shadow: inset 0 0 0 1px var(--edge-0);
-    transition: transform .18s cubic-bezier(.2,.8,.2,1), box-shadow .2s ease, background .2s ease;
+    transition: transform .18s cubic-bezier(.2, .8, .2, 1), box-shadow .2s ease;
     cursor: pointer;
     overflow: hidden;
     isolation: isolate;
+    will-change: transform;
 }
 
 .service-item:hover {
     transform: translateY(-2px);
-    box-shadow: inset 0 0 0 1px var(--edge-1), 0 6px 22px rgba(0,0,0,.28);
+    /* Reduced shadow size */
+    box-shadow: inset 0 0 0 1px var(--edge-1), 0 4px 12px rgba(0, 0, 0, .25);
 }
 
 .service-head {
@@ -179,9 +181,10 @@
 .chip-skeleton::before {
     content: ""; position: absolute; inset: 0; border-radius: inherit;
     background: linear-gradient(90deg, rgba(255,255,255,.06) 0%, rgba(255,255,255,.12) 40%, rgba(255,255,255,.06) 80%);
-    background-size: 200% 100%; animation: shimmer 1.2s linear infinite;
+    background-size: 200% 100%;
+    /* Removed animation for perf */
+    opacity: 0.5;
 }
-@keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
 
 .services-summary {
     display: grid;

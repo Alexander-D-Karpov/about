@@ -104,6 +104,7 @@ func (h *Handler) dashboard(w http.ResponseWriter, r *http.Request) {
 	allPlugins := h.pluginManager.GetAllPlugins()
 
 	var pluginList []PluginData
+
 	descriptions := map[string]string{
 		"profile":    "User profile information with bio, name, and image",
 		"social":     "Social media links and contact information",
@@ -122,6 +123,7 @@ func (h *Handler) dashboard(w http.ResponseWriter, r *http.Request) {
 		"meme":       "Random meme display for entertainment",
 		"places":     "Map of visited places with coordinates and details",
 		"health":     "Health Connect stats via HCGateway API (steps, calories, sleep, etc.)",
+		"photos":     "Photo gallery with folder previews from photos.akarpov.ru",
 	}
 
 	for name := range allPlugins {
@@ -392,14 +394,22 @@ func (h *Handler) updatePluginsAPI(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) updatePluginAPI(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
 	if err := r.ParseMultipartForm(32 << 20); err != nil {
-		http.Error(w, "Failed to parse form: "+err.Error(), http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Failed to parse form: " + err.Error(),
+		})
 		return
 	}
 
 	pluginName := r.FormValue("plugin")
 	if pluginName == "" {
-		http.Error(w, "Plugin name required", http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Plugin name required",
+		})
 		return
 	}
 
@@ -409,12 +419,14 @@ func (h *Handler) updatePluginAPI(w http.ResponseWriter, r *http.Request) {
 	settings := make(map[string]interface{})
 	if settingsJSON := r.FormValue("settings"); settingsJSON != "" {
 		if err := json.Unmarshal([]byte(settingsJSON), &settings); err != nil {
-			http.Error(w, "Invalid settings JSON: "+err.Error(), http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"error":   "Invalid settings JSON: " + err.Error(),
+			})
 			return
 		}
 	}
 
-	// Process file uploads
 	if r.MultipartForm != nil && r.MultipartForm.File != nil {
 		for fieldName, files := range r.MultipartForm.File {
 			if len(files) > 0 {
@@ -423,7 +435,6 @@ func (h *Handler) updatePluginAPI(w http.ResponseWriter, r *http.Request) {
 				if err != nil {
 					fmt.Printf("File upload error for %s: %v\n", fieldName, err)
 				} else {
-					// Update the settings with the uploaded file URL
 					h.setNestedValue(settings, fieldName, uploadedURL)
 				}
 			}
@@ -437,7 +448,10 @@ func (h *Handler) updatePluginAPI(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.storage.SetPluginConfig(pluginName, config); err != nil {
-		http.Error(w, "Failed to save configuration: "+err.Error(), http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Failed to save configuration: " + err.Error(),
+		})
 		return
 	}
 
@@ -460,8 +474,6 @@ func (h *Handler) updatePluginAPI(w http.ResponseWriter, r *http.Request) {
 		"enabled": enabled,
 	})
 
-	// Return the updated settings
-	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"success":  true,
 		"message":  fmt.Sprintf("Plugin %s updated successfully", pluginName),

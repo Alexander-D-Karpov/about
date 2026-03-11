@@ -158,3 +158,14 @@ func (p *NeofetchPlugin) get(m map[string]interface{}, k, d string) string {
 	}
 	return d
 }
+
+func (p *NeofetchPlugin) GetMetrics() map[string]interface{} {
+	cfg := p.storage.GetPluginConfig(p.Name())
+	count := 0
+	if rawMachines, ok := cfg.Settings["machines"].([]interface{}); ok {
+		count = len(rawMachines)
+	}
+	return map[string]interface{}{
+		"machines_count": count,
+	}
+}

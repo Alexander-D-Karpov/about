@@ -312,3 +312,27 @@ func (p *MemePlugin) RenderText(ctx context.Context) (string, error) {
 func (p *MemePlugin) GetCurrentMeme() *Meme {
 	return p.currentMeme
 }
+
+func (p *MemePlugin) GetMetrics() map[string]interface{} {
+	config := p.storage.GetPluginConfig(p.Name())
+	memes, ok := config.Settings["memes"].([]interface{})
+
+	metrics := map[string]interface{}{
+		"total_memes": 0,
+		"shown_memes": 0,
+		"has_current": 0,
+	}
+
+	if ok {
+		metrics["total_memes"] = len(memes)
+	}
+
+	p.mutex.RLock()
+	metrics["shown_memes"] = len(p.shownMemes)
+	if p.currentMeme != nil {
+		metrics["has_current"] = 1
+	}
+	p.mutex.RUnlock()
+
+	return metrics
+}

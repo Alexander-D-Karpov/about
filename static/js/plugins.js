@@ -61,55 +61,34 @@
         setupRecentTracksHandlers(lastFMSection);
     }
 
-    function setupRecentTracksHandlers(lastFMSection) {
-        if (!lastFMSection) return;
+    function setupRecentTracksHandlers(section) {
+        if (!section) return;
 
-        const trackItems = lastFMSection.querySelectorAll('.recent-track-item');
+        section.querySelectorAll('.recent-track-item').forEach(item => {
+            if (item.dataset.lastfmBound === '1') return;
+            item.dataset.lastfmBound = '1';
 
-        trackItems.forEach(trackItem => {
-            if (trackItem.dataset.handlerAttached === 'true') {
+            if (item.classList.contains('now-playing')) {
+                item.style.cursor = 'default';
                 return;
             }
 
-            if (trackItem.classList.contains('now-playing')) {
-                trackItem.style.cursor = 'default';
-                trackItem.dataset.handlerAttached = 'true';
+            const trackName = item.querySelector('.recent-track-name')?.textContent?.replace(' 🎵', '').trim() || '';
+            const trackArtist = item.querySelector('.recent-track-artist')?.textContent?.trim() || '';
+
+            if (!trackName || !trackArtist || !window.playTrack) {
+                item.style.cursor = 'default';
                 return;
             }
 
-            trackItem.style.cursor = 'pointer';
+            item.style.cursor = 'pointer';
 
-            const trackNameEl = trackItem.querySelector('.recent-track-name');
-            const trackArtistEl = trackItem.querySelector('.recent-track-artist');
-
-            if (!trackNameEl || !trackArtistEl) return;
-
-            const trackName = trackNameEl.textContent.replace(' 🎵', '').trim();
-            const trackArtist = trackArtistEl.textContent.trim();
-
-            const clickHandler = function (e) {
-                e.preventDefault();
-                e.stopPropagation();
-
-                if (trackName && trackArtist && window.playTrack) {
-                    const searchQuery = `${trackArtist} ${trackName}`;
-                    window.playTrack(searchQuery);
-                }
-            };
-
-            trackItem.addEventListener('click', clickHandler);
-
-            trackItem.addEventListener('mouseenter', () => {
-                trackItem.style.background = 'rgba(255,255,255,.024)';
+            item.addEventListener('click', function () {
+                window.playTrack(`${trackArtist} ${trackName}`);
             });
-
-            trackItem.addEventListener('mouseleave', () => {
-                trackItem.style.background = '';
-            });
-
-            trackItem.dataset.handlerAttached = 'true';
         });
     }
+
 
     function initVisitorsInteractions() {
         const visitorsSection = $('.visitors-section');

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/Alexander-D-Karpov/about/internal/config"
+	"github.com/Alexander-D-Karpov/about/internal/metrics"
 	"github.com/Alexander-D-Karpov/about/internal/storage"
 	"github.com/Alexander-D-Karpov/about/internal/stream"
 )
@@ -25,25 +26,35 @@ type Plugin interface {
 }
 
 type Manager struct {
-	plugins        map[string]Plugin
-	storage        *storage.Storage
-	hub            *stream.Hub
-	config         *config.Config
-	mutex          sync.RWMutex
-	renderedCache  map[string]template.HTML
-	cacheTimestamp time.Time
-	lastUpdate     time.Time
-	appStartTime   time.Time
+	plugins          map[string]Plugin
+	storage          *storage.Storage
+	hub              *stream.Hub
+	config           *config.Config
+	mutex            sync.RWMutex
+	renderedCache    map[string]template.HTML
+	cacheTimestamp   time.Time
+	lastUpdate       time.Time
+	appStartTime     time.Time
+	prometheusClient *metrics.PrometheusClient
 }
 
 func NewManager(storage *storage.Storage, hub *stream.Hub, config *config.Config, appStartTime time.Time) *Manager {
+	prometheusClient := metrics.NewPrometheusClient(
+		config.PrometheusPushGateway,
+		config.PrometheusQueryURL,
+		config.PrometheusUser,
+		config.PrometheusPassword,
+		config.PrometheusJobName,
+	)
+
 	return &Manager{
-		plugins:       make(map[string]Plugin),
-		storage:       storage,
-		hub:           hub,
-		config:        config,
-		renderedCache: make(map[string]template.HTML),
-		appStartTime:  appStartTime,
+		plugins:          make(map[string]Plugin),
+		storage:          storage,
+		hub:              hub,
+		config:           config,
+		renderedCache:    make(map[string]template.HTML),
+		appStartTime:     appStartTime,
+		prometheusClient: prometheusClient,
 	}
 }
 
@@ -53,6 +64,9 @@ func (m *Manager) LoadAll() error {
 		m.InvalidatePluginCache("beatleader")
 	})
 
+	lastfmPlugin := NewLastFMPlugin(m.storage, m.hub, m.config.LastFMKey)
+	lastfmPlugin.SetPluginManager(m)
+
 	plugins := []Plugin{
 		NewProfilePlugin(m.storage, m.hub),
 		NewSocialPlugin(m.storage, m.hub),
@@ -60,7 +74,7 @@ func (m *Manager) LoadAll() error {
 		NewProjectsPlugin(m.storage, m.hub),
 		NewNeofetchPlugin(m.storage, m.hub),
 		NewWebringPlugin(m.storage, m.hub),
-		NewLastFMPlugin(m.storage, m.hub, m.config.LastFMKey),
+		lastfmPlugin,
 		beatLeaderPlugin,
 		NewSteamPlugin(m.storage, m.hub, m.config.SteamKey),
 		NewVisitorsPlugin(m.storage, m.hub, m.config.DataPath),
@@ -71,6 +85,7 @@ func (m *Manager) LoadAll() error {
 		NewMemePlugin(m.storage, m.hub),
 		NewPlacesPlugin(m.storage, m.hub),
 		NewHealthPlugin(m.storage, m.hub, m.config.HCGatewayURL, m.config.HCGatewayUser, m.config.HCGatewayPassword),
+		NewPhotosPlugin(m.storage, m.hub),
 	}
 
 	m.mutex.Lock()
@@ -78,9 +93,24 @@ func (m *Manager) LoadAll() error {
 
 	for _, plugin := range plugins {
 		m.plugins[plugin.Name()] = plugin
+
+		if provider, ok := plugin.(metrics.MetricsProvider); ok {
+			m.prometheusClient.RegisterProvider(provider)
+		}
 	}
 
 	return nil
+}
+
+func (m *Manager) StartPrometheusMetrics(ctx context.Context) {
+	if m.prometheusClient.IsEnabled() {
+		interval := time.Duration(m.config.PrometheusPushInterval) * time.Second
+		go m.prometheusClient.StartPeriodicPush(ctx, interval)
+	}
+}
+
+func (m *Manager) GetPrometheusClient() *metrics.PrometheusClient {
+	return m.prometheusClient
 }
 
 func (m *Manager) PreloadData() error {
@@ -202,13 +232,11 @@ func (m *Manager) GetRenderedPlugins(ctx context.Context) []template.HTML {
 
 		pluginName := plugin.Name()
 
-		// Check if we have a cached version first
 		m.mutex.RLock()
 		cachedRender, hasCached := m.renderedCache[pluginName]
 		cacheAge := time.Since(m.cacheTimestamp)
 		m.mutex.RUnlock()
 
-		// Real-time plugins always render fresh
 		if pluginName == "meme" || pluginName == "info" || pluginName == "visitors" || pluginName == "services" {
 			rendered := m.renderPluginWithTimeout(plugin, ctx, 1500*time.Millisecond)
 			if rendered != "" {
@@ -217,19 +245,16 @@ func (m *Manager) GetRenderedPlugins(ctx context.Context) []template.HTML {
 			continue
 		}
 
-		// For static plugins, use cache if recent and available
 		if hasCached && !m.cacheTimestamp.IsZero() && cacheAge < 3*time.Minute {
 			renderedPlugins = append(renderedPlugins, cachedRender)
 			continue
 		}
 
-		// Cache miss or stale - render fresh
 		rendered := m.renderPluginWithTimeout(plugin, ctx, 2000*time.Millisecond)
 		if rendered != "" {
 			renderedHTML := template.HTML(rendered)
 			renderedPlugins = append(renderedPlugins, renderedHTML)
 
-			// Cache the result
 			m.mutex.Lock()
 			m.renderedCache[pluginName] = renderedHTML
 			if m.cacheTimestamp.IsZero() {
@@ -537,28 +562,23 @@ func (m *Manager) InvalidateCache() {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
-	// Clear rendered cache
 	m.renderedCache = make(map[string]template.HTML)
 	m.cacheTimestamp = time.Time{}
 
-	// Force immediate re-preloading of data
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 
-		// Update all plugin data
 		m.UpdateExternalData()
-
-		// Pre-render plugins again
 		m.preRenderPlugins(ctx)
 
-		// Broadcast that cache has been refreshed
 		m.hub.Broadcast("cache_refreshed", map[string]interface{}{
 			"timestamp": time.Now().Unix(),
 			"action":    "invalidated_and_refreshed",
 		})
 	}()
 }
+
 func (m *Manager) UpdateExternalDataBackground() {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
@@ -586,7 +606,6 @@ func (m *Manager) UpdateExternalDataBackground() {
 			continue
 		}
 
-		// Skip real-time plugins in background updates
 		if plugin.Name() == "info" || plugin.Name() == "visitors" {
 			continue
 		}
@@ -600,7 +619,6 @@ func (m *Manager) UpdateExternalDataBackground() {
 				}
 			}()
 
-			// Shorter timeout for background updates to avoid blocking
 			pluginCtx, pluginCancel := context.WithTimeout(ctx, 20*time.Second)
 			defer pluginCancel()
 
@@ -647,7 +665,6 @@ func (m *Manager) UpdateExternalDataBackground() {
 	}
 
 cleanup:
-	// Drain remaining results quickly
 	drainTimeout := time.After(2 * time.Second)
 	for completed < activeUpdates {
 		select {
@@ -663,27 +680,21 @@ cleanup:
 		}
 	}
 
-	// DON'T invalidate cache in background updates to avoid disrupting main requests
-	// Only update cache timestamp if we had some successes
 	if len(successfulPlugins) > 0 {
 		go func() {
-			// Pre-render successful plugins in background
 			bgCtx, bgCancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer bgCancel()
 
 			m.mutex.Lock()
-			// Only clear cache for plugins that were successfully updated
 			for _, pluginName := range successfulPlugins {
 				delete(m.renderedCache, pluginName)
 			}
 			m.mutex.Unlock()
 
-			// Pre-render in background without blocking anything
 			m.preRenderPluginsSelective(bgCtx, successfulPlugins)
 		}()
 	}
 
-	// Only broadcast if we have meaningful updates and no context cancellation
 	select {
 	case <-ctx.Done():
 		log.Printf("Skipping background update WebSocket broadcast due to context cancellation")
@@ -726,7 +737,6 @@ func (m *Manager) preRenderPluginsSelective(ctx context.Context, pluginNames []s
 			continue
 		}
 
-		// Skip real-time plugins
 		if plugin.Name() == "meme" || plugin.Name() == "info" || plugin.Name() == "visitors" || plugin.Name() == "services" {
 			continue
 		}

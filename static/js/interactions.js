@@ -215,17 +215,8 @@
         const techSection = document.querySelector('.tech-section, .tech-section.plugin, .plugin.tech-section');
         const projectsSection = document.querySelector('.projects-section, .projects-section.plugin, .plugin.projects-section');
 
-        if (!techSection) {
-            console.warn('Tech section not found. Available sections:',
-                Array.from(document.querySelectorAll('[class*="section"]')).map(el => el.className));
-            return;
-        }
-
-        if (!projectsSection) {
-            console.warn('Projects section not found. Available sections:',
-                Array.from(document.querySelectorAll('[class*="section"]')).map(el => el.className));
-            return;
-        }
+        if (!techSection) return;
+        if (!projectsSection) return;
 
         techSection.querySelectorAll('.tech-item').forEach(item => {
             if (item.dataset.techFilterAttached === '1') return;
@@ -235,10 +226,7 @@
                 item.title ||
                 item.querySelector('img')?.alt || '';
 
-            if (!name) {
-                console.warn('Tech item without name found:', item);
-                return;
-            }
+            if (!name) return;
 
             item.style.cursor = 'pointer';
 
@@ -250,17 +238,7 @@
                 applyTechFilter(name);
             }, {passive: false});
 
-            item.addEventListener('mouseenter', () => {
-                if (!item.classList.contains('filtered')) {
-                    item.style.transform = 'translateY(-2px)';
-                }
-            });
-
-            item.addEventListener('mouseleave', () => {
-                if (!item.classList.contains('filtered')) {
-                    item.style.transform = '';
-                }
-            });
+            // Replaced JS hover with CSS for performance
         });
 
         projectsSection.querySelectorAll('.tech-tag').forEach(tag => {
@@ -274,8 +252,6 @@
                 e.stopPropagation();
 
                 const name = tag.textContent.trim();
-                console.log(`Tech tag clicked: ${name}`);
-
                 currentFilter = name;
 
                 projectsSection.scrollIntoView({
@@ -287,32 +263,10 @@
                     applyTechFilter(name);
                 }, 300);
             }, {passive: false});
-
-            tag.addEventListener('mouseenter', () => {
-                tag.style.transform = 'scale(1.05)';
-            });
-
-            tag.addEventListener('mouseleave', () => {
-                tag.style.transform = 'scale(1)';
-            });
         });
 
         if (!window.applyTechFilter) window.applyTechFilter = applyTechFilter;
         if (!window.clearTechFilter) window.clearTechFilter = clearTechFilter;
-    }
-
-    function initSteamHover(){
-        const sec = $('.steam-section'); if (!sec) return;
-        $$('.game-item', sec).forEach(item => {
-            item.style.cursor = 'default';
-            item.addEventListener('mouseenter', () => {
-                item.style.transform = 'translateY(-2px)';
-                item.style.boxShadow = '0 4px 12px rgba(0,0,0,.25)';
-            });
-            item.addEventListener('mouseleave', () => {
-                item.style.transform = ''; item.style.boxShadow = '';
-            });
-        });
     }
 
     function initCodeToggles(){
@@ -348,8 +302,6 @@
                 if (window.mosaicUtils) {
                     window.mosaicUtils.resizeAll();
                     setTimeout(() => window.mosaicUtils.resizeAll(), 50);
-                    setTimeout(() => window.mosaicUtils.resizeAll(), 150);
-                    setTimeout(() => window.mosaicUtils.resizeAll(), 350);
                 }
             }, { passive: false });
         });
@@ -359,8 +311,7 @@
         const sec = $('.lastfm-section'); if (!sec) return;
         $$('.recent-track-item', sec).forEach(item => {
             item.style.cursor = 'pointer';
-            on(item, 'mouseenter', () => item.style.background = 'rgba(255,255,255,.024)');
-            on(item, 'mouseleave', () => item.style.background = '');
+            // Hover handled by CSS
             on(item, 'click', () => {
                 const t = $('.recent-track-name', item)?.textContent || '';
                 const a = $('.recent-track-artist', item)?.textContent || '';
@@ -394,7 +345,6 @@
                     btn.title = 'Random Meme';
                     btn.setAttribute('aria-label', 'Get random meme');
 
-                    // Create SVG icon for dice
                     const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
                     svg.setAttribute('viewBox', '0 0 24 24');
                     svg.setAttribute('width', '16');
@@ -408,29 +358,32 @@
             }
         }
 
-        if (btn){
-            if (btn.hasAttribute('onclick')) btn.removeAttribute('onclick');
-            if (btn.dataset.listenerAttached !== '1'){
-                btn.dataset.listenerAttached = '1';
-                btn.addEventListener('click', (e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
+        if (btn && btn.dataset.listenerAttached !== '1') {
+            btn.dataset.listenerAttached = '1';
 
-                    // Add loading state
-                    const originalHTML = btn.innerHTML;
-                    btn.disabled = true;
-                    btn.innerHTML = '<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" class="loading"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2" fill="none" opacity="0.25"/><path d="M12 2a10 10 0 0 1 10 10" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/></svg>';
+            btn.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
 
-                    if (typeof window.refreshMeme === 'function') {
-                        window.refreshMeme();
+                if (btn.disabled) return;
 
-                        setTimeout(() => {
-                            btn.disabled = false;
-                            btn.innerHTML = originalHTML;
-                        }, 1500);
+                btn.disabled = true;
+                const svg = btn.querySelector('svg');
+                if (svg) {
+                    svg.style.animation = 'spin 0.8s linear infinite';
+                }
+
+                if (typeof window.refreshMeme === 'function') {
+                    window.refreshMeme();
+                }
+
+                setTimeout(() => {
+                    btn.disabled = false;
+                    if (svg) {
+                        svg.style.animation = '';
                     }
-                }, { passive: false });
-            }
+                }, 1500);
+            }, {passive: false});
         }
 
         const content = sec.querySelector('.meme-content');
@@ -456,12 +409,7 @@
                 });
             }
 
-            card.addEventListener('mouseenter', () => {
-                if (!overlay) card.style.transform = 'translateY(-1px)';
-            });
-            card.addEventListener('mouseleave', () => {
-                if (!overlay) card.style.transform = '';
-            });
+            // Hover handled by CSS
 
             if (!overlay) {
                 card.style.cursor = 'pointer';
@@ -654,11 +602,8 @@
 
                 if (!techSection || !projectsSection) {
                     if (attempt < 20) {
-                        console.log(`Waiting for sections... (attempt ${attempt + 1})`);
                         setTimeout(() => waitForSections(attempt + 1), 100);
                         return;
-                    } else {
-                        console.warn('Sections not found after 20 attempts');
                     }
                 }
 
@@ -667,8 +612,7 @@
 
                     initTechFiltering();
                     initCodeToggles();
-                    initSteamHover();
-                    initLastFM();
+                    initLastFM(); // Hover handled by CSS now, click handled here
                     initMeme();
                     initVisitors();
                     initServices();

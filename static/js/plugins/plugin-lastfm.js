@@ -13,19 +13,16 @@
 
             item.style.cursor = 'pointer';
 
-            item.addEventListener('mouseenter', () => {
-                item.style.background = 'rgba(255,255,255,.024)';
-            });
-
-            item.addEventListener('mouseleave', () => {
-                item.style.background = '';
-            });
 
             item.addEventListener('click', () => {
-                const name = item.querySelector('.recent-track-name')?.textContent?.replace(' 🎵', '').trim();
-                const artist = item.querySelector('.recent-track-artist')?.textContent?.trim();
-                if (name && artist && window.playTrack) {
-                    window.playTrack(`${artist} ${name}`);
+                const nameEl = item.querySelector('.recent-track-name');
+                const artistEl = item.querySelector('.recent-track-artist');
+
+                if (nameEl && artistEl && window.playTrack) {
+                    const name = nameEl.textContent.replace(' 🎵', '').trim();
+                    const artist = artistEl.textContent.trim();
+
+                    window.playTrack({artist: artist, track: name});
                 }
             });
         });

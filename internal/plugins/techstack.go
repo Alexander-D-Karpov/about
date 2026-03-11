@@ -189,3 +189,18 @@ func (p *TechStackPlugin) getConfigValue(settings map[string]interface{}, s stri
 	}
 	return s2
 }
+
+func (p *TechStackPlugin) GetMetrics() map[string]interface{} {
+	config := p.storage.GetPluginConfig(p.Name())
+	techs, ok := config.Settings["technologies"].([]interface{})
+
+	metrics := map[string]interface{}{
+		"total_technologies": 0,
+	}
+
+	if ok {
+		metrics["total_technologies"] = len(techs)
+	}
+
+	return metrics
+}

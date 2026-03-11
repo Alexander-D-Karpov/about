@@ -527,3 +527,13 @@ func (p *VisitorsPlugin) testDayTransition() {
 		}
 	}
 }
+
+func (p *VisitorsPlugin) GetMetrics() map[string]interface{} {
+	p.mutex.RLock()
+	defer p.mutex.RUnlock()
+
+	return map[string]interface{}{
+		"total_visits": p.visitCount,
+		"today_visits": p.todayCount,
+	}
+}

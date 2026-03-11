@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta content="width=device-width, initial-scale=1.0" name="viewport">
+    <title>{{.Title}}</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            background: #0a0a0a;
+            color: #e0e0e0;
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 40px 20px;
+        }
+
+        h1 {
+            font-size: 1.8rem;
+            margin-bottom: 24px;
+        }
+
+        a.back {
+            color: #6a9fff;
+            text-decoration: none;
+            display: inline-block;
+            margin-bottom: 20px;
+        }
+
+        a.back:hover {
+            text-decoration: underline;
+        }
+
+        .create-form {
+            display: flex;
+            gap: 12px;
+            margin-bottom: 32px;
+        }
+
+        .create-form input {
+            flex: 1;
+            padding: 10px 14px;
+            background: #1a1a1a;
+            border: 1px solid #333;
+            border-radius: 8px;
+            color: #e0e0e0;
+            font-size: 0.95rem;
+        }
+
+        .create-form input:focus {
+            outline: none;
+            border-color: #6a9fff;
+        }
+
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            font-weight: 600;
+        }
+
+        .btn-primary {
+            background: #6a9fff;
+            color: #000;
+        }
+
+        .btn-primary:hover {
+            background: #5a8fee;
+        }
+
+        .list {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 16px 20px;
+            background: #161616;
+            border: 1px solid #2a2a2a;
+            border-radius: 8px;
+        }
+
+        .item:hover {
+            border-color: #3a3a3a;
+        }
+
+        .item-info {
+            flex: 1;
+        }
+
+        .item-info h3 {
+            font-size: 1rem;
+            margin-bottom: 4px;
+        }
+
+        .item-info h3 a {
+            color: #e0e0e0;
+            text-decoration: none;
+        }
+
+        .item-info h3 a:hover {
+            color: #6a9fff;
+        }
+
+        .item-meta {
+            font-size: 0.8rem;
+            color: #666;
+            display: flex;
+            gap: 12px;
+        }
+
+        .badge {
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+
+        .badge-pub {
+            background: #1a3a1a;
+            color: #4caf50;
+        }
+
+        .badge-draft {
+            background: #3a3a1a;
+            color: #ff9800;
+        }
+
+        .item-actions {
+            display: flex;
+            gap: 8px;
+        }
+
+        .btn-sm {
+            padding: 6px 14px;
+            font-size: 0.8rem;
+            border-radius: 6px;
+            border: 1px solid #333;
+            background: #1a1a1a;
+            color: #e0e0e0;
+            cursor: pointer;
+            text-decoration: none;
+        }
+
+        .btn-sm:hover {
+            border-color: #555;
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <a class="back" href="/admin">← Admin Panel</a>
+    <h1>{{.Title}}</h1>
+
+    <form action="/ranking/admin/create" class="create-form" method="POST">
+        <input name="title" placeholder="New tierlist title..." required type="text">
+        <button class="btn btn-primary" type="submit">Create</button>
+    </form>
+
+    <div class="list">
+        {{range .Tierlists}}
+        <div class="item">
+            <div class="item-info">
+                <h3>
+                    <a href="/ranking/admin/{{.Slug}}">{{.Title}}</a>
+                    {{if .Published}}<span class="badge badge-pub">Published</span>{{else}}<span
+                        class="badge badge-draft">Draft</span>{{end}}
+                </h3>
+                <div class="item-meta">
+                    <span>/ranking/{{.Slug}}</span>
+                    <span>{{len .Tiers}} tiers</span>
+                    <span>{{len .Entries}} entries</span>
+                </div>
+            </div>
+            <div class="item-actions">
+                <a class="btn-sm" href="/ranking/admin/{{.Slug}}">Edit</a>
+                {{if .Published}}<a class="btn-sm" href="/ranking/{{.Slug}}" target="_blank">View</a>{{end}}
+            </div>
+        </div>
+        {{end}}
+    </div>
+</div>
+</body>
+</html>

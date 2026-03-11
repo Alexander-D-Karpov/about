@@ -10,7 +10,6 @@
     function initCustomMusicPlayer() {
         if (musicPlayerInitialized) return;
         musicPlayerInitialized = true;
-
         customAudioElement = document.getElementById('lastfm-audio-element');
         if (!customAudioElement) return;
 
@@ -67,13 +66,26 @@
         playTrack(searchQuery);
     }
 
-    async function playTrack(searchQuery) {
+    async function playTrack(searchInfo) {
         if (isLoadingTrack) return;
-
         isLoadingTrack = true;
+
+        let searchQuery = "";
+        let trackDetails = {};
+
+        if (typeof searchInfo === 'string') {
+            searchQuery = searchInfo;
+        } else if (typeof searchInfo === 'object' && searchInfo !== null) {
+            searchQuery = `${searchInfo.artist} - ${searchInfo.track}`;
+            trackDetails = searchInfo;
+        }
+
+        console.log('Playing track query:', searchQuery);
+
         try {
             const url = new URL('https://new.akarpov.ru/api/v1/music/search/');
             url.searchParams.append('query', searchQuery);
+
             const response = await fetch(url);
             if (!response.ok) throw new Error('Search failed');
             const data = await response.json();
@@ -83,7 +95,20 @@
                 return;
             }
 
-            const track = data.songs[0];
+            let track = data.songs[0];
+            if (trackDetails.artist && trackDetails.track && data.songs.length > 1) {
+                const targetArtist = trackDetails.artist.toLowerCase();
+                const targetTrack = trackDetails.track.toLowerCase();
+
+                const exactMatch = data.songs.find(s =>
+                    s.name.toLowerCase() === targetTrack &&
+                    s.authors.some(a => a.name.toLowerCase() === targetArtist)
+                );
+
+                if (exactMatch) {
+                    track = exactMatch;
+                }
+            }
 
             let imageURL = track.image_cropped || '';
             if (imageURL && !imageURL.startsWith('http')) {

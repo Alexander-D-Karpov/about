@@ -118,7 +118,6 @@
                     clientCountRequestTimeout = null;
                 }
 
-                // Don't change status if we're showing goodbye
                 if (isGoodbye) {
                     return;
                 }
@@ -325,6 +324,7 @@
         return 0;
     }
 
+
     function handleMessage(message) {
         try {
             switch (message.type) {
@@ -372,8 +372,11 @@
                 case 'plugin_update':
                     handlePluginUpdate(message.data);
                     break;
+                case 'plugin_rendered':
+                    handlePluginRendered(message.data);
+                    break;
                 case 'health_update':
-                    updateHealthDisplay(data);
+                    updateHealthDisplay(message.data);
                     break;
                 case 'plugins_updated':
                     setTimeout(() => {
@@ -392,52 +395,243 @@
                     onHeartbeatResponse();
                     break;
                 default:
-                    console.debug('Unknown message type:', message.type);
+                    break;
             }
         } catch (e) {
             console.error('Error handling message:', message, e);
         }
     }
 
+    function handlePluginRendered(data) {
+        if (!data || !data.plugin || !data.rendered) return;
+
+        if (data.plugin === 'meme') {
+            return;
+        }
+
+        if (data.plugin === 'lastfm') {
+            updateLastFMFromRendered(data.rendered);
+            return;
+        }
+
+        let section = document.querySelector(`.${data.plugin}-section`);
+        if (!section) {
+            section = document.querySelector(`[data-plugin="${data.plugin}"]`);
+        }
+
+        if (section) {
+            const prevHeight = section.offsetHeight;
+            section.style.minHeight = prevHeight + 'px';
+
+            section.outerHTML = data.rendered;
+
+            const newSection = document.querySelector(`.${data.plugin}-section`) ||
+                document.querySelector(`[data-plugin="${data.plugin}"]`);
+
+            if (newSection) {
+                if (typeof window.initTechFiltering === 'function' && data.plugin === 'techstack') {
+                    window.initTechFiltering();
+                } else if (typeof window.initCodeToggles === 'function' && data.plugin === 'code') {
+                    window.initCodeToggles();
+                }
+
+                requestAnimationFrame(() => {
+                    newSection.style.minHeight = '';
+                    animateUpdate(newSection);
+
+                    if (window.mosaicUtils && window.mosaicUtils.observe) {
+                        window.mosaicUtils.observe(newSection);
+                    }
+
+                    if (window.mosaicUtils) {
+                        window.mosaicUtils.resizeAll();
+                    }
+                });
+            }
+        }
+    }
+
+    function updateLastFMFromRendered(renderedHTML) {
+        const section = document.querySelector('.lastfm-section');
+        if (!section) return;
+
+        const temp = document.createElement('div');
+        temp.innerHTML = renderedHTML;
+        const newSection = temp.querySelector('.lastfm-section');
+        if (!newSection) return;
+
+        const trackTitle = newSection.querySelector('.track-title, .track-name');
+        const trackArtist = newSection.querySelector('.track-artist');
+        const trackAlbum = newSection.querySelector('.track-album');
+        const coverImg = newSection.querySelector('.track-cover-large img');
+        const statusText = newSection.querySelector('.status-text');
+        const scrobblesText = newSection.querySelector('.scrobbles-text');
+
+        const currentTrackTitle = section.querySelector('.track-title, .track-name');
+        const currentTrackArtist = section.querySelector('.track-artist');
+        const currentTrackAlbum = section.querySelector('.track-album');
+        const currentCoverImg = section.querySelector('.track-cover-large img');
+        const currentStatusText = section.querySelector('.status-text');
+        const currentScrobblesText = section.querySelector('.scrobbles-text');
+
+        if (currentTrackTitle && trackTitle) {
+            currentTrackTitle.textContent = trackTitle.textContent;
+        }
+        if (currentTrackArtist && trackArtist) {
+            currentTrackArtist.textContent = trackArtist.textContent;
+        }
+        if (currentTrackAlbum && trackAlbum) {
+            currentTrackAlbum.textContent = trackAlbum.textContent;
+        }
+        if (currentCoverImg && coverImg && coverImg.src) {
+            loadImageSmoothly(currentCoverImg, coverImg.src);
+        }
+        if (currentStatusText && statusText) {
+            currentStatusText.textContent = statusText.textContent;
+            const statusContainer = currentStatusText.closest('.track-status');
+            const newStatusContainer = statusText.closest('.track-status');
+            if (statusContainer && newStatusContainer) {
+                if (newStatusContainer.classList.contains('now-playing')) {
+                    statusContainer.classList.add('now-playing');
+                } else {
+                    statusContainer.classList.remove('now-playing');
+                }
+            }
+        }
+        if (currentScrobblesText && scrobblesText) {
+            currentScrobblesText.textContent = scrobblesText.textContent;
+        }
+
+        const newRecentList = newSection.querySelector('.recent-tracks-list');
+        const currentRecentList = section.querySelector('.recent-tracks-list');
+        if (newRecentList && currentRecentList) {
+            const newItems = newRecentList.querySelectorAll('.recent-track-item');
+            const currentItems = currentRecentList.querySelectorAll('.recent-track-item');
+
+            let needsUpdate = newItems.length !== currentItems.length;
+            if (!needsUpdate) {
+                for (let i = 0; i < newItems.length; i++) {
+                    const newName = newItems[i].querySelector('.recent-track-name')?.textContent || '';
+                    const currentName = currentItems[i].querySelector('.recent-track-name')?.textContent || '';
+                    if (newName !== currentName) {
+                        needsUpdate = true;
+                        break;
+                    }
+                }
+            }
+
+            if (needsUpdate) {
+                currentRecentList.innerHTML = newRecentList.innerHTML;
+                setupRecentTracksHandlers(section);
+            }
+        }
+    }
+
+    function initMemeAfterRender(section) {
+        const btn = section.querySelector('.meme-refresh-btn');
+        if (btn && !btn.dataset.listenerAttached) {
+            btn.dataset.listenerAttached = '1';
+            btn.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                if (typeof window.refreshMeme === 'function') {
+                    window.refreshMeme();
+                }
+            });
+        }
+    }
+
+    let lastMemeId = null;
+    let memeUpdateTimeout = null;
+    let memeUpdatePending = false;
+
     function updateMemeGlobal(data) {
         const section = document.querySelector('.meme-section');
         if (!section || !data.meme) return;
 
+        const meme = data.meme;
+        const memeId = meme.image || meme.text || '';
+
+        if (memeId === lastMemeId) {
+            return;
+        }
+
+        if (memeUpdatePending) {
+            return;
+        }
+
+        memeUpdatePending = true;
+
+        if (memeUpdateTimeout) {
+            clearTimeout(memeUpdateTimeout);
+        }
+
+        memeUpdateTimeout = setTimeout(() => {
+            performMemeUpdate(section, meme, memeId);
+            memeUpdatePending = false;
+            memeUpdateTimeout = null;
+        }, 100);
+    }
+
+    function performMemeUpdate(section, meme, memeId) {
         const memeContent = section.querySelector('.meme-content');
         if (!memeContent) return;
 
-        const meme = data.meme;
+        const currentImg = memeContent.querySelector('img');
+        if (currentImg && currentImg.src === meme.image) {
+            lastMemeId = memeId;
+            return;
+        }
 
-        memeContent.style.opacity = '0';
-        memeContent.style.transition = 'opacity 0.2s ease';
+        const currentHeight = memeContent.offsetHeight;
+        memeContent.style.minHeight = Math.max(currentHeight, 200) + 'px';
 
-        setTimeout(() => {
+        const doSwap = (imgWidth, imgHeight) => {
+            lastMemeId = memeId;
+
             let newContent = '';
-
             if (meme.type === 'image' || meme.type === 'gif') {
                 newContent = `
-                <div class="meme-${meme.type}">
-                    <img src="${meme.image}" alt="${meme.text}" loading="lazy">
-                    ${meme.text ? `<p class="meme-caption">${meme.text}</p>` : ''}
-                </div>
-            `;
+            <div class="meme-${meme.type}">
+                <img src="${meme.image}" alt="${meme.text || ''}" loading="eager">
+            </div>
+            ${meme.text ? `<p class="meme-caption">${meme.text}</p>` : ''}`;
             } else {
                 newContent = `
-                <div class="meme-text">
-                    <p class="meme-quote">${meme.text}</p>
-                    ${meme.source ? `<p class="meme-source">— ${meme.source}</p>` : ''}
-                </div>
-            `;
+            <div class="meme-text">
+                <p class="meme-quote">${meme.text}</p>
+                ${meme.source ? `<p class="meme-source">— ${meme.source}</p>` : ''}
+            </div>`;
             }
 
             memeContent.innerHTML = newContent;
 
-            setTimeout(() => {
-                memeContent.style.opacity = '1';
-            }, 50);
-        }, 200);
+            const newImg = memeContent.querySelector('img');
+            if (newImg) {
+                newImg.onload = () => {
+                    memeContent.style.minHeight = '';
+                    if (window.mosaicUtils) window.mosaicUtils.resizeAll();
+                };
+                newImg.onerror = () => {
+                    memeContent.style.minHeight = '';
+                    if (window.mosaicUtils) window.mosaicUtils.resizeAll();
+                };
+            } else {
+                requestAnimationFrame(() => {
+                    memeContent.style.minHeight = '';
+                    if (window.mosaicUtils) window.mosaicUtils.resizeAll();
+                });
+            }
+        };
 
-        animateUpdate(section);
+        if ((meme.type === 'image' || meme.type === 'gif') && meme.image) {
+            const img = new Image();
+            img.onload = () => doSwap(img.naturalWidth, img.naturalHeight);
+            img.onerror = () => doSwap(0, 0);
+            img.src = meme.image;
+        } else {
+            doSwap(0, 0);
+        }
     }
 
     function updateClientCount(data) {
@@ -543,36 +737,41 @@
         const trackName = section.querySelector('.track-title, .track-name, #lastfm-track-title');
         const trackArtist = section.querySelector('.track-artist, #lastfm-track-artist');
         const trackAlbum = section.querySelector('.track-album, #lastfm-track-album');
-        const statusText = section.querySelector('.status-text');
+        const statusTextEl = section.querySelector('.status-text');
         const coverImg = section.querySelector('.track-cover-large img, .track-cover img, #lastfm-artwork');
         const lastfmLink = section.querySelector('#lastfm-link');
 
         if (trackName) trackName.textContent = data.name || 'Unknown Track';
         if (trackArtist) trackArtist.textContent = data.artist ? `by ${data.artist}` : 'Unknown Artist';
-        if (trackAlbum && data.album) trackAlbum.textContent = `from ${data.album}`;
+
+        if (trackAlbum) {
+            if (data.album) {
+                trackAlbum.textContent = `from ${data.album}`;
+                trackAlbum.style.display = '';
+            } else {
+                trackAlbum.style.display = 'none';
+            }
+        }
+
         if (lastfmLink && data.url) lastfmLink.href = data.url;
 
-        if (statusText) {
-            const isNowPlaying = data.isPlaying === true || data.isPlaying === 'true';
-            statusText.textContent = isNowPlaying ? 'Now Playing' : 'Last played';
+        const isNowPlaying = data.isPlaying === true || data.isPlaying === 'true';
 
-            const statusContainer = statusText.closest('.track-status');
+        if (statusTextEl) {
+            // Prefer backend-provided statusText (it includes relative time when not playing)
+            const finalStatus = data.statusText || (isNowPlaying ? 'Now Playing' : 'Last played');
+            statusTextEl.textContent = finalStatus;
+
+            const statusContainer = statusTextEl.closest('.track-status');
             if (statusContainer) {
-                if (isNowPlaying) {
-                    statusContainer.classList.add('now-playing');
-                } else {
-                    statusContainer.classList.remove('now-playing');
-                }
+                if (isNowPlaying) statusContainer.classList.add('now-playing');
+                else statusContainer.classList.remove('now-playing');
             }
 
             const statusIndicator = section.querySelector('.status-indicator');
             if (statusIndicator) {
                 statusIndicator.className = 'status-indicator';
-                if (isNowPlaying) {
-                    statusIndicator.classList.add('status-online');
-                } else {
-                    statusIndicator.classList.add('status-offline');
-                }
+                statusIndicator.classList.add(isNowPlaying ? 'status-online' : 'status-offline');
             }
         }
 
@@ -584,11 +783,12 @@
             setTimeout(() => { coverImg.style.opacity = '1'; }, 150);
         }
 
-        if (data.recentTracks && Array.isArray(data.recentTracks) && data.recentTracks.length > 0) {
+        if (data.recentTracks && Array.isArray(data.recentTracks)) {
             updateRecentTracks(section, data.recentTracks);
         }
 
-        animateUpdate(section);
+        // Ensure click handlers survive any DOM updates
+        setupRecentTracksHandlers(section);
     }
 
     function updateRecentTracks(section, recentTracks) {
@@ -605,28 +805,23 @@
         });
 
         const newTracks = recentTracks.slice(0, 5).map(track => ({
-            name: track.name || 'Unknown Track',
-            artist: track.artist || 'Unknown Artist'
+            name: (track.name || 'Unknown Track'),
+            artist: (track.artist || 'Unknown Artist')
         }));
 
         const hasChanges = JSON.stringify(existingTracks) !== JSON.stringify(newTracks);
-
         if (!hasChanges) return;
 
         recentContainer.innerHTML = '';
 
-        const maxTracks = 5;
-        const tracksToShow = recentTracks.slice(0, maxTracks);
+        const tracksToShow = recentTracks.slice(0, 5);
 
         tracksToShow.forEach((track) => {
             const trackElement = document.createElement('div');
             trackElement.className = 'recent-track-item';
 
             const isCurrentlyPlaying = track.isPlaying === true || track.isPlaying === 'true';
-
-            if (isCurrentlyPlaying) {
-                trackElement.classList.add('now-playing');
-            }
+            if (isCurrentlyPlaying) trackElement.classList.add('now-playing');
 
             const trackName = track.name || 'Unknown Track';
             const trackArtist = track.artist || 'Unknown Artist';
@@ -642,25 +837,10 @@
             <div class="recent-track-time">${relativeTime}</div>
         `;
 
-            if (!isCurrentlyPlaying && window.playTrack) {
-                trackElement.style.cursor = 'pointer';
-
-                trackElement.addEventListener('click', function () {
-                    const searchQuery = `${trackArtist} ${trackName}`;
-                    window.playTrack(searchQuery);
-                });
-
-                trackElement.addEventListener('mouseenter', () => {
-                    trackElement.style.background = 'rgba(255,255,255,.024)';
-                });
-
-                trackElement.addEventListener('mouseleave', () => {
-                    trackElement.style.background = '';
-                });
-            }
-
             recentContainer.appendChild(trackElement);
         });
+
+        setupRecentTracksHandlers(section);
     }
 
     function loadImageSmoothly(imgElement, newSrc) {
@@ -705,7 +885,7 @@
             const rankStat = statItems[0].querySelector('.stat-value');
             const countryRankStat = statItems[1].querySelector('.stat-value');
             const ppStat = statItems[2].querySelector('.stat-value');
-            const accuracyStat = statItems[3].querySelector('.stat-value');
+            const cubesStat = statItems[3].querySelector('.stat-value');
 
             if (rankStat) {
                 rankStat.textContent = '#' + data.rank;
@@ -719,13 +899,24 @@
                 ppStat.textContent = Math.round(data.pp) + 'pp';
                 ppStat.dataset.rawValue = String(Math.round(data.pp));
             }
-            if (accuracyStat) {
-                accuracyStat.textContent = data.accuracy.toFixed(1) + '%';
-                accuracyStat.dataset.rawValue = String(data.accuracy);
+            if (cubesStat && data.cubes) {
+                cubesStat.textContent = data.formatted || formatNumberWithDecimals(data.cubes);
+                cubesStat.dataset.cubes = String(data.cubes);
+                const parent = cubesStat.parentElement;
+                if (parent && data.cubes) {
+                    parent.setAttribute('data-tooltip', 'Exact: ' + data.cubes.toLocaleString());
+                }
             }
         }
 
         animateUpdate(section);
+    }
+
+    function formatNumberWithDecimals(n) {
+        if (!n) return "0";
+        if (n < 1000) return n.toString();
+        if (n < 1000000) return (n / 1000).toFixed(1) + "K";
+        return (n / 1000000).toFixed(2) + "M";
     }
 
     function updateSteam(data) {
@@ -737,7 +928,7 @@
     }
 
     function updateSteamStatus(data) {
-        const section = $('.steam-section');
+        const section = document.querySelector('.steam-section');
         if (!section) return;
 
         const currentGameDiv = section.querySelector('.current-game');
@@ -927,6 +1118,11 @@
                 const newValue = data.total;
                 el.dataset.rawValue = String(newValue);
                 el.textContent = formatNumber(newValue);
+
+                const container = el.closest('.visitor-stat');
+                if (container) {
+                    container.setAttribute('data-tooltip', `Exact: ${newValue.toLocaleString()}`);
+                }
                 updated = true;
             });
         }
@@ -937,6 +1133,11 @@
                 const newValue = data.today;
                 el.dataset.rawValue = String(newValue);
                 el.textContent = formatNumber(newValue);
+
+                const container = el.closest('.visitor-stat');
+                if (container) {
+                    container.setAttribute('data-tooltip', `Exact: ${newValue.toLocaleString()}`);
+                }
                 updated = true;
             });
         }
@@ -1082,7 +1283,6 @@
     function handlePluginUpdate(data) {
         if (data.action === 'settings_changed') {
             console.debug('Plugin settings updated:', data.plugin);
-
             if (window.location.pathname !== '/admin') {
                 setTimeout(() => {
                     window.location.reload();
@@ -1093,10 +1293,8 @@
 
     function animateUpdate(element) {
         if (!element) return;
-
         element.style.transform = 'scale(1.01)';
         element.style.transition = 'transform 0.15s ease';
-
         setTimeout(() => {
             element.style.transform = '';
         }, 150);
@@ -1104,32 +1302,12 @@
 
     function animateNumber(element, oldValue, newValue) {
         if (!element) return;
-
         element.style.color = 'var(--accent)';
         element.style.transition = 'color 0.3s ease';
         element.textContent = newValue;
-
         setTimeout(() => {
             element.style.color = '';
         }, 300);
-    }
-
-    function animateCounterUpdate(element, oldValue, newValue) {
-        if (!element) return;
-
-        element.style.transform = 'scale(1.1)';
-        element.style.color = 'var(--accent)';
-        element.style.transition = 'transform 0.2s ease, color 0.3s ease';
-
-        const formatted = formatNumber(newValue);
-        element.textContent = formatted;
-        element.dataset.rawValue = String(newValue);
-        element.dataset.animated = 'true';
-
-        setTimeout(() => {
-            element.style.transform = '';
-            element.style.color = '';
-        }, 200);
     }
 
     function formatNumber(n) {
@@ -1180,7 +1358,6 @@
             if (isConnected) {
                 startHeartbeat();
                 startLastFMCheck();
-
                 if (clientCountRequestTimeout) {
                     clearTimeout(clientCountRequestTimeout);
                 }
@@ -1197,6 +1374,7 @@
     window.wsDisconnect = disconnect;
     window.wsStatus = () => isConnected;
     window.wsSend = sendMessage;
+
     let webringUpdateInterval = null;
     let webringInitialized = false;
 
@@ -1322,11 +1500,9 @@
         }, { once: false, passive: true });
     }
     let mainInitialized = false;
-
     function initialize() {
         if (mainInitialized) return;
         mainInitialized = true;
-
         connect();
         initWebringUpdater();
     }
@@ -1336,35 +1512,4 @@
     } else {
         initialize();
     }
-
-    window.addEventListener('beforeunload', disconnect, { once: true });
-    window.addEventListener('pagehide', disconnect, { once: true });
-
-    document.addEventListener('visibilitychange', function() {
-        if (document.hidden) {
-            stopHeartbeat();
-            stopLastFMCheck();
-        } else {
-            if (isConnected) {
-                startHeartbeat();
-                startLastFMCheck();
-
-                if (clientCountRequestTimeout) {
-                    clearTimeout(clientCountRequestTimeout);
-                }
-                clientCountRequestTimeout = setTimeout(() => {
-                    sendMessage({ type: 'get_client_count' });
-                    clientCountRequestTimeout = null;
-                }, 100);
-            } else if (shouldReconnect) {
-                connect();
-            }
-        }
-    }, { passive: true });
-
-    window.wsReconnect = connect;
-    window.wsDisconnect = disconnect;
-    window.wsStatus = () => isConnected;
-    window.wsSend = sendMessage;
-
 })();

@@ -39,6 +39,15 @@ type LastFMPlugin struct {
 	pluginManager       interface{ GetClientCount() int }
 	imageCache          map[string]imageCacheEntry
 	imageCacheMutex     sync.RWMutex
+
+	// Now playing fallback state (for when Last.fm doesn't set @attr.nowplaying)
+	currentTrackLength int
+	trackStartTime     time.Time
+	currentTrackKey    string
+	currentIsPlaying   bool
+
+	scheduledUpdate *time.Timer
+	scheduleMutex   sync.Mutex
 }
 
 type LastFMResponse struct {
@@ -138,6 +147,64 @@ type AkarpovrMusicTrack struct {
 		Slug         string `json:"slug"`
 		ImageCropped string `json:"image_cropped"`
 	} `json:"authors"`
+}
+
+func (p *LastFMPlugin) isNowPlaying(track *LastFMTrack) bool {
+	if track == nil {
+		return false
+	}
+
+	if track.Attr.NowPlaying == "true" || track.Date.Uts == "" {
+		return true
+	}
+
+	key := p.trackKey(track)
+
+	p.trackMutex.RLock()
+	curKey := p.currentTrackKey
+	start := p.trackStartTime
+	length := p.currentTrackLength
+	curIsPlaying := p.currentIsPlaying
+	p.trackMutex.RUnlock()
+
+	if !curIsPlaying || key == "" || key != curKey {
+		return false
+	}
+
+	if length <= 0 {
+		length = 240
+	}
+	if start.IsZero() {
+		// We think it's playing, but don't have a start time recorded yet.
+		return true
+	}
+
+	// Grace to avoid flicker at the end
+	return time.Since(start) < time.Duration(length+5)*time.Second
+}
+
+func (p *LastFMPlugin) scheduleEndOfTrackUpdate(remainingSeconds int) {
+	p.scheduleMutex.Lock()
+	defer p.scheduleMutex.Unlock()
+
+	if p.scheduledUpdate != nil {
+		p.scheduledUpdate.Stop()
+		p.scheduledUpdate = nil
+	}
+
+	// If we got a weird value, still schedule a near-immediate refresh.
+	if remainingSeconds <= 0 {
+		remainingSeconds = 5
+	}
+
+	delay := time.Duration(remainingSeconds+5) * time.Second
+
+	p.scheduledUpdate = time.AfterFunc(delay, func() {
+		if p.shouldPoll() {
+			log.Printf("[LastFM] Scheduled end-of-track update triggered")
+			p.pollAndBroadcast()
+		}
+	})
 }
 
 func NewLastFMPlugin(storage *storage.Storage, hub *stream.Hub, apiKey string) *LastFMPlugin {
@@ -287,12 +354,14 @@ func (p *LastFMPlugin) Render(ctx context.Context) (string, error) {
 
 	image := p.getTrackImage(currentTrack)
 
-	nowPlaying := currentTrack.Attr.NowPlaying == "true"
+	nowPlaying := p.isNowPlaying(currentTrack)
 	statusText := "Last played " + p.relativePlayedAt(currentTrack)
-	statusClass := ""
+	statusClass := "status-offline"
+	statusContainerClass := ""
 	if nowPlaying {
 		statusText = "Now Playing"
 		statusClass = "status-online"
+		statusContainerClass = "now-playing"
 	}
 
 	scrobblesText := ""
@@ -311,7 +380,6 @@ func (p *LastFMPlugin) Render(ctx context.Context) (string, error) {
 			if trackKey == currentKey {
 				continue
 			}
-
 			if seen[trackKey] {
 				continue
 			}
@@ -355,7 +423,7 @@ func (p *LastFMPlugin) Render(ctx context.Context) (string, error) {
 				{{end}}
 				
 				<div class="track-info">
-					<div class="track-status">
+					<div class="track-status {{.StatusContainerClass}}">
 						<span class="status-indicator {{.StatusClass}}"></span>
 						<span class="status-text">{{.StatusText}}</span>
 					</div>
@@ -449,35 +517,37 @@ func (p *LastFMPlugin) Render(ctx context.Context) (string, error) {
 	}
 
 	data := struct {
-		SectionTitle     string
-		Name             string
-		Artist           string
-		Album            string
-		Image            string
-		ShowScrobbles    bool
-		ShowPlayButton   bool
-		ShowRecentTracks bool
-		ScrobblesText    string
-		StatusText       string
-		StatusClass      string
-		CanPlay          bool
-		TrackURL         string
-		RecentTracks     []map[string]interface{}
+		SectionTitle         string
+		Name                 string
+		Artist               string
+		Album                string
+		Image                string
+		ShowScrobbles        bool
+		ShowPlayButton       bool
+		ShowRecentTracks     bool
+		ScrobblesText        string
+		StatusText           string
+		StatusClass          string
+		StatusContainerClass string
+		CanPlay              bool
+		TrackURL             string
+		RecentTracks         []map[string]interface{}
 	}{
-		SectionTitle:     sectionTitle,
-		Name:             currentTrack.Name,
-		Artist:           currentTrack.Artist.Text,
-		Album:            currentTrack.Album.Text,
-		Image:            image,
-		ShowScrobbles:    showScrobbles,
-		ShowPlayButton:   showPlayButton,
-		ShowRecentTracks: showRecentTracks,
-		ScrobblesText:    scrobblesText,
-		StatusText:       statusText,
-		StatusClass:      statusClass,
-		CanPlay:          true,
-		TrackURL:         currentTrack.URL,
-		RecentTracks:     processedRecentTracks,
+		SectionTitle:         sectionTitle,
+		Name:                 currentTrack.Name,
+		Artist:               currentTrack.Artist.Text,
+		Album:                currentTrack.Album.Text,
+		Image:                image,
+		ShowScrobbles:        showScrobbles,
+		ShowPlayButton:       showPlayButton,
+		ShowRecentTracks:     showRecentTracks,
+		ScrobblesText:        scrobblesText,
+		StatusText:           statusText,
+		StatusClass:          statusClass,
+		StatusContainerClass: statusContainerClass,
+		CanPlay:              true,
+		TrackURL:             currentTrack.URL,
+		RecentTracks:         processedRecentTracks,
 	}
 
 	t, err := template.New("lastfm").Parse(tmpl)
@@ -617,21 +687,155 @@ func (p *LastFMPlugin) updateRecentTracksInternal(ctx context.Context, username 
 	}
 
 	newCurrentTrack := &response.RecentTracks.Track[0]
+	key := p.trackKey(newCurrentTrack)
 
+	explicitNowPlaying := (newCurrentTrack.Attr.NowPlaying == "true" || newCurrentTrack.Date.Uts == "")
+
+	// Read old state once
 	p.trackMutex.RLock()
 	oldTrack := p.currentTrack
+	oldIsPlaying := p.currentIsPlaying
+	oldKey := p.currentTrackKey
+
+	oldName := ""
+	oldArtist := ""
+	if oldTrack != nil {
+		oldName = oldTrack.Name
+		oldArtist = oldTrack.Artist.Text
+	}
 	p.trackMutex.RUnlock()
 
-	trackChanged := oldTrack == nil ||
-		oldTrack.Name != newCurrentTrack.Name ||
-		oldTrack.Artist.Text != newCurrentTrack.Artist.Text ||
-		oldTrack.Attr.NowPlaying != newCurrentTrack.Attr.NowPlaying
+	identityChanged := oldTrack == nil ||
+		oldName != newCurrentTrack.Name ||
+		oldArtist != newCurrentTrack.Artist.Text
 
+	newIsPlaying := false
+	shouldSetWindow := false
+	windowStart := time.Time{}
+	windowLength := 0
+	shouldRefineLengthAsync := false
+
+	if explicitNowPlaying {
+		newIsPlaying = true
+
+		// If it’s a new/changed track or we weren’t “playing” before, seed a window.
+		if identityChanged || !oldIsPlaying || oldKey != key {
+			shouldSetWindow = true
+			windowStart = time.Now()
+			windowLength = 240 // placeholder; refined async
+			shouldRefineLengthAsync = true
+		}
+	} else {
+		// 1) If we already inferred playing for this same track and the window hasn't expired: keep it playing.
+		if oldIsPlaying && oldKey == key {
+			p.trackMutex.RLock()
+			start := p.trackStartTime
+			length := p.currentTrackLength
+			p.trackMutex.RUnlock()
+
+			if length <= 0 {
+				length = 240
+			}
+			if !start.IsZero() && time.Since(start) < time.Duration(length+5)*time.Second {
+				newIsPlaying = true
+			}
+		}
+
+		// 2) If not playing (or window expired), try to infer based on uts + length
+		if !newIsPlaying && strings.TrimSpace(newCurrentTrack.Date.Uts) != "" {
+			sec, err := strconv.ParseInt(newCurrentTrack.Date.Uts, 10, 64)
+			if err == nil {
+				playedAt := time.Unix(sec, 0)
+				playedAgo := time.Since(playedAt)
+
+				// Guard against garbage timestamps / very old tracks
+				if playedAgo >= 0 && playedAgo < 10*time.Minute {
+					fetchCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+					length := p.fetchTrackLength(fetchCtx, newCurrentTrack.Artist.Text, newCurrentTrack.Name)
+					cancel()
+					if length <= 0 {
+						length = 240
+					}
+
+					// If we're still within the expected duration window -> treat as Now Playing
+					if playedAgo < time.Duration(length+10)*time.Second {
+						newIsPlaying = true
+						shouldSetWindow = true
+						windowStart = playedAt
+						windowLength = length
+					}
+				}
+			}
+		}
+	}
+
+	// If we stopped playing, stop any scheduled end-of-track refresh
+	if oldIsPlaying && !newIsPlaying {
+		p.stopScheduledUpdate()
+	}
+
+	// Update stored state
 	p.trackMutex.Lock()
 	p.currentTrack = newCurrentTrack
 	p.recentTracks = response.RecentTracks.Track
+	p.currentIsPlaying = newIsPlaying
+	// Keep the key around only when “playing” (explicit or inferred)
+	if newIsPlaying {
+		p.currentTrackKey = key
+	} else {
+		p.currentTrackKey = ""
+		p.currentTrackLength = 0
+		p.trackStartTime = time.Time{}
+	}
 	p.trackMutex.Unlock()
 
+	// Apply/refresh the fallback window (schedules a refresh near end-of-track)
+	if shouldSetWindow && newIsPlaying {
+		p.setNowPlayingWindow(key, windowStart, windowLength)
+
+		// If this was explicit now playing and we used a placeholder length, refine length async
+		if shouldRefineLengthAsync {
+			go func(artist, name, key string, start time.Time) {
+				fetchCtx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+				defer cancel()
+
+				length := p.fetchTrackLength(fetchCtx, artist, name)
+				if length <= 0 {
+					length = 240
+				}
+
+				p.trackMutex.RLock()
+				curKey := p.currentTrackKey
+				curPlaying := p.currentIsPlaying
+				p.trackMutex.RUnlock()
+
+				if !curPlaying || curKey != key {
+					return
+				}
+
+				p.trackMutex.Lock()
+				p.currentTrackLength = length
+				// keep original start (important for accurate end time)
+				if !start.IsZero() {
+					p.trackStartTime = start
+				}
+				p.trackMutex.Unlock()
+
+				elapsed := int(time.Since(start).Seconds())
+				remaining := length - elapsed
+				if remaining < 1 {
+					remaining = 1
+				}
+				p.scheduleEndOfTrackUpdate(remaining)
+
+				log.Printf("[LastFM] Now playing (refined): %s - %s (length: %ds)", artist, name, length)
+			}(newCurrentTrack.Artist.Text, newCurrentTrack.Name, key, windowStart)
+		}
+	}
+
+	trackChanged := identityChanged || (oldIsPlaying != newIsPlaying)
+
+	// Prefetch/cached artwork logic (unchanged)
 	go func() {
 		needsSave := false
 		for i := range response.RecentTracks.Track {
@@ -667,7 +871,7 @@ func (p *LastFMPlugin) updateRecentTracksInternal(ctx context.Context, username 
 	}()
 
 	if trackChanged {
-		p.broadcastTrackUpdate(newCurrentTrack, response.RecentTracks.Track)
+		p.broadcastTrackUpdate(newCurrentTrack, response.RecentTracks.Track, newIsPlaying)
 	}
 
 	return trackChanged, nil
@@ -764,9 +968,8 @@ func (p *LastFMPlugin) tryAkarpovImageFallback(ctx context.Context, track *LastF
 	}
 }
 
-func (p *LastFMPlugin) broadcastTrackUpdate(track *LastFMTrack, recentTracks []LastFMTrack) {
+func (p *LastFMPlugin) broadcastTrackUpdate(track *LastFMTrack, recentTracks []LastFMTrack, isPlaying bool) {
 	var recentTracksData []map[string]interface{}
-	nowPlaying := track.Attr.NowPlaying == "true"
 
 	seen := make(map[string]bool)
 	currentKey := fmt.Sprintf("%s|%s", track.Name, track.Artist.Text)
@@ -777,8 +980,7 @@ func (p *LastFMPlugin) broadcastTrackUpdate(track *LastFMTrack, recentTracks []L
 		if trackKey == currentKey {
 			continue
 		}
-
-		if t.Attr.NowPlaying == "true" {
+		if p.isNowPlaying(&t) {
 			continue
 		}
 		if seen[trackKey] {
@@ -805,11 +1007,17 @@ func (p *LastFMPlugin) broadcastTrackUpdate(track *LastFMTrack, recentTracks []L
 
 	currentImage := p.getTrackImage(track)
 
+	statusText := "Last played " + p.relativePlayedAt(track)
+	if isPlaying {
+		statusText = "Now Playing"
+	}
+
 	p.hub.Broadcast("lastfm_update", map[string]interface{}{
 		"name":         track.Name,
 		"artist":       track.Artist.Text,
 		"album":        track.Album.Text,
-		"isPlaying":    nowPlaying,
+		"isPlaying":    isPlaying,
+		"statusText":   statusText,
 		"url":          track.URL,
 		"image":        currentImage,
 		"recentTracks": recentTracksData,
@@ -938,7 +1146,7 @@ func (p *LastFMPlugin) pickBestImage(t *LastFMTrack) string {
 }
 
 func (p *LastFMPlugin) getRelativeTimeForTrack(t *LastFMTrack) string {
-	if t.Attr.NowPlaying == "true" {
+	if p.isNowPlaying(t) {
 		return "now playing"
 	}
 	uts := t.Date.Uts
@@ -1161,7 +1369,7 @@ func formatScrobbles(count string) string {
 }
 
 func (p *LastFMPlugin) relativePlayedAt(track *LastFMTrack) string {
-	if track == nil || track.Attr.NowPlaying == "true" {
+	if track == nil || p.isNowPlaying(track) {
 		return "just now"
 	}
 	uts := track.Date.Uts
@@ -1198,7 +1406,7 @@ func (p *LastFMPlugin) RenderText(ctx context.Context) (string, error) {
 	}
 
 	status := "Last played"
-	if currentTrack.Attr.NowPlaying == "true" {
+	if p.isNowPlaying(currentTrack) {
 		status = "Now playing"
 	}
 
@@ -1236,4 +1444,102 @@ func (p *LastFMPlugin) RenderText(ctx context.Context) (string, error) {
 
 	return fmt.Sprintf("Music: %s - %s by %s%s",
 		status, track, artist, scrobbles), nil
+}
+
+func (p *LastFMPlugin) GetMetrics() map[string]interface{} {
+	p.trackMutex.RLock()
+	defer p.trackMutex.RUnlock()
+
+	metrics := map[string]interface{}{
+		"is_playing":      0,
+		"total_scrobbles": 0,
+	}
+
+	if p.currentTrack != nil && p.isNowPlaying(p.currentTrack) {
+		metrics["is_playing"] = 1
+	}
+
+	if p.userInfo != nil && p.userInfo.PlayCount != "" {
+		var count int64
+		fmt.Sscanf(p.userInfo.PlayCount, "%d", &count)
+		metrics["total_scrobbles"] = count
+	}
+
+	return metrics
+}
+
+func (p *LastFMPlugin) trackKey(t *LastFMTrack) string {
+	if t == nil {
+		return ""
+	}
+	artist := strings.ToLower(strings.TrimSpace(t.Artist.Text))
+	name := strings.ToLower(strings.TrimSpace(t.Name))
+	if artist == "" && name == "" {
+		return ""
+	}
+	return artist + "|" + name
+}
+
+func (p *LastFMPlugin) stopScheduledUpdate() {
+	p.scheduleMutex.Lock()
+	defer p.scheduleMutex.Unlock()
+
+	if p.scheduledUpdate != nil {
+		p.scheduledUpdate.Stop()
+		p.scheduledUpdate = nil
+	}
+}
+
+func (p *LastFMPlugin) setNowPlayingWindow(key string, start time.Time, lengthSec int) {
+	if lengthSec <= 0 {
+		lengthSec = 240
+	}
+	if start.IsZero() {
+		start = time.Now()
+	}
+
+	p.trackMutex.Lock()
+	p.currentTrackKey = key
+	p.currentTrackLength = lengthSec
+	p.trackStartTime = start
+	p.currentIsPlaying = true
+	p.trackMutex.Unlock()
+
+	elapsed := int(time.Since(start).Seconds())
+	remaining := lengthSec - elapsed
+	if remaining < 1 {
+		remaining = 1
+	}
+	p.scheduleEndOfTrackUpdate(remaining)
+}
+
+func (p *LastFMPlugin) fetchTrackLength(ctx context.Context, artist, trackName string) int {
+	searchQuery := strings.TrimSpace(artist + " " + trackName)
+	searchURL := fmt.Sprintf("https://new.akarpov.ru/api/v1/music/search/?query=%s", url.QueryEscape(searchQuery))
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, searchURL, nil)
+	if err != nil {
+		return 0
+	}
+
+	resp, err := p.httpClient.Do(req)
+	if err != nil {
+		return 0
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return 0
+	}
+
+	var searchResp AkarpovrMusicSearchResponse
+	if err := json.NewDecoder(resp.Body).Decode(&searchResp); err != nil {
+		return 0
+	}
+
+	if len(searchResp.Songs) > 0 {
+		return searchResp.Songs[0].Length
+	}
+
+	return 0
 }

@@ -7,6 +7,7 @@ import (
 	"html/template"
 	"log"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -50,6 +51,7 @@ type DailyAverage struct {
 	SleepHours     float64 `json:"sleep_hours"`
 	HydrationML    float64 `json:"hydration_ml"`
 	WorkoutMinutes int64   `json:"workout_minutes"`
+	WorkoutCount   int     `json:"workout_count"`
 	DistanceKM     float64 `json:"distance_km"`
 }
 
@@ -98,23 +100,25 @@ type HealthPlugin struct {
 	mutex         sync.RWMutex
 	lastPersist   time.Time
 
-	processedRecords map[string]map[string]struct{}
-	sleepRecords     map[string]*SleepRecord
-	lastResetDate    string
+	processedRecords     map[string]map[string]struct{}
+	processedRecordsDate string
+	sleepRecords         map[string]*SleepRecord
+	lastResetDate        string
 }
 
 func NewHealthPlugin(storage *storage.Storage, hub *stream.Hub, _, username, password string) *HealthPlugin {
 	p := &HealthPlugin{
-		storage:          storage,
-		hub:              hub,
-		username:         username,
-		password:         password,
-		healthData:       &HealthData{},
-		dailyAverages:    make(map[string]*DailyAverage),
-		todayRawData:     make(map[string][]map[string]interface{}),
-		processedRecords: make(map[string]map[string]struct{}),
-		sleepRecords:     make(map[string]*SleepRecord),
-		lastResetDate:    time.Now().Format("2006-01-02"),
+		storage:              storage,
+		hub:                  hub,
+		username:             username,
+		password:             password,
+		healthData:           &HealthData{},
+		dailyAverages:        make(map[string]*DailyAverage),
+		todayRawData:         make(map[string][]map[string]interface{}),
+		processedRecords:     make(map[string]map[string]struct{}),
+		processedRecordsDate: time.Now().Format("2006-01-02"),
+		sleepRecords:         make(map[string]*SleepRecord),
+		lastResetDate:        time.Now().Format("2006-01-02"),
 	}
 	p.loadPersistedData()
 	return p
@@ -210,25 +214,27 @@ func (p *HealthPlugin) getRecordID(dataType string, record map[string]interface{
 	return ""
 }
 
-func (p *HealthPlugin) isRecordProcessed(dataType string, recordID string) bool {
+func (p *HealthPlugin) isRecordProcessed(dataType string, recordID string, recordDate string) bool {
 	if recordID == "" {
 		return false
 	}
 	if p.processedRecords[dataType] == nil {
 		return false
 	}
-	_, exists := p.processedRecords[dataType][recordID]
+	key := recordDate + "|" + recordID
+	_, exists := p.processedRecords[dataType][key]
 	return exists
 }
 
-func (p *HealthPlugin) markRecordProcessed(dataType string, recordID string) {
+func (p *HealthPlugin) markRecordProcessed(dataType string, recordID string, recordDate string) {
 	if recordID == "" {
 		return
 	}
 	if p.processedRecords[dataType] == nil {
 		p.processedRecords[dataType] = make(map[string]struct{})
 	}
-	p.processedRecords[dataType][recordID] = struct{}{}
+	key := recordDate + "|" + recordID
+	p.processedRecords[dataType][key] = struct{}{}
 }
 
 func (p *HealthPlugin) checkAndResetDaily() {
@@ -247,41 +253,61 @@ func (p *HealthPlugin) processRecords(dataType string, records []map[string]inte
 
 	now := time.Now()
 	today := now.Format("2006-01-02")
-	startOfDay := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
-	startOfWeek := startOfDay.AddDate(0, 0, -int(now.Weekday()))
+
+	startOfDay := dayStart(now)
+	startOfWeek := rollingWeekStart(now)
+
+	if dataType == "steps" {
+		log.Printf("[DEBUG] processRecords: type=%s, count=%d", dataType, len(records))
+	}
 
 	for _, record := range records {
 		recordID := p.getRecordID(dataType, record)
-
-		if dataType != "heartrate" && p.isRecordProcessed(dataType, recordID) {
-			continue
-		}
 
 		recordTime := p.parseRecordTime(record)
 		if recordTime.IsZero() {
 			recordTime = now
 		}
 
-		isToday := recordTime.After(startOfDay) || recordTime.Equal(startOfDay)
-		isThisWeek := recordTime.After(startOfWeek) || recordTime.Equal(startOfWeek)
+		recordTimeLocal := recordTime.In(now.Location())
+		recordDate := recordTimeLocal.Format("2006-01-02")
+
+		if dataType != "heartrate" && p.isRecordProcessed(dataType, recordID, recordDate) {
+			continue
+		}
+
+		isToday := !recordTimeLocal.Before(startOfDay)
+		isThisWeek := !recordTimeLocal.Before(startOfWeek)
 
 		switch dataType {
+
 		case "steps":
-			count := p.extractInt(record, "count")
+			count := p.extractStepCount(record)
+			log.Printf("[DEBUG] Steps record: count=%d, raw=%+v", count, record)
 			if count > 0 {
-				p.markRecordProcessed(dataType, recordID)
+				p.markRecordProcessed(dataType, recordID, recordDate)
+
+				p.ensureDailyAverage(recordDate)
+				p.dailyAverages[recordDate].Steps += count
+
 				if isToday {
 					p.healthData.StepsToday += count
+					log.Printf("[DEBUG] Added to StepsToday: +%d = %d", count, p.healthData.StepsToday)
 				}
 				if isThisWeek {
 					p.healthData.StepsWeek += count
+					log.Printf("[DEBUG] Added to StepsWeek: +%d = %d", count, p.healthData.StepsWeek)
 				}
 			}
 
 		case "activecaloriesburned", "totalcaloriesburned":
 			calories := p.extractCalories(record)
 			if calories > 0 {
-				p.markRecordProcessed(dataType, recordID)
+				p.markRecordProcessed(dataType, recordID, recordDate)
+
+				p.ensureDailyAverage(recordDate)
+				p.dailyAverages[recordDate].Calories += calories
+
 				if isToday {
 					p.healthData.CaloriesToday += calories
 				}
@@ -328,13 +354,22 @@ func (p *HealthPlugin) processRecords(dataType string, records []map[string]inte
 						Hours:     hours,
 					}
 
+					endDate := endTime.In(now.Location()).Format("2006-01-02")
+					p.ensureDailyAverage(endDate)
+					p.dailyAverages[endDate].SleepHours += hours
+
 					p.recalculateSleep(startOfDay)
 				}
 			}
 
 		case "exercisesession":
-			p.markRecordProcessed(dataType, recordID)
+			p.markRecordProcessed(dataType, recordID, recordDate)
 			duration, calories, exerciseType := p.extractWorkout(record)
+
+			p.ensureDailyAverage(recordDate)
+			p.dailyAverages[recordDate].WorkoutMinutes += duration
+			p.dailyAverages[recordDate].WorkoutCount++
+
 			if isToday {
 				p.healthData.WorkoutMinutesToday += duration
 				p.healthData.WorkoutCountToday++
@@ -355,7 +390,11 @@ func (p *HealthPlugin) processRecords(dataType string, records []map[string]inte
 		case "hydration":
 			ml := p.extractHydration(record)
 			if ml > 0 {
-				p.markRecordProcessed(dataType, recordID)
+				p.markRecordProcessed(dataType, recordID, recordDate)
+
+				p.ensureDailyAverage(recordDate)
+				p.dailyAverages[recordDate].HydrationML += ml
+
 				if isToday {
 					p.healthData.HydrationToday += ml
 				}
@@ -364,7 +403,11 @@ func (p *HealthPlugin) processRecords(dataType string, records []map[string]inte
 		case "distance":
 			km := p.extractDistance(record)
 			if km > 0 {
-				p.markRecordProcessed(dataType, recordID)
+				p.markRecordProcessed(dataType, recordID, recordDate)
+
+				p.ensureDailyAverage(recordDate)
+				p.dailyAverages[recordDate].DistanceKM += km
+
 				if isToday {
 					p.healthData.DistanceToday += km
 				}
@@ -380,16 +423,19 @@ func (p *HealthPlugin) processRecords(dataType string, records []map[string]inte
 	if _, exists := p.dailyAverages[today]; !exists {
 		p.dailyAverages[today] = &DailyAverage{Date: today}
 	}
-	p.dailyAverages[today].Steps = p.healthData.StepsToday
-	p.dailyAverages[today].Calories = p.healthData.CaloriesToday
-	p.dailyAverages[today].SleepHours = p.healthData.SleepHoursLastNight
-	p.dailyAverages[today].HydrationML = p.healthData.HydrationToday
-	p.dailyAverages[today].WorkoutMinutes = p.healthData.WorkoutMinutesToday
-	p.dailyAverages[today].DistanceKM = p.healthData.DistanceToday
 
-	if time.Since(p.lastPersist) > 5*time.Minute {
-		go p.persistData()
+	if dataType == "steps" {
+		log.Printf("[DEBUG] Before persist: StepsToday=%d StepsWeek=%d dailyAvg[%s].Steps=%d",
+			p.healthData.StepsToday, p.healthData.StepsWeek, today,
+			func() int64 {
+				if avg, ok := p.dailyAverages[today]; ok {
+					return avg.Steps
+				}
+				return -1
+			}())
 	}
+	p.persistData()
+	p.lastPersist = time.Now()
 }
 
 func (p *HealthPlugin) deduplicateSleepRecords() {
@@ -469,11 +515,25 @@ func (p *HealthPlugin) parseRecordEndTime(record map[string]interface{}) time.Ti
 }
 
 func (p *HealthPlugin) extractInt(record map[string]interface{}, key string) int64 {
-	if v, ok := record[key].(float64); ok {
+	val := record[key]
+	switch v := val.(type) {
+	case float64:
 		return int64(v)
-	}
-	if v, ok := record[key].(int); ok {
+	case float32:
 		return int64(v)
+	case int:
+		return int64(v)
+	case int64:
+		return v
+	case int32:
+		return int64(v)
+	case string:
+		if i, err := strconv.ParseInt(v, 10, 64); err == nil {
+			return i
+		}
+		if f, err := strconv.ParseFloat(v, 64); err == nil {
+			return int64(f)
+		}
 	}
 	return 0
 }
@@ -624,8 +684,7 @@ func (p *HealthPlugin) ResetDailyData() {
 	p.healthData.DistanceToday = 0
 	p.healthData.SleepHoursLastNight = 0
 
-	p.processedRecords = make(map[string]map[string]struct{})
-
+	p.cleanOldProcessedRecords()
 	p.cleanOldSleepRecords()
 
 	p.recalculateWeeklyData()
@@ -635,18 +694,9 @@ func (p *HealthPlugin) ResetDailyData() {
 	p.lastResetDate = today
 }
 
-func (p *HealthPlugin) cleanOldSleepRecords() {
-	cutoff := time.Now().AddDate(0, 0, -8)
-	for id, sr := range p.sleepRecords {
-		if sr.EndTime.Before(cutoff) {
-			delete(p.sleepRecords, id)
-		}
-	}
-}
-
 func (p *HealthPlugin) recalculateWeeklyData() {
 	now := time.Now()
-	startOfWeek := now.AddDate(0, 0, -int(now.Weekday()))
+	startOfWeek := rollingWeekStart(now)
 
 	var stepsWeek int64
 	var caloriesWeek float64
@@ -657,19 +707,23 @@ func (p *HealthPlugin) recalculateWeeklyData() {
 	var sleepCount int
 
 	for dateStr, avg := range p.dailyAverages {
-		date, err := time.Parse("2006-01-02", dateStr)
+		date, err := time.ParseInLocation("2006-01-02", dateStr, now.Location())
 		if err != nil {
 			continue
 		}
-		if date.After(startOfWeek) || date.Equal(startOfWeek) {
-			stepsWeek += avg.Steps
-			caloriesWeek += avg.Calories
-			workoutMinutesWeek += avg.WorkoutMinutes
-			distanceWeek += avg.DistanceKM
-			if avg.SleepHours > 0 {
-				sleepTotal += avg.SleepHours
-				sleepCount++
-			}
+
+		if date.Before(startOfWeek) {
+			continue
+		}
+
+		stepsWeek += avg.Steps
+		caloriesWeek += avg.Calories
+		workoutMinutesWeek += avg.WorkoutMinutes
+		workoutCountWeek += avg.WorkoutCount
+		distanceWeek += avg.DistanceKM
+		if avg.SleepHours > 0 {
+			sleepTotal += avg.SleepHours
+			sleepCount++
 		}
 	}
 
@@ -678,6 +732,7 @@ func (p *HealthPlugin) recalculateWeeklyData() {
 	p.healthData.WorkoutMinutesWeek = workoutMinutesWeek
 	p.healthData.WorkoutCountWeek = workoutCountWeek
 	p.healthData.DistanceWeek = distanceWeek
+
 	if sleepCount > 0 {
 		p.healthData.SleepAvgWeek = sleepTotal / float64(sleepCount)
 	}
@@ -685,9 +740,44 @@ func (p *HealthPlugin) recalculateWeeklyData() {
 
 func (p *HealthPlugin) cleanOldData() {
 	cutoff := time.Now().AddDate(0, 0, -7).Format("2006-01-02")
+	toDelete := []string{}
 	for dateStr := range p.dailyAverages {
 		if dateStr < cutoff {
-			delete(p.dailyAverages, dateStr)
+			toDelete = append(toDelete, dateStr)
+		}
+	}
+	for _, dateStr := range toDelete {
+		delete(p.dailyAverages, dateStr)
+	}
+}
+
+func (p *HealthPlugin) cleanOldSleepRecords() {
+	cutoff := time.Now().AddDate(0, 0, -8)
+	toDelete := []string{}
+	for id, sr := range p.sleepRecords {
+		if sr.EndTime.Before(cutoff) {
+			toDelete = append(toDelete, id)
+		}
+	}
+	for _, id := range toDelete {
+		delete(p.sleepRecords, id)
+	}
+}
+
+func (p *HealthPlugin) cleanOldProcessedRecords() {
+	now := time.Now()
+	cutoffDate := now.AddDate(0, 0, -8).Format("2006-01-02")
+
+	for dataType, records := range p.processedRecords {
+		toDelete := []string{}
+		for key := range records {
+			parts := strings.SplitN(key, "|", 2)
+			if len(parts) == 2 && parts[0] < cutoffDate {
+				toDelete = append(toDelete, key)
+			}
+		}
+		for _, key := range toDelete {
+			delete(p.processedRecords[dataType], key)
 		}
 	}
 }
@@ -698,14 +788,20 @@ func (p *HealthPlugin) persistData() {
 		config.Settings = make(map[string]interface{})
 	}
 
+	dailyAvgCopy := make(map[string]*DailyAverage, len(p.dailyAverages))
+	for k, v := range p.dailyAverages {
+		dailyAvgCopy[k] = v
+	}
+
 	avgData := make(map[string]interface{})
-	for date, avg := range p.dailyAverages {
+	for date, avg := range dailyAvgCopy {
 		avgData[date] = map[string]interface{}{
 			"steps":           avg.Steps,
 			"calories":        avg.Calories,
 			"sleep_hours":     avg.SleepHours,
 			"hydration_ml":    avg.HydrationML,
 			"workout_minutes": avg.WorkoutMinutes,
+			"workout_count":   avg.WorkoutCount,
 			"distance_km":     avg.DistanceKM,
 		}
 	}
@@ -740,8 +836,13 @@ func (p *HealthPlugin) persistData() {
 		}
 	}
 
+	sleepCopy := make(map[string]*SleepRecord, len(p.sleepRecords))
+	for k, v := range p.sleepRecords {
+		sleepCopy[k] = v
+	}
+
 	sleepData := make(map[string]interface{})
-	for id, sr := range p.sleepRecords {
+	for id, sr := range sleepCopy {
 		sleepData[id] = map[string]interface{}{
 			"start_time": sr.StartTime.Format(time.RFC3339),
 			"end_time":   sr.EndTime.Format(time.RFC3339),
@@ -752,6 +853,8 @@ func (p *HealthPlugin) persistData() {
 
 	config.Settings["last_reset_date"] = p.lastResetDate
 	config.Settings["last_persist"] = time.Now().Format(time.RFC3339)
+
+	delete(config.Settings, "processed_records")
 
 	if err := p.storage.SetPluginConfig(p.Name(), config); err != nil {
 		log.Printf("Failed to persist health data: %v", err)
@@ -778,6 +881,7 @@ func (p *HealthPlugin) loadPersistedData() {
 					SleepHours:     getFloat(dayData, "sleep_hours"),
 					HydrationML:    getFloat(dayData, "hydration_ml"),
 					WorkoutMinutes: int64(getFloat(dayData, "workout_minutes")),
+					WorkoutCount:   int(getFloat(dayData, "workout_count")),
 					DistanceKM:     getFloat(dayData, "distance_km"),
 				}
 			}
@@ -811,21 +915,8 @@ func (p *HealthPlugin) loadPersistedData() {
 	}
 
 	if currentData, ok := config.Settings["current_data"].(map[string]interface{}); ok {
-		p.healthData.StepsToday = int64(getFloat(currentData, "steps_today"))
-		p.healthData.StepsWeek = int64(getFloat(currentData, "steps_week"))
-		p.healthData.CaloriesToday = getFloat(currentData, "calories_today")
-		p.healthData.CaloriesWeek = getFloat(currentData, "calories_week")
-		p.healthData.WorkoutMinutesToday = int64(getFloat(currentData, "workout_minutes_today"))
-		p.healthData.WorkoutMinutesWeek = int64(getFloat(currentData, "workout_minutes_week"))
-		p.healthData.WorkoutCountToday = int(getFloat(currentData, "workout_count_today"))
-		p.healthData.WorkoutCountWeek = int(getFloat(currentData, "workout_count_week"))
 		p.healthData.CurrentHeartRate = int(getFloat(currentData, "current_heart_rate"))
 		p.healthData.RestingHeartRate = int(getFloat(currentData, "resting_heart_rate"))
-		p.healthData.SleepHoursLastNight = getFloat(currentData, "sleep_hours_last")
-		p.healthData.SleepAvgWeek = getFloat(currentData, "sleep_avg_week")
-		p.healthData.DistanceToday = getFloat(currentData, "distance_today")
-		p.healthData.DistanceWeek = getFloat(currentData, "distance_week")
-		p.healthData.HydrationToday = getFloat(currentData, "hydration_today")
 
 		if lastUpdated, ok := currentData["last_updated"].(string); ok {
 			if t, err := time.Parse(time.RFC3339, lastUpdated); err == nil {
@@ -853,27 +944,55 @@ func (p *HealthPlugin) loadPersistedData() {
 		p.healthData.LastWorkout = workout
 	}
 
+	p.processedRecords = make(map[string]map[string]struct{})
+	p.processedRecordsDate = time.Now().Format("2006-01-02")
+
+	p.deduplicateSleepRecords()
+	p.cleanOldSleepRecords()
+	p.cleanOldData()
+
+	p.recalculateTodayFromDailyAverages()
+	p.recalculateWeeklyData()
+
+	log.Printf("[DEBUG] After load: StepsToday=%d StepsWeek=%d WorkoutMinutesWeek=%d",
+		p.healthData.StepsToday, p.healthData.StepsWeek, p.healthData.WorkoutMinutesWeek)
+	log.Printf("[DEBUG] dailyAverages keys: %v", func() []string {
+		keys := make([]string, 0, len(p.dailyAverages))
+		for k := range p.dailyAverages {
+			keys = append(keys, k)
+		}
+		return keys
+	}())
+
+	now := time.Now()
+	startOfDay := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	p.recalculateSleep(startOfDay)
+
+	log.Printf("Health data loaded: steps_today=%d, steps_week=%d, hr=%d, sleep=%.1fh",
+		p.healthData.StepsToday, p.healthData.StepsWeek, p.healthData.CurrentHeartRate, p.healthData.SleepHoursLastNight)
+}
+
+func (p *HealthPlugin) recalculateTodayFromDailyAverages() {
 	today := time.Now().Format("2006-01-02")
-	if p.lastResetDate != today {
+
+	if avg, exists := p.dailyAverages[today]; exists {
+		p.healthData.StepsToday = avg.Steps
+		p.healthData.CaloriesToday = avg.Calories
+		p.healthData.WorkoutMinutesToday = avg.WorkoutMinutes
+		p.healthData.WorkoutCountToday = avg.WorkoutCount
+		p.healthData.HydrationToday = avg.HydrationML
+		p.healthData.DistanceToday = avg.DistanceKM
+		p.healthData.SleepHoursLastNight = avg.SleepHours
+	} else {
 		p.healthData.StepsToday = 0
 		p.healthData.CaloriesToday = 0
 		p.healthData.WorkoutMinutesToday = 0
 		p.healthData.WorkoutCountToday = 0
 		p.healthData.HydrationToday = 0
 		p.healthData.DistanceToday = 0
-		p.healthData.SleepHoursLastNight = 0
-		p.lastResetDate = today
 	}
 
-	p.deduplicateSleepRecords()
-	p.recalculateWeeklyData()
-
-	now := time.Now()
-	startOfDay := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
-	p.recalculateSleep(startOfDay)
-
-	log.Printf("Health data loaded: steps=%d, hr=%d, sleep=%.1fh",
-		p.healthData.StepsToday, p.healthData.CurrentHeartRate, p.healthData.SleepHoursLastNight)
+	p.lastResetDate = today
 }
 
 func getStringC(m map[string]interface{}, key string) string {
@@ -931,7 +1050,7 @@ func (p *HealthPlugin) Render(ctx context.Context) (string, error) {
 	}
 
 	tmpl := `
-<section class="health-section section plugin" data-w="1" data-plugin="health">
+<section class="health-section section plugin" data-w="2" data-plugin="health">
 	<header class="plugin-header">
 		<h3 class="plugin-title">{{.SectionTitle}}</h3>
 		<div class="health-updated">
@@ -979,9 +1098,9 @@ func (p *HealthPlugin) Render(ctx context.Context) (string, error) {
 					</svg>
 				</div>
 				<div class="health-card-content">
-					<div class="health-card-value" data-metric="workout-minutes">{{.WorkoutMinutes}}</div>
-					<div class="health-card-label">Workout</div>
-					<div class="health-card-sub">{{.WorkoutCount}} sessions</div>
+					<div class="health-card-value" data-metric="workout-minutes">{{.WorkoutMinutesToday}}</div>
+					<div class="health-card-label">Workout Today</div>
+					<div class="health-card-sub">{{.WorkoutMinutesWeek}} this week</div>
 				</div>
 			</div>
 			{{end}}
@@ -1038,7 +1157,8 @@ func (p *HealthPlugin) Render(ctx context.Context) (string, error) {
 	stepsWeek := formatNumberCommas(data.StepsWeek)
 	caloriesToday := fmt.Sprintf("%.0f", data.CaloriesToday)
 	caloriesWeek := fmt.Sprintf("%.0f", data.CaloriesWeek)
-	workoutMinutes := fmt.Sprintf("%d min", data.WorkoutMinutesWeek)
+	workoutMinutesToday := fmt.Sprintf("%d min", data.WorkoutMinutesToday)
+	workoutMinutesWeek := fmt.Sprintf("%d min", data.WorkoutMinutesWeek)
 	sleepLastNight := fmt.Sprintf("%.1fh", data.SleepHoursLastNight)
 	sleepAvg := fmt.Sprintf("%.1fh", data.SleepAvgWeek)
 	currentHeartRate := fmt.Sprintf("%d bpm", data.CurrentHeartRate)
@@ -1055,49 +1175,51 @@ func (p *HealthPlugin) Render(ctx context.Context) (string, error) {
 	}
 
 	templateData := struct {
-		SectionTitle     string
-		ShowSteps        bool
-		ShowCalories     bool
-		ShowWorkouts     bool
-		ShowSleep        bool
-		ShowHeartRate    bool
-		ShowHydration    bool
-		StepsToday       string
-		StepsWeek        string
-		CaloriesToday    string
-		CaloriesWeek     string
-		WorkoutMinutes   string
-		WorkoutCount     int
-		SleepLastNight   string
-		SleepAvg         string
-		CurrentHeartRate string
-		CurrentBPM       int
-		HRUpdateText     string
-		Hydration        string
-		LastWorkout      map[string]interface{}
-		LastUpdatedText  string
+		SectionTitle        string
+		ShowSteps           bool
+		ShowCalories        bool
+		ShowWorkouts        bool
+		ShowSleep           bool
+		ShowHeartRate       bool
+		ShowHydration       bool
+		StepsToday          string
+		StepsWeek           string
+		CaloriesToday       string
+		CaloriesWeek        string
+		WorkoutMinutesToday string
+		WorkoutMinutesWeek  string
+		WorkoutCount        int
+		SleepLastNight      string
+		SleepAvg            string
+		CurrentHeartRate    string
+		CurrentBPM          int
+		HRUpdateText        string
+		Hydration           string
+		LastWorkout         map[string]interface{}
+		LastUpdatedText     string
 	}{
-		SectionTitle:     sectionTitle,
-		ShowSteps:        showSteps,
-		ShowCalories:     showCalories,
-		ShowWorkouts:     showWorkouts,
-		ShowSleep:        showSleep,
-		ShowHeartRate:    showHeartRate,
-		ShowHydration:    showHydration,
-		StepsToday:       stepsToday,
-		StepsWeek:        stepsWeek,
-		CaloriesToday:    caloriesToday,
-		CaloriesWeek:     caloriesWeek,
-		WorkoutMinutes:   workoutMinutes,
-		WorkoutCount:     data.WorkoutCountWeek,
-		SleepLastNight:   sleepLastNight,
-		SleepAvg:         sleepAvg,
-		CurrentHeartRate: currentHeartRate,
-		CurrentBPM:       data.CurrentHeartRate,
-		HRUpdateText:     hrUpdateText,
-		Hydration:        hydration,
-		LastWorkout:      lastWorkoutData,
-		LastUpdatedText:  lastUpdatedText,
+		SectionTitle:        sectionTitle,
+		ShowSteps:           showSteps,
+		ShowCalories:        showCalories,
+		ShowWorkouts:        showWorkouts,
+		ShowSleep:           showSleep,
+		ShowHeartRate:       showHeartRate,
+		ShowHydration:       showHydration,
+		StepsToday:          stepsToday,
+		StepsWeek:           stepsWeek,
+		CaloriesToday:       caloriesToday,
+		CaloriesWeek:        caloriesWeek,
+		WorkoutMinutesToday: workoutMinutesToday,
+		WorkoutMinutesWeek:  workoutMinutesWeek,
+		WorkoutCount:        data.WorkoutCountWeek,
+		SleepLastNight:      sleepLastNight,
+		SleepAvg:            sleepAvg,
+		CurrentHeartRate:    currentHeartRate,
+		CurrentBPM:          data.CurrentHeartRate,
+		HRUpdateText:        hrUpdateText,
+		Hydration:           hydration,
+		LastWorkout:         lastWorkoutData,
+		LastUpdatedText:     lastUpdatedText,
 	}
 
 	t, err := template.New("health").Parse(tmpl)
@@ -1290,4 +1412,68 @@ func (p *HealthPlugin) PersistNow() {
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
 	p.persistData()
+}
+
+func (p *HealthPlugin) GetMetrics() map[string]interface{} {
+	p.mutex.RLock()
+	defer p.mutex.RUnlock()
+
+	metrics := map[string]interface{}{
+		"steps_today":           p.healthData.StepsToday,
+		"steps_week":            p.healthData.StepsWeek,
+		"calories_today":        p.healthData.CaloriesToday,
+		"calories_week":         p.healthData.CaloriesWeek,
+		"workout_minutes_today": p.healthData.WorkoutMinutesToday,
+		"workout_minutes_week":  p.healthData.WorkoutMinutesWeek,
+		"current_heart_rate":    p.healthData.CurrentHeartRate,
+		"resting_heart_rate":    p.healthData.RestingHeartRate,
+		"sleep_hours_last":      p.healthData.SleepHoursLastNight,
+		"sleep_avg_week":        p.healthData.SleepAvgWeek,
+		"distance_today_km":     p.healthData.DistanceToday,
+		"distance_week_km":      p.healthData.DistanceWeek,
+		"hydration_today_ml":    p.healthData.HydrationToday,
+	}
+
+	return metrics
+}
+
+func dayStart(t time.Time) time.Time {
+	return time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, t.Location())
+}
+
+func rollingWeekStart(t time.Time) time.Time {
+	return dayStart(t).AddDate(0, 0, -6)
+}
+
+func (p *HealthPlugin) ensureDailyAverage(dateKey string) {
+	if _, ok := p.dailyAverages[dateKey]; !ok {
+		p.dailyAverages[dateKey] = &DailyAverage{Date: dateKey}
+	}
+}
+
+func (p *HealthPlugin) extractStepCount(record map[string]interface{}) int64 {
+	for _, key := range []string{"count", "value", "steps", "stepCount"} {
+		if v := p.extractInt(record, key); v > 0 {
+			return v
+		}
+	}
+
+	if samples, ok := record["samples"].([]interface{}); ok && len(samples) > 0 {
+		var total int64
+		for _, s := range samples {
+			if sample, ok := s.(map[string]interface{}); ok {
+				for _, key := range []string{"count", "value", "steps"} {
+					if v := p.extractInt(sample, key); v > 0 {
+						total += v
+						break
+					}
+				}
+			}
+		}
+		if total > 0 {
+			return total
+		}
+	}
+
+	return 0
 }

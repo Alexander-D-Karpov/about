@@ -1,90 +1,79 @@
-.webring-section .plugin-header{
-    box-shadow:none;
-    border:none;
+.webring-section .plugin-header {
+    box-shadow: none;
+    border: none;
 }
 
-.webring-nav{
-    display:flex;
-    align-items:center;
-    justify-content:center;     /* center the trio */
-    flex-wrap:nowrap;           /* always one row */
-    width:100%;
-    min-height:0;
-    gap:clamp(6px, 0.8vw, 10px);/* tighter spacing */
-    padding:0;                  /* no background padding strip */
-    background:transparent;
-    box-shadow:none;
-    overflow:hidden;            /* hide tiny overflow on super small screens */
+.webring-nav {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-wrap: nowrap;
+    width: 100%;
+    gap: 8px;
+    padding: 0;
+    background: transparent;
 }
 
 .webring-prev,
 .webring-home,
-.webring-next{
-    display:inline-flex;
-    align-items:center;
-    justify-content:center;
-    gap:0.55em;
-
-    height:clamp(32px, 2.6vw, 46px);
-    padding:0 clamp(10px, 1.6vw, 18px);
-
-    border-radius:12px;
-    border:1px solid var(--edge-0);
-    background:linear-gradient(135deg, rgba(255,255,255,.06), rgba(255,255,255,.03));
-    box-shadow:0 1px 3px rgba(0,0,0,.15);
-
-    color:var(--ink);
-    font-weight:700;
-    font-size:clamp(12px, 0.95vw, 16px);
-    line-height:1;
-
-    white-space:nowrap;
-    min-width:0;
-    max-width:100%;
-    overflow:hidden;
-    text-overflow:ellipsis;
-
-    text-decoration:none;
-    cursor:pointer;
-    user-select:none;
-
-    transition:
-            transform .15s ease,
-            box-shadow .2s ease,
-            background .2s ease,
-            opacity .2s ease;
+.webring-next {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    height: 40px;
+    padding: 0 16px;
+    border-radius: 10px;
+    border: 1px solid var(--edge-0);
+    background: transparent;
+    color: var(--ink);
+    font-weight: 600;
+    font-size: 13px;
+    line-height: 1;
+    white-space: nowrap;
+    min-width: 0;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    text-decoration: none;
+    cursor: pointer;
+    user-select: none;
+    transition: border-color .15s ease, background .15s ease;
 }
 
 .webring-prev:hover,
-.webring-home:hover,
-.webring-next:hover{
-    transform:translateY(-1px);
-    box-shadow:0 3px 12px rgba(0,0,0,.25);
+.webring-next:hover {
+    border-color: var(--edge-1);
+    background: rgba(255, 255, 255, .02);
 }
 
-.webring-prev:active,
-.webring-home:active,
-.webring-next:active{
-    transform:none;
+.webring-home {
+    background: var(--accent);
+    color: #fff;
+    border-color: transparent;
+    font-weight: 700;
 }
 
-.webring-home{
-    background:linear-gradient(135deg, var(--accent) 0%, color-mix(in oklch, var(--accent) 85%, black) 100%);
-    color:#fff;
-    border-color:transparent;
-    font-weight:800;
-    letter-spacing:.1px;
+.webring-home:hover {
+    background: color-mix(in oklch, var(--accent) 90%, white);
 }
 
 .webring-prev,
-.webring-next{ flex:1 1 0; max-width:33%; }
-.webring-home{ flex:0 0 auto; min-width:clamp(56px, 6vw, 120px); }
+.webring-next {
+    flex: 1 1 0;
+    max-width: 40%;
+}
 
-.webring-text{
-    overflow:hidden;
-    text-overflow:ellipsis;
-    white-space:nowrap;
-    min-width:0;
+.webring-home {
+    flex: 0 0 auto;
+    min-width: 100px;
+}
+
+.webring-text {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
 }
 
 .webring-prev img,
@@ -92,65 +81,93 @@
 .webring-next img,
 .webring-prev svg,
 .webring-home svg,
-.webring-next svg{
-    width:clamp(14px, 1.2vw, 18px);
-    height:clamp(14px, 1.2vw, 18px);
-    flex-shrink:0;
-    object-fit:contain;
+.webring-next svg {
+    width: 16px;
+    height: 16px;
+    flex-shrink: 0;
+    object-fit: contain;
 }
-/* Make the pills a touch larger on very wide screens */
-@media (min-width: 1440px){
-    .webring-nav{ gap:clamp(8px, 0.7vw, 14px); }
+
+@media (min-width: 1440px) {
+    .webring-nav {
+        gap: 10px;
+    }
+
     .webring-prev,
     .webring-home,
-    .webring-next{
-        height:clamp(40px, 2.4vw, 50px);
-        font-size:clamp(13px, 0.9vw, 17px);
-        padding:0 clamp(12px, 1.8vw, 20px);
+    .webring-next {
+        height: 44px;
+        font-size: 14px;
+        padding: 0 20px;
     }
 }
 
-@media (max-width: 900px){
+@media (max-width: 900px) {
     .webring-prev,
     .webring-home,
-    .webring-next{
-        height:38px;
-        font-size:13px;
-        padding:0 12px;
+    .webring-next {
+        height: 38px;
+        font-size: 12px;
+        padding: 0 12px;
     }
 }
 
-@media (max-width: 520px){
-    .webring-nav{ gap:6px; }
+@media (max-width: 520px) {
+    .webring-nav {
+        gap: 6px;
+    }
+
     .webring-prev,
-    .webring-next{ padding:0 10px; height:34px; font-size:12px; }
-    .webring-home{ padding:0 12px; height:34px; min-width:52px; }
+    .webring-next {
+        padding: 0 10px;
+        height: 36px;
+        font-size: 11px;
+    }
+
+    .webring-home {
+        padding: 0 12px;
+        height: 36px;
+        min-width: 80px;
+    }
 }
 
-/* Ultra-narrow: hide prev/next text to keep one line, show arrows */
-@media (max-width: 380px){
+@media (max-width: 380px) {
     .webring-prev .webring-text,
-    .webring-next .webring-text{ display:none; }
-    .webring-prev::after{ content:"←"; font-weight:900; }
-    .webring-next::after{ content:"→"; font-weight:900; }
+    .webring-next .webring-text {
+        display: none;
+    }
+
+    .webring-prev::after {
+        content: "←";
+        font-weight: 900;
+    }
+
+    .webring-next::after {
+        content: "→";
+        font-weight: 900;
+    }
 }
 
 @media (prefers-color-scheme: light) {
     .webring-prev,
     .webring-next {
-        background: linear-gradient(135deg, rgba(0, 0, 0, .04), rgba(0, 0, 0, .02));
+        background: transparent;
         border-color: var(--edge-1);
         color: var(--ink);
     }
 
     .webring-prev:hover,
     .webring-next:hover {
-        background: linear-gradient(135deg, rgba(0, 0, 0, .08), rgba(0, 0, 0, .04));
-        color: var(--accent);
+        background: rgba(0, 0, 0, .02);
+        border-color: var(--edge-2);
     }
 
     .webring-home {
-        background: linear-gradient(135deg, var(--accent) 0%, color-mix(in oklch, var(--accent) 85%, black) 100%);
+        background: var(--accent);
         color: #fff;
+    }
+
+    .webring-home:hover {
+        background: color-mix(in oklch, var(--accent) 90%, black);
     }
 }

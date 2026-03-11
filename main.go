@@ -5,11 +5,12 @@ import (
 	"embed"
 	"encoding/json"
 	"fmt"
+	"html/template"
 	"log"
 	"net/http"
 	"os"
 	"os/signal"
-	filepath "path/filepath"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
@@ -24,6 +25,7 @@ import (
 	"github.com/Alexander-D-Karpov/about/internal/config"
 	"github.com/Alexander-D-Karpov/about/internal/handlers"
 	"github.com/Alexander-D-Karpov/about/internal/plugins"
+	"github.com/Alexander-D-Karpov/about/internal/ranking"
 	"github.com/Alexander-D-Karpov/about/internal/storage"
 	"github.com/Alexander-D-Karpov/about/internal/stream"
 )
@@ -31,7 +33,7 @@ import (
 //go:embed static/*
 var staticFiles embed.FS
 
-//go:embed templates/*
+//go:embed all:templates
 var templateFiles embed.FS
 
 var appStartTime time.Time
@@ -69,6 +71,7 @@ func main() {
 	log.Println("Plugin data preloaded successfully")
 
 	go startBackgroundTasks(store, pluginManager)
+	go pluginManager.StartPrometheusMetrics(context.Background())
 
 	bundler := assets.NewBundler(staticFiles)
 	bundler.Build()
@@ -78,6 +81,9 @@ func main() {
 	bundleHandler := handlers.NewBundleHandler(bundler)
 	r.Handle("/static/bundle.css", bundleHandler)
 	r.Handle("/static/bundle.js", bundleHandler)
+
+	r.PathPrefix("/static/css/stats.css").Handler(http.FileServer(http.FS(staticFiles)))
+	r.PathPrefix("/static/js/stats.js").Handler(http.FileServer(http.FS(staticFiles)))
 
 	staticHandler := http.FileServer(http.FS(staticFiles))
 	r.PathPrefix("/static/").Handler(disableDirectoryListing(addCacheHeaders(staticHandler)))
@@ -94,6 +100,16 @@ func main() {
 
 	r.HandleFunc("/upload", handlers.NewUploadHandler(cfg).ServeHTTP).Methods("POST")
 
+	statsTmpl, err := template.ParseFS(templateFiles, "templates/stats.html")
+	if err == nil {
+		statsHandler := handlers.NewStatsHandler(cfg, pluginManager, statsTmpl)
+		r.HandleFunc("/stats", statsHandler.ServeHTTP)
+		log.Printf("Serving stats UI at /stats")
+		r.HandleFunc("/api/stats/data", statsHandler.ServeHTTP)
+	} else {
+		log.Printf("Warning: Failed to load stats template: %v", err)
+	}
+
 	mainHandler := handlers.NewMainHandler(pluginManager, cfg, templateFiles, bundler)
 	r.HandleFunc("/", mainHandler.ServeHTTP).Methods("GET")
 
@@ -108,21 +124,17 @@ func main() {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-
 		memePlugin, exists := pluginManager.GetPlugin("meme")
 		if !exists {
 			http.Error(w, "Meme plugin not found", http.StatusNotFound)
 			return
 		}
-
 		meme, ok := memePlugin.(*plugins.MemePlugin)
 		if !ok {
 			http.Error(w, "Invalid plugin type", http.StatusInternalServerError)
 			return
 		}
-
 		currentMeme := meme.RefreshMeme()
-
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": true,
@@ -192,6 +204,19 @@ func main() {
 			r.HandleFunc("/api/health/sync/{type}", hp.HandleSync).Methods("POST")
 			r.HandleFunc("/api/health/status", hp.HandleStatus).Methods("GET")
 		}
+	}
+
+	if pgURL := os.Getenv("POSTGRES_URL"); pgURL != "" {
+		rankingStore, err := ranking.NewStore(pgURL, cfg.MediaPath)
+		if err != nil {
+			log.Printf("Warning: Ranking module failed to initialize: %v", err)
+		} else {
+			rankingHandler := ranking.NewHandler(rankingStore, cfg, templateFiles)
+			r.PathPrefix("/ranking").Handler(rankingHandler)
+			log.Println("Ranking module enabled at /ranking")
+		}
+	} else {
+		log.Println("Ranking module disabled (POSTGRES_URL not set)")
 	}
 
 	log.Printf("Server starting on port %s", cfg.Port)
@@ -641,6 +666,7 @@ func initializeMediaFolders(mediaPath string) error {
 		"uploads/personal",
 		"uploads/services",
 		"uploads/meme",
+		"ranking",
 	}
 
 	for _, folder := range folders {

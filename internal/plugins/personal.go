@@ -369,3 +369,36 @@ func (p *PersonalPlugin) getStringFromMap(m map[string]interface{}, key string, 
 	}
 	return defaultValue
 }
+
+func (p *PersonalPlugin) GetMetrics() map[string]interface{} {
+	config := p.storage.GetPluginConfig(p.Name())
+	personalInfo, ok := config.Settings["info"].([]interface{})
+	count := 0
+	if ok {
+		count = len(personalInfo)
+	}
+	return map[string]interface{}{
+		"info_items_count": count,
+	}
+}
+
+func (p *PersonalPlugin) RenderText(ctx context.Context) (string, error) {
+	config := p.storage.GetPluginConfig(p.Name())
+	personalInfo, ok := config.Settings["info"].([]interface{})
+	if !ok || len(personalInfo) == 0 {
+		return "Personal Info: No items configured", nil
+	}
+
+	titles := make([]string, 0, len(personalInfo))
+	for _, info := range personalInfo {
+		infoMap, ok := info.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		title := p.getStringFromMap(infoMap, "title", "")
+		if title != "" {
+			titles = append(titles, title)
+		}
+	}
+	return "Personal Info: " + strings.Join(titles, ", "), nil
+}

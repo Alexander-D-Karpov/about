@@ -214,6 +214,17 @@ func NewBeatLeaderPlugin(storage *storage.Storage, hub *stream.Hub, mediaPath st
 	return plugin
 }
 
+func formatBeatLeaderNumber(n int64) string {
+	return fmt.Sprintf("%d", n)
+	//if n < 1000 {
+	//	return fmt.Sprintf("%d", n)
+	//} else if n < 1000000 {
+	//	return fmt.Sprintf("%.1fK", float64(n)/1000)
+	//} else {
+	//	return fmt.Sprintf("%.2fM", float64(n)/1000000)
+	//}
+}
+
 func (p *BeatLeaderPlugin) loadCachedCubes() {
 	config := p.storage.GetPluginConfig(p.Name())
 
@@ -336,7 +347,7 @@ func (p *BeatLeaderPlugin) Render(ctx context.Context) (string, error) {
 	cubesSliced := p.cachedCubesSliced
 	p.cubesMutex.RUnlock()
 
-	cubesFormatted := formatNumber(cubesSliced)
+	cubesFormatted := formatBeatLeaderNumber(cubesSliced)
 	cubesExact := formatNumberWithCommas(cubesSliced)
 
 	tmpl := `
@@ -366,16 +377,12 @@ func (p *BeatLeaderPlugin) Render(ctx context.Context) (string, error) {
 			</div>
 		</div>
 		{{end}}
-
 		{{if and .ShowRecentMaps .RecentScores}}
 		<h4>Recent Maps {{if .ShowPepeGif}} <img src="/static/images/pepe-dance.gif" alt="" class="pepe-gif" loading="lazy" style="width: 20px; height: 20px">{{end}}</h4>
 		<div class="maps-list">
 			{{range .RecentScores}}
 				{{if .ReplayURL}}
-				<a class="map-item"
-				   href="{{.ReplayURL}}"
-				   target="_blank"
-				   rel="noopener noreferrer">
+				<a class="map-item" href="{{.ReplayURL}}" target="_blank" rel="noopener noreferrer">
 					{{if .Leaderboard.Song.CoverImage}}
 					<img src="{{.Leaderboard.Song.CoverImage}}" alt="{{.Leaderboard.Song.Name}}" class="map-cover" loading="lazy">
 					{{end}}
@@ -417,7 +424,6 @@ func (p *BeatLeaderPlugin) Render(ctx context.Context) (string, error) {
 		{{end}}
 	</div>
 </section>`
-
 	var processedScores []map[string]interface{}
 	for i, score := range p.recentScores {
 		if i >= 10 {
@@ -473,27 +479,20 @@ func (p *BeatLeaderPlugin) Render(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
-
 	var buf strings.Builder
 	err = t.Execute(&buf, data)
-	if err != nil {
-		return "", err
-	}
-
-	return buf.String(), nil
+	return buf.String(), err
 }
 
 func formatNumberWithCommas(n int64) string {
 	str := fmt.Sprintf("%d", n)
 	var result []rune
-
-	for i, r := range []rune(str) {
+	for i, r := range str {
 		if i > 0 && (len(str)-i)%3 == 0 {
 			result = append(result, ',')
 		}
 		result = append(result, r)
 	}
-
 	return string(result)
 }
 
@@ -604,7 +603,7 @@ func (p *BeatLeaderPlugin) updatePlayerData(username string) error {
 }
 
 func (p *BeatLeaderPlugin) updateRecentScores(username string) error {
-	url := fmt.Sprintf("https://api.beatleader.com/player/%s/scores?leaderboardContext=general&page=1&sortBy=date&order=desc&count=5&includeIO=true", username)
+	url := fmt.Sprintf("https://api.beatleader.com/player/%s/scores?leaderboardContext=general&page=1&sortBy=date&order=desc&count=10&includeIO=true", username)
 
 	client := &http.Client{Timeout: 15 * time.Second}
 	req, err := http.NewRequest("GET", url, nil)
@@ -691,44 +690,38 @@ func (p *BeatLeaderPlugin) SetSettings(settings map[string]interface{}) error {
 func (p *BeatLeaderPlugin) getConfigValue(settings map[string]interface{}, key string, defaultValue string) string {
 	keys := strings.Split(key, ".")
 	current := settings
-
 	for i, k := range keys {
 		if i == len(keys)-1 {
 			if value, ok := current[k].(string); ok {
 				return value
 			}
 			return defaultValue
+		}
+		if next, ok := current[k].(map[string]interface{}); ok {
+			current = next
 		} else {
-			if next, ok := current[k].(map[string]interface{}); ok {
-				current = next
-			} else {
-				return defaultValue
-			}
+			return defaultValue
 		}
 	}
-
 	return defaultValue
 }
 
 func (p *BeatLeaderPlugin) getConfigBool(settings map[string]interface{}, key string, defaultValue bool) bool {
 	keys := strings.Split(key, ".")
 	current := settings
-
 	for i, k := range keys {
 		if i == len(keys)-1 {
 			if value, ok := current[k].(bool); ok {
 				return value
 			}
 			return defaultValue
+		}
+		if next, ok := current[k].(map[string]interface{}); ok {
+			current = next
 		} else {
-			if next, ok := current[k].(map[string]interface{}); ok {
-				current = next
-			} else {
-				return defaultValue
-			}
+			return defaultValue
 		}
 	}
-
 	return defaultValue
 }
 
@@ -826,7 +819,7 @@ func (p *BeatLeaderPlugin) performCubesCalculation() {
 
 	p.hub.Broadcast("beatleader_cubes_update", map[string]interface{}{
 		"cubes":     totalCubes,
-		"formatted": formatNumber(totalCubes),
+		"formatted": formatBeatLeaderNumber(totalCubes),
 		"timestamp": time.Now().Unix(),
 	})
 
@@ -1195,4 +1188,26 @@ func drawLargeTextFallback(img *image.RGBA, text string, startX, startY, scale i
 			}
 		}
 	}
+}
+
+func (p *BeatLeaderPlugin) GetMetrics() map[string]interface{} {
+	p.cubesMutex.RLock()
+	cubes := p.cachedCubesSliced
+	p.cubesMutex.RUnlock()
+
+	metrics := map[string]interface{}{
+		"cubes_sliced": cubes,
+		"rank":         0,
+		"pp":           0.0,
+		"play_count":   0,
+	}
+
+	if p.playerData != nil {
+		metrics["rank"] = p.playerData.Rank
+		metrics["pp"] = p.playerData.PP
+		metrics["play_count"] = p.playerData.ScoreStats.TotalPlayCount
+		metrics["average_accuracy"] = p.playerData.ScoreStats.AverageRankedAccuracy * 100
+	}
+
+	return metrics
 }

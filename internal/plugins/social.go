@@ -36,6 +36,19 @@ func (p *SocialPlugin) Render(ctx context.Context) (string, error) {
 	if !ok {
 		return "", nil
 	}
+
+	pages := []struct {
+		Name    string
+		URL     string
+		IconSVG template.HTML
+	}{
+		{
+			Name:    "Tier Rankings",
+			URL:     "/ranking",
+			IconSVG: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="12" width="4" height="9"/><rect x="10" y="3" width="4" height="18"/><rect x="17" y="8" width="4" height="13"/></svg>`,
+		},
+	}
+
 	tmpl := `
 <section class="social-section section plugin" data-w="1">
 	<header class="plugin-header">
@@ -50,6 +63,17 @@ func (p *SocialPlugin) Render(ctx context.Context) (string, error) {
 			</a>
 			{{end}}
 		</div>
+
+		{{if .Pages}}
+		<div class="social-pages">
+			{{range .Pages}}
+			<a href="{{.URL}}" title="{{.Name}}" class="social-page-link">
+				<span class="social-page-icon">{{.IconSVG}}</span>
+				<span class="social-page-name">{{.Name}}</span>
+			</a>
+			{{end}}
+		</div>
+		{{end}}
 	</div>
 </section>`
 
@@ -57,6 +81,12 @@ func (p *SocialPlugin) Render(ctx context.Context) (string, error) {
 		Name    string
 		URL     string
 		IconURL string
+	}
+
+	type pageLink struct {
+		Name    string
+		URL     string
+		IconSVG template.HTML
 	}
 
 	var socialLinks []socialLink
@@ -70,7 +100,6 @@ func (p *SocialPlugin) Render(ctx context.Context) (string, error) {
 		name := p.getStringFromMap(linkMap, "name", "Link")
 		url := p.getStringFromMap(linkMap, "url", "#")
 
-		// Allow optional direct icon path override
 		iconURL := p.getStringFromMap(linkMap, "iconPath", "")
 		if strings.TrimSpace(iconURL) == "" {
 			iconField := p.getStringFromMap(linkMap, "icon", "link")
@@ -79,19 +108,13 @@ func (p *SocialPlugin) Render(ctx context.Context) (string, error) {
 			switch {
 			case iconField == "":
 				iconURL = "/static/icons/link.svg"
-
 			case strings.HasPrefix(iconField, "/"),
 				strings.HasPrefix(iconField, "http://"),
 				strings.HasPrefix(iconField, "https://"):
-				// already a full path or URL
 				iconURL = iconField
-
 			case strings.Contains(iconField, "."):
-				// has extension → keep it
 				iconURL = "/static/icons/" + iconField
-
 			default:
-				// plain slug → default to .svg
 				iconURL = "/static/icons/" + iconField + ".svg"
 			}
 		}
@@ -102,12 +125,23 @@ func (p *SocialPlugin) Render(ctx context.Context) (string, error) {
 		})
 	}
 
+	var pageLinks []pageLink
+	for _, pg := range pages {
+		pageLinks = append(pageLinks, pageLink{
+			Name:    pg.Name,
+			URL:     pg.URL,
+			IconSVG: pg.IconSVG,
+		})
+	}
+
 	data := struct {
 		SectionTitle string
 		Links        []socialLink
+		Pages        []pageLink
 	}{
 		SectionTitle: sectionTitle,
 		Links:        socialLinks,
+		Pages:        pageLinks,
 	}
 
 	t, err := template.New("social").Parse(tmpl)
@@ -218,4 +252,19 @@ func (p *SocialPlugin) RenderText(ctx context.Context) (string, error) {
 		s += fmt.Sprintf(" and %d more", len(links)-5)
 	}
 	return s, nil
+}
+
+func (p *SocialPlugin) GetMetrics() map[string]interface{} {
+	config := p.storage.GetPluginConfig(p.Name())
+	links, ok := config.Settings["links"].([]interface{})
+
+	metrics := map[string]interface{}{
+		"total_links": 0,
+	}
+
+	if ok {
+		metrics["total_links"] = len(links)
+	}
+
+	return metrics
 }

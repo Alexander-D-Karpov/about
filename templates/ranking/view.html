@@ -1,0 +1,470 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta content="width=device-width, initial-scale=1.0" name="viewport">
+    <title>{{.Title}}</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            background: #0a0a0a;
+            color: #e0e0e0;
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 1100px;
+            margin: 0 auto;
+            padding: 40px 20px;
+        }
+
+        h1 {
+            font-size: 1.8rem;
+            margin-bottom: 6px;
+        }
+
+        .desc {
+            color: #888;
+            margin-bottom: 24px;
+        }
+
+        a.back {
+            color: #6a9fff;
+            text-decoration: none;
+            display: inline-block;
+            margin-bottom: 20px;
+        }
+
+        a.back:hover {
+            text-decoration: underline;
+        }
+
+        .tier-row {
+            display: flex;
+            min-height: 80px;
+            margin-bottom: 2px;
+            transition: opacity 0.3s;
+        }
+
+        .tier-label {
+            width: 80px;
+            min-width: 80px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            font-size: 1.4rem;
+            color: #000;
+            flex-shrink: 0;
+        }
+
+        .tier-label span {
+            font-size: clamp(0.7rem, 2.5vw, 1.4rem);
+            display: block;
+            word-break: break-word;
+            overflow-wrap: break-word;
+        }
+
+        .tier-entries {
+            flex: 1;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 4px;
+            padding: 6px;
+            background: #1a1a1a;
+            align-content: flex-start;
+            min-height: 80px;
+        }
+
+        .entry-card {
+            width: 80px;
+            height: 80px;
+            position: relative;
+            border-radius: 4px;
+            overflow: hidden;
+            background: #2a2a2a;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+
+        .entry-card img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .entry-card .text-entry {
+            padding: 4px;
+            font-size: 0.7rem;
+            text-align: center;
+            word-break: break-word;
+        }
+
+        .entry-name-bar {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: rgba(0, 0, 0, 0.8);
+            color: #fff;
+            font-size: 0.6rem;
+            padding: 2px 4px;
+            text-align: center;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            opacity: 0;
+            transition: opacity 0.15s;
+            pointer-events: none;
+        }
+
+        .entry-card:hover .entry-name-bar {
+            opacity: 1;
+        }
+
+        .preview-backdrop {
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.7);
+            z-index: 100;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+        }
+
+        .preview-backdrop.active {
+            display: flex;
+        }
+
+        .preview-card {
+            background: #1a1a1a;
+            border: 1px solid #333;
+            border-radius: 12px;
+            overflow: hidden;
+            max-width: 90vw;
+            max-height: 90vh;
+            display: flex;
+            flex-direction: column;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+        }
+
+        .preview-card img {
+            max-width: 80vw;
+            max-height: 70vh;
+            object-fit: contain;
+            display: block;
+        }
+
+        .preview-info {
+            padding: 16px 20px;
+        }
+
+        .preview-info .preview-name {
+            font-size: 1.1rem;
+            font-weight: 600;
+            margin-bottom: 4px;
+        }
+
+        .preview-info .preview-tier {
+            font-size: 0.85rem;
+            color: #999;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .preview-info .preview-tier-badge {
+            display: inline-block;
+            width: 14px;
+            height: 14px;
+            border-radius: 3px;
+            vertical-align: middle;
+        }
+
+        .preview-text-only {
+            padding: 40px 60px;
+            font-size: 1.4rem;
+            text-align: center;
+            color: #ccc;
+        }
+
+        .preview-close {
+            position: absolute;
+            top: 16px;
+            right: 16px;
+            width: 36px;
+            height: 36px;
+            background: rgba(0, 0, 0, 0.6);
+            border: 1px solid #555;
+            border-radius: 50%;
+            color: #fff;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .preview-close:hover {
+            background: rgba(255, 255, 255, 0.1);
+        }
+
+        .preview-close svg {
+            width: 18px;
+            height: 18px;
+        }
+
+        .unsorted-section {
+            margin-top: 24px;
+        }
+
+        .unsorted-section h3 {
+            font-size: 0.9rem;
+            color: #888;
+            margin-bottom: 8px;
+        }
+
+        .unsorted-entries {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 4px;
+            padding: 12px;
+            background: #1a1a1a;
+            border-radius: 8px;
+            min-height: 80px;
+        }
+
+        .live-dot {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            background: #4caf50;
+            border-radius: 50%;
+            margin-left: 10px;
+            animation: pulse 2s infinite;
+            vertical-align: middle;
+        }
+
+        @keyframes pulse {
+            0%, 100% {
+                opacity: 1;
+            }
+            50% {
+                opacity: 0.3;
+            }
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <a class="back" href="/ranking">&larr; Back to rankings</a>
+    <h1 id="tl-title">{{.Tierlist.Title}}<span class="live-dot" id="live-dot" style="display:none"
+                                               title="Live updates active"></span></h1>
+    <p class="desc" id="tl-desc">{{.Tierlist.Description}}</p>
+
+    <div id="tier-board"></div>
+    <div class="unsorted-section" id="unsorted-section" style="display:none">
+        <h3>Unsorted</h3>
+        <div class="unsorted-entries" id="unsorted-entries"></div>
+    </div>
+</div>
+
+<div class="preview-backdrop" id="preview" onclick="closePreview(event)">
+    <button class="preview-close" onclick="closePreview(event)">
+        <svg fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+             viewBox="0 0 24 24">
+            <line x1="18" x2="6" y1="6" y2="18"/>
+            <line x1="6" x2="18" y1="6" y2="18"/>
+        </svg>
+    </button>
+    <div class="preview-card" id="preview-card" onclick="event.stopPropagation()"></div>
+</div>
+
+<script>
+    const SLUG = "{{.Tierlist.Slug}}";
+    let data = {
+    {
+        json.Tierlist
+    }
+    }
+    ;
+
+    function renderBoard() {
+        const tiers = (data.tiers || []).slice().sort((a, b) => a.position - b.position);
+        const entries = data.entries || [];
+        const board = document.getElementById("tier-board");
+        board.innerHTML = "";
+
+        const tierMap = {};
+        tiers.forEach(t => {
+            tierMap[t.id] = {tier: t, entries: []};
+        });
+        const unsorted = [];
+
+        entries.slice().sort((a, b) => a.position - b.position).forEach(e => {
+            if (e.tier_id && tierMap[e.tier_id]) {
+                tierMap[e.tier_id].entries.push(e);
+            } else {
+                unsorted.push(e);
+            }
+        });
+
+        tiers.forEach(tier => {
+            const row = document.createElement("div");
+            row.className = "tier-row";
+
+            const label = document.createElement("div");
+            label.className = "tier-label";
+            label.style.background = tier.color;
+            const labelSpan = document.createElement("span");
+            labelSpan.textContent = tier.name;
+            if (tier.name.length > 6) labelSpan.style.fontSize = "0.9rem";
+            if (tier.name.length > 10) labelSpan.style.fontSize = "0.7rem";
+            label.appendChild(labelSpan);
+
+            const zone = document.createElement("div");
+            zone.className = "tier-entries";
+
+            tierMap[tier.id].entries.forEach(e => {
+                zone.appendChild(makeCard(e, tier.name, tier.color));
+            });
+
+            row.appendChild(label);
+            row.appendChild(zone);
+            board.appendChild(row);
+        });
+
+        const unsortedSection = document.getElementById("unsorted-section");
+        const unsortedZone = document.getElementById("unsorted-entries");
+        if (unsorted.length > 0) {
+            unsortedSection.style.display = "";
+            unsortedZone.innerHTML = "";
+            unsorted.forEach(e => unsortedZone.appendChild(makeCard(e, "Unsorted", "#666666")));
+        } else {
+            unsortedSection.style.display = "none";
+        }
+
+        document.getElementById("tl-title").firstChild.textContent = data.title || "";
+        document.getElementById("tl-desc").textContent = data.description || "";
+    }
+
+    function makeCard(entry, tierName, tierColor) {
+        const card = document.createElement("div");
+        card.className = "entry-card";
+        card.dataset.name = entry.name || "";
+        card.dataset.image = entry.image_path || "";
+        card.dataset.tier = tierName;
+        card.dataset.tierColor = tierColor;
+        card.addEventListener("click", () => openPreview(card));
+
+        if (entry.thumb_path) {
+            const img = document.createElement("img");
+            img.src = entry.thumb_path;
+            img.alt = entry.name || "";
+            img.loading = "lazy";
+            card.appendChild(img);
+        } else if (entry.image_path) {
+            const img = document.createElement("img");
+            img.src = entry.image_path;
+            img.alt = entry.name || "";
+            img.loading = "lazy";
+            card.appendChild(img);
+        } else {
+            const t = document.createElement("div");
+            t.className = "text-entry";
+            t.textContent = entry.name || "\u2014";
+            card.appendChild(t);
+        }
+
+        if (entry.name) {
+            const bar = document.createElement("div");
+            bar.className = "entry-name-bar";
+            bar.textContent = entry.name;
+            card.appendChild(bar);
+        }
+
+        return card;
+    }
+
+    function openPreview(el) {
+        const name = el.dataset.name;
+        const image = el.dataset.image;
+        const tier = el.dataset.tier;
+        const tierColor = el.dataset.tierColor;
+        const card = document.getElementById("preview-card");
+        let html = "";
+        if (image) {
+            html += '<img src="' + esc(image) + '" alt="' + esc(name) + '">';
+        } else {
+            html += '<div class="preview-text-only">' + esc(name || "\u2014") + '</div>';
+        }
+        if (name || tier) {
+            html += '<div class="preview-info">';
+            if (name) html += '<div class="preview-name">' + esc(name) + '</div>';
+            if (tier) html += '<div class="preview-tier"><span class="preview-tier-badge" style="background:' + esc(tierColor) + '"></span>' + esc(tier) + ' tier</div>';
+            html += '</div>';
+        }
+        card.innerHTML = html;
+        document.getElementById("preview").classList.add("active");
+        document.body.style.overflow = "hidden";
+    }
+
+    function closePreview(e) {
+        if (e) e.stopPropagation();
+        document.getElementById("preview").classList.remove("active");
+        document.body.style.overflow = "";
+    }
+
+    document.addEventListener("keydown", e => {
+        if (e.key === "Escape") closePreview();
+    });
+
+    function esc(s) {
+        if (!s) return "";
+        const d = document.createElement("div");
+        d.textContent = s;
+        return d.innerHTML;
+    }
+
+    function connectWS() {
+        const proto = location.protocol === "https:" ? "wss:" : "ws:";
+        const ws = new WebSocket(proto + "//" + location.host + "/ranking/" + SLUG + "/ws");
+
+        ws.onopen = () => {
+            document.getElementById("live-dot").style.display = "inline-block";
+        };
+
+        ws.onmessage = (e) => {
+            try {
+                const newData = JSON.parse(e.data);
+                if (newData.tiers) {
+                    data = newData;
+                    renderBoard();
+                }
+            } catch (_) {
+            }
+        };
+
+        ws.onclose = () => {
+            document.getElementById("live-dot").style.display = "none";
+            setTimeout(connectWS, 3000);
+        };
+
+        ws.onerror = () => {
+        };
+    }
+
+    renderBoard();
+    connectWS();
+</script>
+</body>
+</html>

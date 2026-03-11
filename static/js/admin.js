@@ -23,9 +23,14 @@ function initSettingsEditor(pluginName, settings) {
 
 function renderPluginForm(container, pluginName, settings) {
     const pluginType = getPluginType(pluginName);
-
     const formWrapper = document.createElement('div');
     formWrapper.className = 'plugin-settings-wrapper';
+
+    if (pluginName === 'photos') {
+        renderPhotosAdmin(formWrapper, settings);
+        container.appendChild(formWrapper);
+        return;
+    }
 
     if (pluginName === 'places') {
         renderPlacesPluginAdmin(formWrapper, pluginName, settings);
@@ -41,6 +46,31 @@ function renderPluginForm(container, pluginName, settings) {
 
     container.appendChild(formWrapper);
 }
+
+function renderPhotosAdmin(container, settings) {
+    const uiSettings = settings.ui || {};
+    createField('ui.sectionTitle', uiSettings.sectionTitle || 'Photos', container, 'ui');
+    createField('ui.maxFolders', uiSettings.maxFolders || 6, container, 'ui');
+    createField('apiUrl', settings.apiUrl || 'https://photos.akarpov.ru', container);
+
+    const hiddenContainer = document.createElement('div');
+    hiddenContainer.className = 'managed-array-container';
+    hiddenContainer.innerHTML = `
+        <div class="managed-array-header">
+            <h4>Hidden Folders</h4>
+            <p style="font-size:12px; color:var(--muted)">Enter folder names to hide from the main view.</p>
+        </div>
+    `;
+
+    const namesList = settings.hiddenFolderNames || [];
+
+    const arrayWrapper = document.createElement('div');
+    renderGenericArray(arrayWrapper, namesList, 'hiddenFolderNames', 'photos');
+    hiddenContainer.appendChild(arrayWrapper);
+
+    container.appendChild(hiddenContainer);
+}
+
 
 function createDefaultStructure(pluginName, pluginType) {
     const baseStructure = {

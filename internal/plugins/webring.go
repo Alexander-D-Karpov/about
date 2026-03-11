@@ -7,6 +7,7 @@ import (
 	"html/template"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Alexander-D-Karpov/about/internal/storage"
@@ -17,8 +18,10 @@ type WebringPlugin struct {
 	storage     *storage.Storage
 	hub         *stream.Hub
 	webringData *WebringData
+	siteCount   int
 	lastUpdate  time.Time
 	httpClient  *http.Client
+	mutex       sync.RWMutex
 }
 
 type WebringData struct {
@@ -50,7 +53,7 @@ func NewWebringPlugin(storage *storage.Storage, hub *stream.Hub) *WebringPlugin 
 		storage: storage,
 		hub:     hub,
 		httpClient: &http.Client{
-			Timeout: 10 * time.Second,
+			Timeout: 15 * time.Second,
 		},
 	}
 }
@@ -73,18 +76,22 @@ func (p *WebringPlugin) Render(ctx context.Context) (string, error) {
 	var prevName, nextName, prevURL, nextURL, prevFavicon, nextFavicon string
 	var hasPrevFavicon, hasNextFavicon bool
 
-	if p.webringData != nil {
-		prevName = p.webringData.Prev.Name
-		nextName = p.webringData.Next.Name
-		prevURL = p.webringData.Prev.URL
-		nextURL = p.webringData.Next.URL
+	p.mutex.RLock()
+	data := p.webringData
+	p.mutex.RUnlock()
 
-		if p.webringData.Prev.Favicon != "" {
-			prevFavicon = fmt.Sprintf("%s/media/%s", strings.TrimRight(base, "/"), p.webringData.Prev.Favicon)
+	if data != nil {
+		prevName = data.Prev.Name
+		nextName = data.Next.Name
+		prevURL = data.Prev.URL
+		nextURL = data.Next.URL
+
+		if data.Prev.Favicon != "" {
+			prevFavicon = fmt.Sprintf("%s/media/%s", strings.TrimRight(base, "/"), data.Prev.Favicon)
 			hasPrevFavicon = true
 		}
-		if p.webringData.Next.Favicon != "" {
-			nextFavicon = fmt.Sprintf("%s/media/%s", strings.TrimRight(base, "/"), p.webringData.Next.Favicon)
+		if data.Next.Favicon != "" {
+			nextFavicon = fmt.Sprintf("%s/media/%s", strings.TrimRight(base, "/"), data.Next.Favicon)
 			hasNextFavicon = true
 		}
 	} else {
@@ -148,7 +155,7 @@ func (p *WebringPlugin) Render(ctx context.Context) (string, error) {
 	</div>
 </section>`
 
-	data := struct {
+	templateData := struct {
 		PrevName       string
 		NextName       string
 		PrevURL        string
@@ -180,7 +187,7 @@ func (p *WebringPlugin) Render(ctx context.Context) (string, error) {
 	}
 
 	var sb strings.Builder
-	if err := t.Execute(&sb, data); err != nil {
+	if err := t.Execute(&sb, templateData); err != nil {
 		return "", err
 	}
 
@@ -188,8 +195,8 @@ func (p *WebringPlugin) Render(ctx context.Context) (string, error) {
 }
 
 func (p *WebringPlugin) UpdateData(ctx context.Context) error {
-	// Update every hour, or immediately if no data exists
-	if p.webringData != nil && time.Since(p.lastUpdate) < time.Hour {
+	// Update every hour
+	if !p.lastUpdate.IsZero() && time.Since(p.lastUpdate) < time.Hour {
 		return nil
 	}
 
@@ -198,105 +205,88 @@ func (p *WebringPlugin) UpdateData(ctx context.Context) error {
 
 	base := getString(settings, "webring_url", "https://webring.otomir23.me")
 	user := getString(settings, "username", "sanspie")
+	base = strings.TrimRight(base, "/")
 
 	if user == "" {
 		return fmt.Errorf("webring username not configured")
 	}
 
-	dataURL := fmt.Sprintf("%s/%s/data", strings.TrimRight(base, "/"), user)
+	dataURL := fmt.Sprintf("%s/%s/data", base, user)
+	req, err := http.NewRequestWithContext(ctx, "GET", dataURL, nil)
+	if err == nil {
+		req.Header.Set("User-Agent", "AboutPage/1.0")
+		req.Header.Set("Accept", "application/json")
 
-	req, err := http.NewRequest("GET", dataURL, nil)
-	if err != nil {
-		return fmt.Errorf("failed to create webring request: %w", err)
-	}
+		resp, err := p.httpClient.Do(req)
+		if err == nil {
+			defer resp.Body.Close()
+			if resp.StatusCode == http.StatusOK {
+				var newData WebringData
+				if err := json.NewDecoder(resp.Body).Decode(&newData); err == nil {
+					p.mutex.Lock()
+					p.webringData = &newData
+					p.mutex.Unlock()
 
-	req.Header.Set("User-Agent", "AboutPage/1.0 (about.akarpov.ru)")
-	req.Header.Set("Accept", "application/json")
-	req.Header.Set("Cache-Control", "no-cache")
+					prevFavicon := fmt.Sprintf("%s/media/%s", base, newData.Prev.Favicon)
+					nextFavicon := fmt.Sprintf("%s/media/%s", base, newData.Next.Favicon)
 
-	resp, err := p.httpClient.Do(req)
-	if err != nil {
-		// Don't return error if we have cached data
-		if p.webringData != nil {
-			return nil
+					p.hub.Broadcast("webring_update", map[string]interface{}{
+						"prev": map[string]interface{}{
+							"name":    newData.Prev.Name,
+							"url":     newData.Prev.URL,
+							"favicon": prevFavicon,
+						},
+						"next": map[string]interface{}{
+							"name":    newData.Next.Name,
+							"url":     newData.Next.URL,
+							"favicon": nextFavicon,
+						},
+						"timestamp": time.Now().Unix(),
+					})
+				}
+			}
 		}
-		return fmt.Errorf("failed to fetch webring data: %w", err)
 	}
-	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		// Don't return error if we have cached data
-		if p.webringData != nil {
-			return nil
+	// 2. Fetch Sites Count
+	sitesURL := fmt.Sprintf("%s/sites/", base)
+	sitesReq, err := http.NewRequestWithContext(ctx, "GET", sitesURL, nil)
+	if err == nil {
+		sitesReq.Header.Set("User-Agent", "AboutPage/1.0")
+		sitesReq.Header.Set("Accept", "application/json")
+
+		sitesResp, err := p.httpClient.Do(sitesReq)
+		if err == nil {
+			defer sitesResp.Body.Close()
+			if sitesResp.StatusCode == http.StatusOK {
+				var sites []interface{}
+				if err := json.NewDecoder(sitesResp.Body).Decode(&sites); err == nil {
+					p.mutex.Lock()
+					p.siteCount = len(sites)
+					p.mutex.Unlock()
+				}
+			}
 		}
-		return fmt.Errorf("webring API returned status %d", resp.StatusCode)
 	}
 
-	var newData WebringData
-	if err := json.NewDecoder(resp.Body).Decode(&newData); err != nil {
-		// Don't return error if we have cached data
-		if p.webringData != nil {
-			return nil
-		}
-		return fmt.Errorf("failed to decode webring data: %w", err)
-	}
-
-	// Only broadcast if data actually changed
-	dataChanged := p.webringData == nil ||
-		p.webringData.Prev.Name != newData.Prev.Name ||
-		p.webringData.Next.Name != newData.Next.Name ||
-		p.webringData.Prev.URL != newData.Prev.URL ||
-		p.webringData.Next.URL != newData.Next.URL ||
-		p.webringData.Prev.Favicon != newData.Prev.Favicon ||
-		p.webringData.Next.Favicon != newData.Next.Favicon
-
-	p.webringData = &newData
+	p.mutex.Lock()
 	p.lastUpdate = time.Now()
-
-	if dataChanged {
-		prevFavicon := fmt.Sprintf("%s/media/%s", strings.TrimRight(base, "/"), newData.Prev.Favicon)
-		nextFavicon := fmt.Sprintf("%s/media/%s", strings.TrimRight(base, "/"), newData.Next.Favicon)
-
-		p.hub.Broadcast("webring_update", map[string]interface{}{
-			"prev": map[string]interface{}{
-				"name":    newData.Prev.Name,
-				"url":     newData.Prev.URL,
-				"favicon": prevFavicon,
-			},
-			"next": map[string]interface{}{
-				"name":    newData.Next.Name,
-				"url":     newData.Next.URL,
-				"favicon": nextFavicon,
-			},
-			"timestamp": time.Now().Unix(),
-		})
-	}
+	p.mutex.Unlock()
 
 	return nil
 }
 
 func (p *WebringPlugin) GetSettings() map[string]interface{} {
-	config := p.storage.GetPluginConfig(p.Name())
-	return config.Settings
+	return p.storage.GetPluginConfig(p.Name()).Settings
 }
 
 func (p *WebringPlugin) SetSettings(settings map[string]interface{}) error {
 	config := p.storage.GetPluginConfig(p.Name())
 	config.Settings = settings
-
+	p.mutex.Lock()
 	p.lastUpdate = time.Time{}
-
-	err := p.storage.SetPluginConfig(p.Name(), config)
-	if err != nil {
-		return err
-	}
-
-	p.hub.Broadcast("plugin_update", map[string]interface{}{
-		"plugin": p.Name(),
-		"action": "settings_changed",
-	})
-
-	return nil
+	p.mutex.Unlock()
+	return p.storage.SetPluginConfig(p.Name(), config)
 }
 
 func getString(m map[string]interface{}, key, def string) string {
@@ -307,22 +297,25 @@ func getString(m map[string]interface{}, key, def string) string {
 }
 
 func (p *WebringPlugin) RenderText(ctx context.Context) (string, error) {
+	p.mutex.RLock()
+	defer p.mutex.RUnlock()
 	if p.webringData == nil {
-		return "Webring: No data available", nil
+		return "Webring: No data", nil
 	}
-
-	return fmt.Sprintf("Webring: %s ← current → %s",
-		p.webringData.Prev.Name, p.webringData.Next.Name), nil
+	return fmt.Sprintf("Webring: %s ← current → %s (%d sites)",
+		p.webringData.Prev.Name, p.webringData.Next.Name, p.siteCount), nil
 }
 
-func (p *PersonalPlugin) RenderText(ctx context.Context) (string, error) {
-	config := p.storage.GetPluginConfig(p.Name())
-	settings := config.Settings
+func (p *WebringPlugin) GetMetrics() map[string]interface{} {
+	p.mutex.RLock()
+	defer p.mutex.RUnlock()
 
-	personalInfo, ok := settings["info"].([]interface{})
-	if !ok || len(personalInfo) == 0 {
-		return "Personal: No information available", nil
+	status := 0
+	if p.webringData != nil {
+		status = 1
 	}
-
-	return fmt.Sprintf("Personal: %d info items available", len(personalInfo)), nil
+	return map[string]interface{}{
+		"status_ok":   status,
+		"sites_count": p.siteCount,
+	}
 }

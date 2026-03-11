@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"html/template"
 	"net/http"
+	"net/url"
 	"sort"
 	"strings"
 	"time"
@@ -125,16 +126,26 @@ func (p *SteamPlugin) Render(ctx context.Context) (string, error) {
 				<span class="status-indicator status-online"></span>
 				<span class="current-game-status">Currently Playing</span>
 			</div>
+			{{if .CurrentGameImage}}
+			<div class="current-game-cover">
+				<img src="{{.CurrentGameImage}}" alt="{{.CurrentGameName}}" class="game-cover-image" loading="lazy">
+			</div>
+			{{end}}
 			<div class="current-game-info">
 				<div class="current-game-name">{{.CurrentGameName}}</div>
-				<div class="current-game-actions">
-					<a href="https://store.steampowered.com/search/?term={{.CurrentGameNameEncoded}}" target="_blank" rel="noopener" class="btn btn-sm">
-						<svg viewBox="0 0 24 24" width="14" height="14">
-							<path fill="currentColor" d="M14 3v2h3.59l-9.83 9.83 1.41 1.41L19 6.41V10h2V3m-2 16H5V5h7V3H5c-1.11 0-2 .89-2 2v14c0 1.11.89 2 2 2h14c1.11 0 2-.89 2-2v-7h-2v7Z"/>
-						</svg>
-						View on Steam
-					</a>
-				</div>
+					<div class="current-game-actions">
+						{{if .CurrentGameStoreURL}}
+						<a href="{{.CurrentGameStoreURL}}" target="_blank" rel="noopener" class="btn btn-sm">
+							<!-- icon -->
+							View on Steam
+						</a>
+						{{else}}
+						<a href="https://store.steampowered.com/search/?term={{.CurrentGameNameEncoded}}" target="_blank" rel="noopener" class="btn btn-sm">
+							<!-- icon -->
+							Search on Steam
+						</a>
+						{{end}}
+					</div>
 			</div>
 		</div>
 		{{else if .PlayerSummary}}
@@ -158,12 +169,16 @@ func (p *SteamPlugin) Render(ctx context.Context) (string, error) {
 					<div class="game-info">
 						<div class="game-name">{{.Name}}</div>
 						<div class="game-stats">
-							<span class="game-playtime">{{.RecentHours}}h last 2 weeks</span>
-							<span class="game-total">{{.TotalHours}}h total</span>
+							<a class="steam-stat-link" href="https://store.steampowered.com/app/{{.AppID}}/" target="_blank" rel="noopener">
+								<span class="game-playtime">{{.RecentHours}}h last 2 weeks</span>
+							</a>
+							<a class="steam-stat-link" href="https://store.steampowered.com/app/{{.AppID}}/" target="_blank" rel="noopener">
+								<span class="game-total">{{.TotalHours}}h total</span>
+							</a>
 						</div>
 					</div>
 					<div class="game-actions">
-						<button class="btn btn-sm" onclick="window.open('https://store.steampowered.com/app/{{.AppID}}', '_blank')">
+						<button class="btn btn-sm" onclick="window.open('https://store.steampowered.com/app/{{.AppID}}/', '_blank', 'noopener')">
 							View
 						</button>
 					</div>
@@ -185,11 +200,13 @@ func (p *SteamPlugin) Render(ctx context.Context) (string, error) {
 					<div class="game-info">
 						<div class="game-name">{{.Name}}</div>
 						<div class="game-stats">
-							<span class="game-total">{{.TotalHours}}h total</span>
+							<a class="steam-stat-link" href="https://store.steampowered.com/app/{{.AppID}}/" target="_blank" rel="noopener">
+								<span class="game-total">{{.TotalHours}}h total</span>
+							</a>
 						</div>
 					</div>
 					<div class="game-actions">
-						<button class="btn btn-sm" onclick="window.open('https://store.steampowered.com/app/{{.AppID}}', '_blank')">
+						<button class="btn btn-sm" onclick="window.open('https://store.steampowered.com/app/{{.AppID}}/', '_blank', 'noopener')">
 							View
 						</button>
 					</div>
@@ -221,7 +238,7 @@ func (p *SteamPlugin) Render(ctx context.Context) (string, error) {
 	// Top games
 	var topGames []gameData
 	for i, game := range p.topGames {
-		if i >= 5 {
+		if i >= 9 {
 			break
 		}
 
@@ -279,13 +296,28 @@ func (p *SteamPlugin) Render(ctx context.Context) (string, error) {
 	isPlayingNow := p.playerSummary != nil && p.playerSummary.GameExtraInfo != ""
 	currentGameName := ""
 	currentGameNameEncoded := ""
+	currentGameImage := ""
+	currentGameID := ""
+	currentGameStoreURL := ""
+	currentGameRunURL := "" // optional
 	playerStatusClass := "status-offline"
 	playerStatusText := "Offline"
 
 	if p.playerSummary != nil {
 		if isPlayingNow {
 			currentGameName = p.playerSummary.GameExtraInfo
-			currentGameNameEncoded = strings.ReplaceAll(currentGameName, " ", "%20")
+			currentGameNameEncoded = url.QueryEscape(currentGameName)
+
+			currentGameID = p.playerSummary.GameID
+			if currentGameID != "" {
+				currentGameStoreURL = fmt.Sprintf("https://store.steampowered.com/app/%s/", currentGameID)
+				currentGameRunURL = fmt.Sprintf("steam://run/%s", currentGameID) // optional
+
+				currentGameImage = fmt.Sprintf(
+					"https://cdn.cloudflare.steamstatic.com/steam/apps/%s/header.jpg",
+					currentGameID,
+				)
+			}
 		}
 
 		switch p.playerSummary.PersonaState {
@@ -321,8 +353,12 @@ func (p *SteamPlugin) Render(ctx context.Context) (string, error) {
 		IsPlayingNow           bool
 		CurrentGameName        string
 		CurrentGameNameEncoded string
+		CurrentGameImage       string
+		CurrentGameID          string
 		PlayerStatusClass      string
 		PlayerStatusText       string
+		CurrentGameStoreURL    string
+		CurrentGameRunURL      string // optional
 	}{
 		SectionTitle:           sectionTitle,
 		RecentGames:            recentGames,
@@ -331,8 +367,13 @@ func (p *SteamPlugin) Render(ctx context.Context) (string, error) {
 		IsPlayingNow:           isPlayingNow,
 		CurrentGameName:        currentGameName,
 		CurrentGameNameEncoded: currentGameNameEncoded,
+		CurrentGameImage:       currentGameImage,
+		CurrentGameID:          currentGameID,
 		PlayerStatusClass:      playerStatusClass,
 		PlayerStatusText:       playerStatusText,
+		CurrentGameStoreURL:    currentGameStoreURL,
+		CurrentGameRunURL:      currentGameRunURL, // optional
+
 	}
 
 	tmplParsed, err := template.New("steam").Parse(tmpl)
@@ -705,4 +746,30 @@ func (p *SteamPlugin) getConfigBool(settings map[string]interface{}, key string,
 	}
 
 	return defaultValue
+}
+
+func (p *SteamPlugin) GetMetrics() map[string]interface{} {
+	metrics := map[string]interface{}{
+		"is_online":            0,
+		"is_playing":           0,
+		"recent_games_count":   len(p.recentGames),
+		"total_playtime_hours": 0.0,
+	}
+
+	if p.playerSummary != nil {
+		if p.playerSummary.PersonaState == 1 {
+			metrics["is_online"] = 1
+		}
+		if p.playerSummary.GameExtraInfo != "" {
+			metrics["is_playing"] = 1
+		}
+	}
+
+	var totalPlaytime int
+	for _, g := range p.topGames {
+		totalPlaytime += g.PlaytimeAll
+	}
+	metrics["total_playtime_hours"] = float64(totalPlaytime) / 60.0
+
+	return metrics
 }

@@ -22,40 +22,48 @@
 
 .health-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
-    gap: 10px;
+    grid-template-columns:repeat(2, minmax(0, 1fr));
+    gap: 6px;
 }
 
 .health-card {
     display: flex;
+    flex-direction: row;
     align-items: center;
-    gap: 10px;
-    padding: 12px;
-    border-radius: 12px;
-    background: rgba(255, 255, 255, .014);
-    box-shadow: inset 0 0 0 1px var(--edge-0);
-    transition: all .2s ease;
+    gap: 8px;
+    padding: 6px 8px;
+    border-radius: 8px;
+    background: transparent;
+    border: 1px solid var(--edge-0);
     min-width: 0;
+    overflow: hidden;
+    transition: border-color .15s ease;
+}
+
+.health-card:hover {
+    border-color: var(--edge-1);
 }
 
 .health-card-icon {
-    width: 32px;
-    height: 32px;
-    min-width: 32px;
+    width: 28px;
+    height: 28px;
+    min-width: 28px;
+    max-width: 28px;
     display: flex;
     align-items: center;
     justify-content: center;
-    border-radius: 8px;
+    border-radius: 6px;
     flex-shrink: 0;
 }
 
 .health-card-icon svg {
-    width: 18px;
-    height: 18px;
+    width: 14px;
+    height: 14px;
+    flex-shrink: 0;
 }
 
 .health-card--steps .health-card-icon {
-    background: rgba(74, 222, 128, 0.15);
+    background: rgba(74, 222, 128, 0.12);
 }
 
 .health-card--steps .health-card-icon svg {
@@ -63,7 +71,7 @@
 }
 
 .health-card--calories .health-card-icon {
-    background: rgba(249, 115, 22, 0.15);
+    background: rgba(249, 115, 22, 0.12);
 }
 
 .health-card--calories .health-card-icon svg {
@@ -71,7 +79,7 @@
 }
 
 .health-card--workouts .health-card-icon {
-    background: rgba(139, 92, 246, 0.15);
+    background: rgba(139, 92, 246, 0.12);
 }
 
 .health-card--workouts .health-card-icon svg {
@@ -79,7 +87,7 @@
 }
 
 .health-card--sleep .health-card-icon {
-    background: rgba(99, 102, 241, 0.15);
+    background: rgba(99, 102, 241, 0.12);
 }
 
 .health-card--sleep .health-card-icon svg {
@@ -87,7 +95,7 @@
 }
 
 .health-card--heart .health-card-icon {
-    background: rgba(239, 68, 68, 0.15);
+    background: rgba(239, 68, 68, 0.12);
 }
 
 .health-card--heart .health-card-icon svg {
@@ -95,7 +103,7 @@
 }
 
 .health-card--hydration .health-card-icon {
-    background: rgba(6, 182, 212, 0.15);
+    background: rgba(6, 182, 212, 0.12);
 }
 
 .health-card--hydration .health-card-icon svg {
@@ -106,34 +114,37 @@
     flex: 1;
     min-width: 0;
     overflow: hidden;
+    display: flex;
+    flex-direction: column;
 }
 
 .health-card-value {
-    font-size: 18px;
+    font-size: 13px;
     font-weight: 700;
     line-height: 1.2;
-    margin-bottom: 2px;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
 }
 
 .health-card-label {
-    font-size: 11px;
+    font-size: 9px;
     font-weight: 600;
     color: var(--ink-2);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    text-transform: uppercase;
+    letter-spacing: .2px;
 }
 
 .health-card-sub {
-    font-size: 10px;
+    font-size: 9px;
     color: var(--muted);
     font-family: var(--mono);
-    white-space: normal;
-    word-wrap: break-word;
-    line-height: 1.3;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .health-card--steps .health-card-value {
@@ -160,107 +171,8 @@
     color: var(--health-hydration);
 }
 
-.health-last-workout {
-    padding: 12px 14px;
-    border-radius: 12px;
-    background: linear-gradient(135deg, rgba(139, 92, 246, .1), rgba(99, 102, 241, .05));
-    border: 1px solid rgba(139, 92, 246, .2);
-    margin-top: 12px;
-}
-
-.last-workout-header {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    margin-bottom: 8px;
-}
-
-.last-workout-icon {
-    width: 18px;
-    height: 18px;
-    fill: #8b5cf6;
-}
-
-.last-workout-title {
-    font-size: 12px;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: .5px;
-    color: var(--ink-2);
-}
-
-.last-workout-info {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 12px;
-    font-size: 13px;
-}
-
-.last-workout-type {
-    font-weight: 600;
-    color: var(--health-workout);
-}
-
-.last-workout-duration,
-.last-workout-calories {
-    color: var(--ink-2);
-    font-family: var(--mono);
-    font-size: 12px;
-}
-
-.last-workout-date {
-    color: var(--muted);
-    font-size: 11px;
-    margin-left: auto;
-}
-
-.health-footer {
-    display: flex;
-    justify-content: flex-end;
-    padding-top: 12px;
-    border-top: 1px solid var(--edge-0);
-}
-
-.health-source {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    font-size: 11px;
-    color: var(--muted);
-}
-
-.source-icon {
-    font-size: 14px;
-}
-
-.health-no-config {
-    text-align: center;
-    padding: 32px 16px;
-}
-
-.health-no-config .no-config-icon {
-    width: 48px;
-    height: 48px;
-    color: var(--muted);
-    margin: 0 auto 12px;
-    opacity: .5;
-}
-
-.no-config-text {
-    font-size: 14px;
-    font-weight: 600;
-    color: var(--ink-2);
-    margin: 0 0 4px;
-}
-
-.no-config-hint {
-    font-size: 12px;
-    color: var(--muted);
-    margin: 0;
-}
-
 .health-card-value.updated {
-    animation: health-pulse .5s ease;
+    animation: health-pulse .4s ease;
 }
 
 @keyframes health-pulse {
@@ -268,107 +180,10 @@
         transform: scale(1);
     }
     50% {
-        transform: scale(1.1);
-        color: var(--accent);
+        transform: scale(1.05);
     }
     100% {
         transform: scale(1);
-    }
-}
-
-@media (prefers-color-scheme: light) {
-    .health-card {
-        background: rgba(0, 0, 0, .02);
-        border: 1px solid var(--edge-1);
-    }
-
-    .health-card:hover {
-        background: rgba(0, 0, 0, .04);
-    }
-
-    .health-last-workout {
-        background: linear-gradient(135deg, rgba(139, 92, 246, .08), rgba(99, 102, 241, .04));
-    }
-
-    .health-card--steps .health-card-icon {
-        background: rgba(74, 222, 128, 0.12);
-    }
-
-    .health-card--calories .health-card-icon {
-        background: rgba(249, 115, 22, 0.12);
-    }
-
-    .health-card--workouts .health-card-icon {
-        background: rgba(139, 92, 246, 0.12);
-    }
-
-    .health-card--sleep .health-card-icon {
-        background: rgba(99, 102, 241, 0.12);
-    }
-
-    .health-card--heart .health-card-icon {
-        background: rgba(239, 68, 68, 0.12);
-    }
-
-    .health-card--hydration .health-card-icon {
-        background: rgba(6, 182, 212, 0.12);
-    }
-}
-
-@media (max-width: 900px) {
-    .health-grid {
-        grid-template-columns: repeat(2, 1fr);
-        gap: 8px;
-    }
-}
-
-@media (max-width: 600px) {
-    .health-grid {
-        grid-template-columns: repeat(2, 1fr);
-        gap: 8px;
-    }
-
-    .health-card {
-        padding: 10px;
-        gap: 8px;
-    }
-
-    .health-card-icon {
-        width: 28px;
-        height: 28px;
-        min-width: 28px;
-    }
-
-    .health-card-icon svg {
-        width: 16px;
-        height: 16px;
-    }
-
-    .health-card-value {
-        font-size: 16px;
-    }
-
-    .health-card-label {
-        font-size: 10px;
-    }
-
-    .health-card-sub {
-        font-size: 9px;
-    }
-
-    .last-workout-info {
-        flex-direction: column;
-        gap: 4px;
-    }
-
-    .last-workout-date {
-        margin-left: 0;
-    }
-}
-
-@media (max-width: 400px) {
-    .health-grid {
-        grid-template-columns: 1fr 1fr;
     }
 }
 
@@ -386,14 +201,14 @@
         transform: scale(1);
     }
     15% {
-        transform: scale(1.3);
+        transform: scale(1.2);
         fill: #ff4444;
     }
     30% {
         transform: scale(1);
     }
     45% {
-        transform: scale(1.2);
+        transform: scale(1.15);
         fill: #ff6666;
     }
     60% {
@@ -404,21 +219,46 @@
     }
 }
 
-.health-card-value.updated {
-    animation: health-value-update 0.5s ease;
+@media (min-width: 1100px) {
+    .health-section[data-w="2"] .health-grid,
+    .health-section[data-w="3"] .health-grid {
+        grid-template-columns:repeat(4, minmax(0, 1fr));
+    }
 }
 
-@keyframes health-value-update {
-    0% {
-        transform: scale(1);
-        opacity: 1;
+@media (max-width: 520px) {
+    .health-grid {
+        grid-template-columns:1fr;
     }
-    50% {
-        transform: scale(1.1);
-        opacity: 0.8;
+}
+
+
+@media (prefers-color-scheme: light) {
+    .health-card {
+        border: 1px solid var(--edge-1);
     }
-    100% {
-        transform: scale(1);
-        opacity: 1;
+
+    .health-card--steps .health-card-icon {
+        background: rgba(74, 222, 128, 0.1);
+    }
+
+    .health-card--calories .health-card-icon {
+        background: rgba(249, 115, 22, 0.1);
+    }
+
+    .health-card--workouts .health-card-icon {
+        background: rgba(139, 92, 246, 0.1);
+    }
+
+    .health-card--sleep .health-card-icon {
+        background: rgba(99, 102, 241, 0.1);
+    }
+
+    .health-card--heart .health-card-icon {
+        background: rgba(239, 68, 68, 0.1);
+    }
+
+    .health-card--hydration .health-card-icon {
+        background: rgba(6, 182, 212, 0.1);
     }
 }

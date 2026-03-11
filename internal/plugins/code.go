@@ -1134,3 +1134,46 @@ func (p *CodePlugin) fetchTotalCommits(client *http.Client, username string) int
 
 	return totalCommits
 }
+
+func (p *CodePlugin) GetMetrics() map[string]interface{} {
+	metrics := map[string]interface{}{
+		"github_repos":         0,
+		"github_stars":         0,
+		"github_commits":       0,
+		"github_followers":     0,
+		"github_following":     0,
+		"github_languages":     0,
+		"wakatime_hours_7d":    0.0,
+		"wakatime_hours_total": 0.0,
+		"wakatime_languages":   0,
+		"wakatime_editors":     0,
+		"recent_repos_count":   0,
+		"top_languages_count":  0,
+	}
+
+	if p.githubData != nil {
+		metrics["github_repos"] = p.githubData.PublicRepos
+		metrics["github_stars"] = p.githubData.TotalStars
+		metrics["github_commits"] = p.githubData.TotalCommits
+		metrics["github_followers"] = p.githubData.Followers
+		metrics["github_following"] = p.githubData.Following
+		metrics["github_languages"] = len(p.githubData.TopLanguages)
+		metrics["recent_repos_count"] = len(p.githubData.RecentRepos)
+		metrics["top_languages_count"] = len(p.githubData.TopLanguages)
+	}
+
+	if p.wakatimeData != nil {
+		metrics["wakatime_hours_7d"] = p.wakatimeData.LastWeek.Seconds / 3600.0
+		metrics["wakatime_hours_total"] = p.wakatimeData.TotalTime.Seconds / 3600.0
+		metrics["wakatime_languages"] = len(p.wakatimeData.Languages)
+		metrics["wakatime_editors"] = len(p.wakatimeData.Editors)
+	}
+
+	p.mutex.RLock()
+	if len(p.allRepoLanguages) > 0 {
+		metrics["github_languages"] = len(p.allRepoLanguages)
+	}
+	p.mutex.RUnlock()
+
+	return metrics
+}

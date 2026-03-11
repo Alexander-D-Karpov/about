@@ -199,11 +199,13 @@ func (s *Storage) saveToFileAtomic() error {
 
 func (s *Storage) createDailyBackup() {
 	s.mutex.RLock()
-	dataCopy := make(map[string]interface{})
-	for k, v := range s.data {
-		dataCopy[k] = v
-	}
+	data, err := json.MarshalIndent(s.data, "", "  ")
 	s.mutex.RUnlock()
+
+	if err != nil {
+		fmt.Printf("[Storage] Failed to marshal backup data: %v\n", err)
+		return
+	}
 
 	backupDir := filepath.Join(s.dataPath, "backups")
 	if err := os.MkdirAll(backupDir, 0755); err != nil {
@@ -214,12 +216,6 @@ func (s *Storage) createDailyBackup() {
 	today := time.Now().Format("2006-01-02")
 	backupFile := filepath.Join(backupDir, fmt.Sprintf("config_%s.json", today))
 	tempFile := backupFile + ".tmp"
-
-	data, err := json.MarshalIndent(dataCopy, "", "  ")
-	if err != nil {
-		fmt.Printf("[Storage] Failed to marshal backup data: %v\n", err)
-		return
-	}
 
 	f, err := os.OpenFile(tempFile, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
 	if err != nil {
@@ -285,11 +281,12 @@ func (s *Storage) cleanupOldBackups(backupDir string, keepDays int) {
 
 func (s *Storage) CreateBackup() error {
 	s.mutex.RLock()
-	dataCopy := make(map[string]interface{})
-	for k, v := range s.data {
-		dataCopy[k] = v
-	}
+	data, err := json.MarshalIndent(s.data, "", "  ")
 	s.mutex.RUnlock()
+
+	if err != nil {
+		return fmt.Errorf("failed to marshal backup data: %w", err)
+	}
 
 	backupDir := filepath.Join(s.dataPath, "backups")
 	if err := os.MkdirAll(backupDir, 0755); err != nil {
@@ -299,11 +296,6 @@ func (s *Storage) CreateBackup() error {
 	today := time.Now().Format("2006-01-02")
 	backupFile := filepath.Join(backupDir, fmt.Sprintf("config_%s.json", today))
 	tempFile := backupFile + ".tmp"
-
-	data, err := json.MarshalIndent(dataCopy, "", "  ")
-	if err != nil {
-		return fmt.Errorf("failed to marshal backup data: %w", err)
-	}
 
 	f, err := os.OpenFile(tempFile, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
 	if err != nil {
@@ -576,6 +568,19 @@ func (s *Storage) getDefaultConfig() map[string]interface{} {
 							"category": "test",
 						},
 					},
+				},
+			},
+			"photos": map[string]interface{}{
+				"enabled": true,
+				"order":   15,
+				"settings": map[string]interface{}{
+					"apiUrl": "https://photos.akarpov.ru",
+					"ui": map[string]interface{}{
+						"sectionTitle": "Photos",
+						"maxFolders":   6,
+					},
+					"hiddenFolders":     []interface{}{},
+					"hiddenFolderNames": []interface{}{},
 				},
 			},
 			"projects": map[string]interface{}{
