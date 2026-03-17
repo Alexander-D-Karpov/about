@@ -26,7 +26,7 @@ type Handler struct {
 	storage       *storage.Storage
 	pluginManager *plugins.Manager
 	config        *config.Config
-	template      *template.Template
+	templates     map[string]*template.Template
 	staticFiles   embed.FS
 }
 
@@ -57,16 +57,20 @@ func NewHandler(storage *storage.Storage, pluginManager *plugins.Manager, config
 		},
 	}
 
-	adminTmpl, err := template.New("admin.html").Funcs(funcMap).ParseFS(templates, "templates/admin.html")
-	if err != nil {
-		panic(fmt.Sprintf("Failed to parse admin template: %v", err))
+	tmplMap := make(map[string]*template.Template)
+	for _, name := range []string{"admin", "admin_projects"} {
+		t, err := template.New(name+".html").Funcs(funcMap).ParseFS(templates, "templates/"+name+".html")
+		if err != nil {
+			panic(fmt.Sprintf("Failed to parse %s template: %v", name, err))
+		}
+		tmplMap[name] = t
 	}
 
 	return &Handler{
 		storage:       storage,
 		pluginManager: pluginManager,
 		config:        config,
-		template:      adminTmpl,
+		templates:     tmplMap,
 		staticFiles:   static,
 	}
 }
@@ -82,6 +86,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.dashboard(w, r)
 	case path == "/api/plugins" && r.Method == "GET":
 		h.getPluginsAPI(w, r)
+	case path == "/projects":
+		h.projectsAdmin(w, r)
+	case path == "/api/projects" && r.Method == "POST":
+		h.saveProjectsAPI(w, r)
 	case path == "/api/plugins" && r.Method == "POST":
 		h.updatePluginsAPI(w, r)
 	case path == "/api/plugin" && r.Method == "POST":
@@ -170,10 +178,64 @@ func (h *Handler) dashboard(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Pragma", "no-cache")
 	w.Header().Set("Expires", "0")
 
-	if err := h.template.Execute(w, data); err != nil {
+	if err := h.templates["admin"].Execute(w, data); err != nil {
 		fmt.Printf("Template error: %v\n", err)
 		http.Error(w, "Template error", http.StatusInternalServerError)
 	}
+}
+
+func (h *Handler) projectsAdmin(w http.ResponseWriter, r *http.Request) {
+	h.storage.Load()
+	cfg := h.storage.GetPluginConfig("projects")
+	settings := cfg.Settings
+	if settings == nil {
+		settings = make(map[string]interface{})
+	}
+	projects, _ := settings["projects"].([]interface{})
+
+	data := struct {
+		Projects []interface{}
+		Config   *config.Config
+	}{
+		Projects: projects,
+		Config:   h.config,
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-cache")
+	if err := h.templates["admin_projects"].Execute(w, data); err != nil {
+		fmt.Printf("Template error: %v\n", err)
+		http.Error(w, "Template error", http.StatusInternalServerError)
+	}
+}
+
+func (h *Handler) saveProjectsAPI(w http.ResponseWriter, r *http.Request) {
+	var projects []interface{}
+	if err := json.NewDecoder(r.Body).Decode(&projects); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": err.Error()})
+		return
+	}
+
+	cfg := h.storage.GetPluginConfig("projects")
+	if cfg.Settings == nil {
+		cfg.Settings = make(map[string]interface{})
+	}
+	cfg.Settings["projects"] = projects
+
+	if err := h.storage.SetPluginConfig("projects", cfg); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": err.Error()})
+		return
+	}
+
+	if plugin, exists := h.pluginManager.GetPlugin("projects"); exists {
+		plugin.SetSettings(cfg.Settings)
+	}
+	h.pluginManager.InvalidateCache()
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "count": len(projects)})
 }
 
 func (h *Handler) filterInternalSettings(settings map[string]interface{}) map[string]interface{} {
