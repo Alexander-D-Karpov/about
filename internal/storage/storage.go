@@ -147,9 +147,58 @@ func (s *Storage) SetPluginConfig(pluginName string, config *PluginConfig) error
 		return fmt.Errorf("failed to save plugin config to file: %w", err)
 	}
 
-	go s.createDailyBackup()
+	data, err := json.MarshalIndent(s.data, "", "  ")
+	if err == nil {
+		go s.createDailyBackupFromBytes(data)
+	}
 
 	return nil
+}
+
+func (s *Storage) createDailyBackupFromBytes(data []byte) {
+	backupDir := filepath.Join(s.dataPath, "backups")
+	if err := os.MkdirAll(backupDir, 0755); err != nil {
+		fmt.Printf("[Storage] Failed to create backup directory: %v\n", err)
+		return
+	}
+
+	today := time.Now().Format("2006-01-02")
+	backupFile := filepath.Join(backupDir, fmt.Sprintf("config_%s.json", today))
+	tempFile := backupFile + ".tmp"
+
+	f, err := os.OpenFile(tempFile, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
+	if err != nil {
+		fmt.Printf("[Storage] Failed to create backup temp file: %v\n", err)
+		return
+	}
+
+	if _, err := f.Write(data); err != nil {
+		f.Close()
+		os.Remove(tempFile)
+		fmt.Printf("[Storage] Failed to write backup: %v\n", err)
+		return
+	}
+
+	if err := f.Sync(); err != nil {
+		f.Close()
+		os.Remove(tempFile)
+		fmt.Printf("[Storage] Failed to sync backup: %v\n", err)
+		return
+	}
+
+	if err := f.Close(); err != nil {
+		os.Remove(tempFile)
+		fmt.Printf("[Storage] Failed to close backup file: %v\n", err)
+		return
+	}
+
+	if err := os.Rename(tempFile, backupFile); err != nil {
+		os.Remove(tempFile)
+		fmt.Printf("[Storage] Failed to finalize backup: %v\n", err)
+		return
+	}
+
+	s.cleanupOldBackups(backupDir, 7)
 }
 
 func (s *Storage) saveToFileAtomic() error {

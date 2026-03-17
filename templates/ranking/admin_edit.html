@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta content="width=device-width, initial-scale=1.0" name="viewport">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{.Title}}</title>
     <style>
         * {
@@ -806,13 +806,68 @@
             right: 4px;
             pointer-events: none;
         }
+
+        .search-bar {
+            position: fixed;
+            top: 12px;
+            right: 12px;
+            display: none;
+            align-items: center;
+            gap: 6px;
+            padding: 8px 12px;
+            background: #16213e;
+            border: 1px solid #6a9fff;
+            border-radius: 8px;
+            z-index: 300;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+        }
+
+        .search-bar.active { display: flex; }
+
+        .search-bar input {
+            width: 220px;
+            padding: 6px 10px;
+            background: #0f3460;
+            border: 1px solid #1a1a40;
+            border-radius: 4px;
+            color: #e0e0e0;
+            font-size: 0.85rem;
+        }
+
+        .search-bar input:focus { outline: none; border-color: #6a9fff; }
+
+        .search-bar .search-count {
+            font-size: 0.75rem;
+            color: #888;
+            min-width: 50px;
+            text-align: center;
+        }
+
+        .search-bar button {
+            width: 28px;
+            height: 28px;
+            background: none;
+            border: 1px solid #333360;
+            border-radius: 4px;
+            color: #999;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .search-bar button:hover { background: #2a2a4a; color: #e0e0e0; }
+
+        .entry-card.search-match { border-color: #6a9fff; box-shadow: 0 0 8px rgba(106,159,255,0.4); }
+        .entry-card.search-current { border-color: #ffab00; box-shadow: 0 0 12px rgba(255,171,0,0.5); }
+        .entry-card.search-dim { opacity: 0.3; }
     </style>
 </head>
 <body>
 <div class="container" id="app-container">
     <a class="btn-back" href="/ranking/admin/">
-        <svg fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-             viewBox="0 0 24 24">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+             stroke-linejoin="round">
             <path d="M19 12H5"/>
             <polyline points="12 19 5 12 12 5"/>
         </svg>
@@ -820,20 +875,20 @@
     </a>
 
     <div class="toolbar">
-        <input id="tl-title" placeholder="Title" type="text" value="{{.Tierlist.Title}}">
-        <input id="tl-desc" placeholder="Description (optional)" type="text" value="{{.Tierlist.Description}}">
-        <button class="btn {{if .Tierlist.Published}}btn-unpublish{{else}}btn-publish{{end}}" id="pub-btn"
-                onclick="togglePublish()">
+        <input type="text" id="tl-title" value="{{.Tierlist.Title}}" placeholder="Title">
+        <input type="text" id="tl-desc" value="{{.Tierlist.Description}}" placeholder="Description (optional)">
+        <button class="btn {{if .Tierlist.Published}}btn-unpublish{{else}}btn-publish{{end}}" onclick="togglePublish()"
+                id="pub-btn">
             {{if .Tierlist.Published}}
-            <svg fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                 viewBox="0 0 24 24">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                 stroke-linejoin="round">
                 <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/>
-                <line x1="1" x2="23" y1="1" y2="23"/>
+                <line x1="1" y1="1" x2="23" y2="23"/>
             </svg>
             Unpublish
             {{else}}
-            <svg fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                 viewBox="0 0 24 24">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                 stroke-linejoin="round">
                 <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
                 <circle cx="12" cy="12" r="3"/>
             </svg>
@@ -841,32 +896,32 @@
             {{end}}
         </button>
         <button class="btn btn-secondary" onclick="addTier()">
-            <svg fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                 viewBox="0 0 24 24">
-                <line x1="12" x2="12" y1="5" y2="19"/>
-                <line x1="5" x2="19" y1="12" y2="12"/>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                 stroke-linejoin="round">
+                <line x1="12" y1="5" x2="12" y2="19"/>
+                <line x1="5" y1="12" x2="19" y2="12"/>
             </svg>
             Tier
         </button>
         <button class="btn btn-secondary" onclick="addTextEntry()">
-            <svg fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                 viewBox="0 0 24 24">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                 stroke-linejoin="round">
                 <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
                 <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
             </svg>
             Text Entry
         </button>
         <button class="btn btn-layout" id="layout-btn" onclick="toggleLayout()" title="Toggle side layout for unsorted">
-            <svg fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                 viewBox="0 0 24 24">
-                <rect height="18" rx="2" width="18" x="3" y="3"/>
-                <line x1="15" x2="15" y1="3" y2="21"/>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                 stroke-linejoin="round">
+                <rect x="3" y="3" width="18" height="18" rx="2"/>
+                <line x1="15" y1="3" x2="15" y2="21"/>
             </svg>
             Side
         </button>
         <button class="btn btn-danger" onclick="deleteTierlist()">
-            <svg fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                 viewBox="0 0 24 24">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                 stroke-linejoin="round">
                 <polyline points="3 6 5 6 21 6"/>
                 <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
             </svg>
@@ -875,7 +930,7 @@
     </div>
 
     <div class="status-bar">
-        <span class="status-saved" id="status-text">All changes saved</span>
+        <span id="status-text" class="status-saved">All changes saved</span>
         <span id="status-slug">/ranking/{{.Tierlist.Slug}}</span>
         <span id="entry-count"></span>
     </div>
@@ -889,12 +944,12 @@
         <div class="unsorted-column" id="unsorted-column">
             <div class="unsorted-section">
                 <h3>
-                    <svg fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                         viewBox="0 0 24 24">
-                        <rect height="7" width="7" x="3" y="3"/>
-                        <rect height="7" width="7" x="14" y="3"/>
-                        <rect height="7" width="7" x="14" y="14"/>
-                        <rect height="7" width="7" x="3" y="14"/>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                         stroke-linejoin="round">
+                        <rect x="3" y="3" width="7" height="7"/>
+                        <rect x="14" y="3" width="7" height="7"/>
+                        <rect x="14" y="14" width="7" height="7"/>
+                        <rect x="3" y="14" width="7" height="7"/>
                     </svg>
                     Unsorted <span id="unsorted-count" style="color:#666"></span>
                 </h3>
@@ -902,15 +957,15 @@
             </div>
             <div class="upload-zone" id="upload-zone">
                 <p>
-                    <svg fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                         viewBox="0 0 24 24">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                         stroke-linejoin="round">
                         <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
                         <polyline points="17 8 12 3 7 8"/>
-                        <line x1="12" x2="12" y1="3" y2="15"/>
+                        <line x1="12" y1="3" x2="12" y2="15"/>
                     </svg>
                     Drop images here or click to upload
                 </p>
-                <input accept="image/*" id="file-input" multiple type="file">
+                <input type="file" id="file-input" multiple accept="image/*">
             </div>
         </div>
     </div>
@@ -920,12 +975,12 @@
     <div class="modal">
         <h3>Edit Entry</h3>
         <label for="edit-name">Name</label>
-        <input id="edit-name" placeholder="Entry name" type="text">
+        <input type="text" id="edit-name" placeholder="Entry name">
         <div class="modal-actions">
             <button class="btn btn-secondary" onclick="closeEditModal()">Cancel</button>
             <button class="btn btn-primary" onclick="saveEntryName()">
-                <svg fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                     viewBox="0 0 24 24">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                     stroke-linejoin="round">
                     <polyline points="20 6 9 17 4 12"/>
                 </svg>
                 Save
@@ -938,14 +993,14 @@
     <div class="modal">
         <h3>Edit Tier</h3>
         <label for="tier-edit-name">Name</label>
-        <input id="tier-edit-name" placeholder="Tier name" type="text">
+        <input type="text" id="tier-edit-name" placeholder="Tier name">
         <label for="tier-edit-color">Color</label>
-        <input id="tier-edit-color" type="color" value="#CCCCCC">
+        <input type="color" id="tier-edit-color" value="#CCCCCC">
         <div class="modal-actions">
             <button class="btn btn-secondary" onclick="closeTierModal()">Cancel</button>
             <button class="btn btn-primary" onclick="saveTierEdit()">
-                <svg fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                     viewBox="0 0 24 24">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                     stroke-linejoin="round">
                     <polyline points="20 6 9 17 4 12"/>
                 </svg>
                 Save
@@ -956,25 +1011,32 @@
 
 <div class="preview-backdrop" id="preview-backdrop" onclick="closePreview(event)">
     <button class="preview-close" onclick="closePreview(event)">
-        <svg fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-             viewBox="0 0 24 24">
-            <line x1="18" x2="6" y1="6" y2="18"/>
-            <line x1="6" x2="18" y1="6" y2="18"/>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+             stroke-linejoin="round">
+            <line x1="18" y1="6" x2="6" y2="18"/>
+            <line x1="6" y1="6" x2="18" y2="18"/>
         </svg>
     </button>
     <div class="preview-card" id="preview-card" onclick="event.stopPropagation()"></div>
 </div>
-
+<div class="search-bar" id="search-bar">
+    <input type="text" id="search-input" placeholder="Search entries...">
+    <span class="search-count" id="search-count"></span>
+    <button onclick="searchNav(-1)" title="Previous (Shift+Enter)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"/></svg>
+    </button>
+    <button onclick="searchNav(1)" title="Next (Enter)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+    </button>
+    <button onclick="closeSearch()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+    </button>
+</div>
 <div class="toast" id="toast"></div>
 
 <script>
     const SLUG = "{{.Tierlist.Slug}}";
-    const DATA = {
-    {
-        json.Tierlist
-    }
-    }
-    ;
+    const DATA = {{json .Tierlist}};
 
     const ICONS = {
         chevronUp: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"/></svg>',
@@ -1445,12 +1507,12 @@
             html += '<div class="preview-text-only">' + esc(entry.name || "\u2014") + '</div>';
         }
         const tier = entry.tier_id ? tiers.find(t => t.id === entry.tier_id) : null;
-        if (entry.name || tier) {
-            html += '<div class="preview-info">';
-            if (entry.name) html += '<div class="preview-name">' + esc(entry.name) + '</div>';
-            if (tier) html += '<div class="preview-tier"><span class="preview-tier-badge" style="background:' + esc(tier.color) + '"></span>' + esc(tier.name) + ' tier</div>';
-            html += '</div>';
-        }
+        html += '<div class="preview-info">';
+        if (entry.name) html += '<div class="preview-name">' + esc(entry.name) + '</div>';
+        if (tier) html += '<div class="preview-tier"><span class="preview-tier-badge" style="background:' + esc(tier.color) + '"></span>' + esc(tier.name) + ' tier</div>';
+        const fname = (entry.image_path || "").split("/").pop();
+        if (fname) html += '<div class="preview-tier" style="margin-top:4px;color:#666">' + esc(fname) + '</div>';
+        html += '</div>';
         card.innerHTML = html;
         document.getElementById("preview-backdrop").classList.add("active");
         document.body.style.overflow = "hidden";
@@ -1981,6 +2043,82 @@
 
     setupDropZone(document.getElementById("unsorted-zone"), null);
     render();
+
+    let searchMatches = [];
+    let searchIndex = -1;
+
+    function getEntryFilename(entry) {
+        const p = entry.image_path || entry.thumb_path || "";
+        return p.split("/").pop().replace(/\.[^.]+$/, "").replace(/[-_]/g, " ");
+    }
+
+    function runSearch(query) {
+        document.querySelectorAll(".entry-card").forEach(c => c.classList.remove("search-match", "search-current", "search-dim"));
+        searchMatches = [];
+        searchIndex = -1;
+        if (!query) {
+            document.getElementById("search-count").textContent = "";
+            return;
+        }
+        const q = query.toLowerCase();
+        const matchIds = new Set();
+        entries.forEach(e => {
+            const name = (e.name || "").toLowerCase();
+            const fname = getEntryFilename(e).toLowerCase();
+            if (name.includes(q) || fname.includes(q)) matchIds.add(e.id);
+        });
+        const allCards = document.querySelectorAll(".entry-card");
+        allCards.forEach(c => {
+            const id = parseInt(c.dataset.entryId);
+            if (matchIds.has(id)) {
+                c.classList.add("search-match");
+                searchMatches.push(c);
+            } else {
+                c.classList.add("search-dim");
+            }
+        });
+        document.getElementById("search-count").textContent = searchMatches.length ? "0/" + searchMatches.length : "No results";
+        if (searchMatches.length) searchNav(1);
+    }
+
+    function searchNav(dir) {
+        if (!searchMatches.length) return;
+        if (searchIndex >= 0 && searchIndex < searchMatches.length) searchMatches[searchIndex].classList.remove("search-current");
+        searchIndex = (searchIndex + dir + searchMatches.length) % searchMatches.length;
+        const el = searchMatches[searchIndex];
+        el.classList.add("search-current");
+        el.scrollIntoView({ behavior: "smooth", block: "center" });
+        document.getElementById("search-count").textContent = (searchIndex + 1) + "/" + searchMatches.length;
+    }
+
+    function openSearch() {
+        document.getElementById("search-bar").classList.add("active");
+        const inp = document.getElementById("search-input");
+        inp.value = "";
+        inp.focus();
+        runSearch("");
+    }
+
+    function closeSearch() {
+        document.getElementById("search-bar").classList.remove("active");
+        document.querySelectorAll(".entry-card").forEach(c => c.classList.remove("search-match", "search-current", "search-dim"));
+        searchMatches = [];
+        searchIndex = -1;
+        document.getElementById("search-count").textContent = "";
+    }
+
+    document.getElementById("search-input").addEventListener("input", e => runSearch(e.target.value));
+    document.getElementById("search-input").addEventListener("keydown", e => {
+        if (e.key === "Enter") { e.preventDefault(); searchNav(e.shiftKey ? -1 : 1); }
+        if (e.key === "Escape") closeSearch();
+    });
+
+    document.addEventListener("keydown", e => {
+        if ((e.ctrlKey || e.metaKey) && e.key === "f") {
+            e.preventDefault();
+            openSearch();
+        }
+    });
 </script>
 </body>
 </html>

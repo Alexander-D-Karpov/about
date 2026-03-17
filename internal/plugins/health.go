@@ -784,8 +784,9 @@ func (p *HealthPlugin) cleanOldProcessedRecords() {
 
 func (p *HealthPlugin) persistData() {
 	config := p.storage.GetPluginConfig(p.Name())
-	if config.Settings == nil {
-		config.Settings = make(map[string]interface{})
+	settings := config.Settings
+	if settings == nil {
+		settings = make(map[string]interface{})
 	}
 
 	dailyAvgCopy := make(map[string]*DailyAverage, len(p.dailyAverages))
@@ -805,9 +806,9 @@ func (p *HealthPlugin) persistData() {
 			"distance_km":     avg.DistanceKM,
 		}
 	}
-	config.Settings["daily_averages"] = avgData
+	settings["daily_averages"] = avgData
 
-	config.Settings["current_data"] = map[string]interface{}{
+	settings["current_data"] = map[string]interface{}{
 		"steps_today":           p.healthData.StepsToday,
 		"steps_week":            p.healthData.StepsWeek,
 		"calories_today":        p.healthData.CaloriesToday,
@@ -828,7 +829,7 @@ func (p *HealthPlugin) persistData() {
 	}
 
 	if p.healthData.LastWorkout != nil {
-		config.Settings["last_workout"] = map[string]interface{}{
+		settings["last_workout"] = map[string]interface{}{
 			"type":     p.healthData.LastWorkout.Type,
 			"duration": p.healthData.LastWorkout.Duration,
 			"calories": p.healthData.LastWorkout.Calories,
@@ -849,12 +850,10 @@ func (p *HealthPlugin) persistData() {
 			"hours":      sr.Hours,
 		}
 	}
-	config.Settings["sleep_records"] = sleepData
+	settings["sleep_records"] = sleepData
 
-	config.Settings["last_reset_date"] = p.lastResetDate
-	config.Settings["last_persist"] = time.Now().Format(time.RFC3339)
-
-	delete(config.Settings, "processed_records")
+	settings["last_reset_date"] = p.lastResetDate
+	settings["last_persist"] = time.Now().Format(time.RFC3339)
 
 	if err := p.storage.SetPluginConfig(p.Name(), config); err != nil {
 		log.Printf("Failed to persist health data: %v", err)

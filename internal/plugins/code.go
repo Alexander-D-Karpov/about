@@ -105,10 +105,12 @@ type WakatimeLanguage struct {
 }
 
 func NewCodePlugin(storage *storage.Storage, hub *stream.Hub) *CodePlugin {
-	return &CodePlugin{
+	p := &CodePlugin{
 		storage: storage,
 		hub:     hub,
 	}
+	p.loadPersistedData()
+	return p
 }
 
 func (p *CodePlugin) Name() string {
@@ -380,11 +382,287 @@ func (p *CodePlugin) checkRecentCommits(client *http.Client, username, repoName 
 	return len(commits) > 0
 }
 
+func (p *CodePlugin) persistData() {
+	config := p.storage.GetPluginConfig(p.Name())
+	settings := config.Settings
+	if settings == nil {
+		settings = make(map[string]interface{})
+	}
+
+	if p.githubData != nil {
+		ghCache := map[string]interface{}{
+			"login":         p.githubData.Login,
+			"name":          p.githubData.Name,
+			"public_repos":  p.githubData.PublicRepos,
+			"followers":     p.githubData.Followers,
+			"following":     p.githubData.Following,
+			"bio":           p.githubData.Bio,
+			"location":      p.githubData.Location,
+			"total_commits": p.githubData.TotalCommits,
+			"total_stars":   p.githubData.TotalStars,
+		}
+
+		var recentRepos []interface{}
+		for _, repo := range p.githubData.RecentRepos {
+			var langs []interface{}
+			for _, l := range repo.Languages {
+				langs = append(langs, map[string]interface{}{
+					"name":       l.Name,
+					"percentage": l.Percentage,
+					"color":      l.Color,
+				})
+			}
+			recentRepos = append(recentRepos, map[string]interface{}{
+				"name":          repo.Name,
+				"stars":         repo.Stars,
+				"language":      repo.Language,
+				"updated_at":    repo.UpdatedAt.Format(time.RFC3339),
+				"description":   repo.Description,
+				"languages_url": repo.LanguagesURL,
+				"languages":     langs,
+			})
+		}
+		ghCache["recent_repos"] = recentRepos
+
+		var topLangs []interface{}
+		for _, l := range p.githubData.TopLanguages {
+			topLangs = append(topLangs, map[string]interface{}{
+				"name":       l.Name,
+				"percentage": l.Percentage,
+				"color":      l.Color,
+				"bytes":      l.Bytes,
+			})
+		}
+		ghCache["top_languages"] = topLangs
+
+		settings["github_cache"] = ghCache
+	}
+
+	if p.wakatimeData != nil {
+		wkCache := map[string]interface{}{
+			"total_seconds": p.wakatimeData.TotalTime.Seconds,
+			"total_text":    p.wakatimeData.TotalTime.Text,
+			"week_seconds":  p.wakatimeData.LastWeek.Seconds,
+			"week_text":     p.wakatimeData.LastWeek.Text,
+		}
+
+		var langs []interface{}
+		for _, l := range p.wakatimeData.Languages {
+			langs = append(langs, map[string]interface{}{
+				"name":          l.Name,
+				"total_seconds": l.TotalSeconds,
+				"percent":       l.Percent,
+				"text":          l.Text,
+				"color":         l.Color,
+			})
+		}
+		wkCache["languages"] = langs
+
+		var editors []interface{}
+		for _, e := range p.wakatimeData.Editors {
+			editors = append(editors, map[string]interface{}{
+				"name":          e.Name,
+				"total_seconds": e.TotalSeconds,
+				"percent":       e.Percent,
+				"text":          e.Text,
+			})
+		}
+		wkCache["editors"] = editors
+
+		settings["wakatime_cache"] = wkCache
+	}
+
+	p.mutex.RLock()
+	if len(p.allRepoLanguages) > 0 {
+		var allLangs []interface{}
+		for _, l := range p.allRepoLanguages {
+			allLangs = append(allLangs, map[string]interface{}{
+				"name":       l.Name,
+				"percentage": l.Percentage,
+				"color":      l.Color,
+				"bytes":      l.Bytes,
+			})
+		}
+		settings["all_repo_languages_cache"] = allLangs
+	}
+	p.mutex.RUnlock()
+
+	settings["last_cache_time"] = time.Now().Format(time.RFC3339)
+
+	config.Settings = settings
+	if err := p.storage.SetPluginConfig(p.Name(), config); err != nil {
+		fmt.Printf("[Code] Failed to persist cache: %v\n", err)
+	}
+}
+
+func (p *CodePlugin) loadPersistedData() {
+	config := p.storage.GetPluginConfig(p.Name())
+	if config.Settings == nil {
+		return
+	}
+
+	ghCache, ok := config.Settings["github_cache"].(map[string]interface{})
+	if ok {
+		gh := &GitHubUserData{
+			Login:        getStringC(ghCache, "login"),
+			Name:         getStringC(ghCache, "name"),
+			PublicRepos:  int(getFloat(ghCache, "public_repos")),
+			Followers:    int(getFloat(ghCache, "followers")),
+			Following:    int(getFloat(ghCache, "following")),
+			Bio:          getStringC(ghCache, "bio"),
+			Location:     getStringC(ghCache, "location"),
+			TotalCommits: int(getFloat(ghCache, "total_commits")),
+			TotalStars:   int(getFloat(ghCache, "total_stars")),
+		}
+
+		if reposRaw, ok := ghCache["recent_repos"].([]interface{}); ok {
+			for _, r := range reposRaw {
+				rm, ok := r.(map[string]interface{})
+				if !ok {
+					continue
+				}
+				repo := GitHubRepo{
+					Name:         getStringC(rm, "name"),
+					Stars:        int(getFloat(rm, "stars")),
+					Language:     getStringC(rm, "language"),
+					Description:  getStringC(rm, "description"),
+					LanguagesURL: getStringC(rm, "languages_url"),
+				}
+				if t, err := time.Parse(time.RFC3339, getStringC(rm, "updated_at")); err == nil {
+					repo.UpdatedAt = t
+				}
+				if langsRaw, ok := rm["languages"].([]interface{}); ok {
+					for _, lr := range langsRaw {
+						lm, ok := lr.(map[string]interface{})
+						if !ok {
+							continue
+						}
+						repo.Languages = append(repo.Languages, RepoLanguageBreakdown{
+							Name:       getStringC(lm, "name"),
+							Percentage: getFloat(lm, "percentage"),
+							Color:      getStringC(lm, "color"),
+						})
+					}
+				}
+				gh.RecentRepos = append(gh.RecentRepos, repo)
+			}
+		}
+
+		if langsRaw, ok := ghCache["top_languages"].([]interface{}); ok {
+			for _, lr := range langsRaw {
+				lm, ok := lr.(map[string]interface{})
+				if !ok {
+					continue
+				}
+				gh.TopLanguages = append(gh.TopLanguages, LanguageStat{
+					Name:       getStringC(lm, "name"),
+					Percentage: getFloat(lm, "percentage"),
+					Color:      getStringC(lm, "color"),
+					Bytes:      int(getFloat(lm, "bytes")),
+				})
+			}
+		}
+
+		p.githubData = gh
+		fmt.Printf("[Code] Loaded cached GitHub data: %d repos, %d stars\n", gh.PublicRepos, gh.TotalStars)
+	}
+
+	wkCache, ok := config.Settings["wakatime_cache"].(map[string]interface{})
+	if ok {
+		wk := &WakatimeData{}
+		wk.TotalTime.Seconds = getFloat(wkCache, "total_seconds")
+		wk.TotalTime.Text = getStringC(wkCache, "total_text")
+		wk.LastWeek.Seconds = getFloat(wkCache, "week_seconds")
+		wk.LastWeek.Text = getStringC(wkCache, "week_text")
+
+		if langsRaw, ok := wkCache["languages"].([]interface{}); ok {
+			for _, lr := range langsRaw {
+				lm, ok := lr.(map[string]interface{})
+				if !ok {
+					continue
+				}
+				wk.Languages = append(wk.Languages, WakatimeLanguage{
+					Name:         getStringC(lm, "name"),
+					TotalSeconds: getFloat(lm, "total_seconds"),
+					Percent:      getFloat(lm, "percent"),
+					Text:         getStringC(lm, "text"),
+					Color:        getStringC(lm, "color"),
+				})
+			}
+		}
+
+		if editorsRaw, ok := wkCache["editors"].([]interface{}); ok {
+			for _, er := range editorsRaw {
+				em, ok := er.(map[string]interface{})
+				if !ok {
+					continue
+				}
+				wk.Editors = append(wk.Editors, struct {
+					Name         string  `json:"name"`
+					TotalSeconds float64 `json:"total_seconds"`
+					Percent      float64 `json:"percent"`
+					Text         string  `json:"text"`
+				}{
+					Name:         getStringC(em, "name"),
+					TotalSeconds: getFloat(em, "total_seconds"),
+					Percent:      getFloat(em, "percent"),
+					Text:         getStringC(em, "text"),
+				})
+			}
+		}
+
+		p.wakatimeData = wk
+		fmt.Printf("[Code] Loaded cached Wakatime data: %s\n", wk.TotalTime.Text)
+	}
+
+	if allLangsRaw, ok := config.Settings["all_repo_languages_cache"].([]interface{}); ok {
+		var allLangs []LanguageStat
+		for _, lr := range allLangsRaw {
+			lm, ok := lr.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			allLangs = append(allLangs, LanguageStat{
+				Name:       getStringC(lm, "name"),
+				Percentage: getFloat(lm, "percentage"),
+				Color:      getStringC(lm, "color"),
+				Bytes:      int(getFloat(lm, "bytes")),
+			})
+		}
+		p.mutex.Lock()
+		p.allRepoLanguages = allLangs
+		p.mutex.Unlock()
+	}
+
+	if cacheTime, ok := config.Settings["last_cache_time"].(string); ok {
+		if t, err := time.Parse(time.RFC3339, cacheTime); err == nil {
+			p.lastUpdate = t
+		}
+	}
+}
+
 func (p *CodePlugin) UpdateData(ctx context.Context) error {
 	if time.Since(p.lastUpdate) < 6*time.Hour {
 		return nil
 	}
 
+	hasCachedData := p.githubData != nil || p.wakatimeData != nil
+
+	if hasCachedData {
+		go func() {
+			err := p.doUpdate(ctx)
+			if err != nil {
+				fmt.Printf("Error updating code plugin data: %v\n", err)
+				return
+			}
+		}()
+		return nil
+	}
+
+	return p.doUpdate(ctx)
+}
+
+func (p *CodePlugin) doUpdate(ctx context.Context) error {
 	config := p.storage.GetPluginConfig(p.Name())
 	settings := config.Settings
 
@@ -401,6 +679,7 @@ func (p *CodePlugin) UpdateData(ctx context.Context) error {
 	}
 
 	p.lastUpdate = time.Now()
+	p.persistData()
 	return nil
 }
 

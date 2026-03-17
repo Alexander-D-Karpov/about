@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta content="width=device-width, initial-scale=1.0" name="viewport">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{.Title}}</title>
     <style>
         * {
@@ -167,9 +167,9 @@
     <a class="back" href="/admin">← Admin Panel</a>
     <h1>{{.Title}}</h1>
 
-    <form action="/ranking/admin/create" class="create-form" method="POST">
-        <input name="title" placeholder="New tierlist title..." required type="text">
-        <button class="btn btn-primary" type="submit">Create</button>
+    <form class="create-form" method="POST" action="/ranking/admin/create">
+        <input type="text" name="title" placeholder="New tierlist title..." required>
+        <button type="submit" class="btn btn-primary">Create</button>
     </form>
 
     <div class="list">
@@ -188,8 +188,8 @@
                 </div>
             </div>
             <div class="item-actions">
-                <a class="btn-sm" href="/ranking/admin/{{.Slug}}">Edit</a>
-                {{if .Published}}<a class="btn-sm" href="/ranking/{{.Slug}}" target="_blank">View</a>{{end}}
+                <a href="/ranking/admin/{{.Slug}}" class="btn-sm">Edit</a>
+                {{if .Published}}<a href="/ranking/{{.Slug}}" class="btn-sm" target="_blank">View</a>{{end}}
             </div>
         </div>
         {{end}}
