@@ -39,7 +39,11 @@
     <link rel="apple-touch-icon" sizes="180x180" href="/favicon.png">
     <link rel="mask-icon" href="/favicon.png" color="#0d1117">
 
+    <script>
+        document.documentElement.classList.add('js', 'js-loading');
+    </script>
     <link href="/static/bundle.css?v={{ .CSSHash }}" rel="stylesheet">
+    <style>{{ .PrebakeCSS }}</style>
 
     <script type="application/ld+json">
         {
@@ -58,10 +62,272 @@
 </head>
 <body>
 <div class="container">
-    {{ range .Plugins }}
-    {{ . }}
-    {{ end }}
+    <section class="mosaic mosaic-prebaked" id="main-mosaic">
+        {{ range .Plugins }}
+        {{ . }}
+        {{ end }}
+    </section>
 </div>
+
+<script>
+    (function () {
+        const docEl = document.documentElement;
+        const mosaic = document.getElementById('main-mosaic');
+        if (!mosaic) {
+            docEl.classList.remove('js-loading');
+            return;
+        }
+
+        const $$ = (q, c = document) => (c ? Array.from(c.querySelectorAll(q)) : []);
+        const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+        const safeJSON = (s) => {
+            try {
+                return JSON.parse(s);
+            } catch {
+                return null;
+            }
+        };
+        const readStorage = (key) => {
+            try {
+                return localStorage.getItem(key);
+            } catch {
+                return null;
+            }
+        };
+
+        function pluginIdBase(el) {
+            return (el.className.match(/([a-z0-9-]+)-section/i) || [, 'tile'])[1].toLowerCase();
+        }
+
+        function assignStablePluginId(el) {
+            if (el.id) return el.id;
+
+            const base = pluginIdBase(el);
+            const preferred = `${base}-plugin`;
+            if (!document.getElementById(preferred)) {
+                el.id = preferred;
+                return el.id;
+            }
+
+            let idx = 2;
+            let candidate = `${preferred}-${idx}`;
+            while (document.getElementById(candidate)) {
+                idx += 1;
+                candidate = `${preferred}-${idx}`;
+            }
+
+            el.id = candidate;
+            return el.id;
+        }
+
+        function ensurePluginIds() {
+            $$('.plugin', mosaic).forEach((el) => assignStablePluginId(el));
+        }
+
+        const defaultWidths = {
+            'projects-section': 3,
+            'beatleader-section': 2,
+            'steam-section': 2,
+            'neofetch-section': 2,
+            'tech-section': 1,
+            'code-section': 2,
+            'meme-section': 1,
+            'lastfm-section': 2,
+            'webring-section': 2,
+            'social-section': 1,
+            'visitors-section': 1,
+            'info-section': 2,
+            'services-section': 2,
+            'places-section': 2,
+            'profile-section': 2,
+            'health-section': 1,
+            'personal-section': 2,
+            'photos-section': 2,
+            'bike-section': 2
+        };
+
+        ensurePluginIds();
+
+        const savedWidths = safeJSON(readStorage('mosaic.widths')) || {};
+        const savedOrder = safeJSON(readStorage('mosaic.order')) || [];
+
+        function isProjectPlugin(el) {
+            return !!el && el.classList.contains('projects-section');
+        }
+
+        function isWebringPlugin(el) {
+            return !!el && el.classList.contains('webring-section');
+        }
+
+        function enforceFixedEdgeOrder() {
+            const nodes = Array.from(mosaic.children).filter((n) => n.classList?.contains('plugin'));
+            const head = nodes.filter(isWebringPlugin);
+            const tail = nodes.filter(isProjectPlugin);
+            const middle = nodes.filter((n) => !isWebringPlugin(n) && !isProjectPlugin(n));
+            [...head, ...middle, ...tail].forEach((n) => mosaic.appendChild(n));
+        }
+
+        function colCount() {
+            const width = mosaic.clientWidth || Math.max(window.innerWidth - 32, 1);
+            let minCol = 300;
+            if (window.innerWidth <= 520) minCol = 160;
+            else if (window.innerWidth <= 780) minCol = 220;
+            else if (window.innerWidth <= 900) minCol = 240;
+            else if (window.innerWidth <= 1200) minCol = 260;
+            return Math.max(1, Math.floor((width + 12) / (minCol + 12)));
+        }
+
+        function expandHorizontally(placements, cols) {
+            placements.sort((a, b) => a.row - b.row || a.col - b.col);
+            placements.forEach((p) => {
+                while (p.col + p.colSpan < cols) {
+                    const nextCol = p.col + p.colSpan;
+                    let canExpand = true;
+
+                    for (const other of placements) {
+                        if (other === p) continue;
+                        const overlapsNextCol = other.col === nextCol || (other.col < nextCol && other.col + other.colSpan > nextCol);
+                        if (!overlapsNextCol) continue;
+                        const pEnd = p.row + p.rowSpan;
+                        const oEnd = other.row + other.rowSpan;
+                        if (!(p.row >= oEnd || pEnd <= other.row)) {
+                            canExpand = false;
+                            break;
+                        }
+                    }
+
+                    if (!canExpand) break;
+                    p.colSpan += 1;
+                }
+            });
+        }
+
+        function fitNeofetch() {
+            document.querySelectorAll('.neofetch-section .terminal').forEach((term) => {
+                const pre = term.querySelector('.neofetch-pre');
+                if (!pre) return;
+                const output = term.closest('.neofetch-output');
+                if (output && output.style.display === 'none') return;
+
+                const maxW = term.clientWidth - 20;
+                const needW = pre.scrollWidth;
+                const scale = needW > maxW ? Math.max(0.6, maxW / needW) : 1;
+                term.style.setProperty('--neo-scale', String(scale));
+
+                const headerH = output?.querySelector('.terminal-header')?.offsetHeight || 0;
+                const paletteH = output?.querySelector('.color-palette')?.offsetHeight || 0;
+                const scaledH = Math.ceil(pre.scrollHeight * scale);
+                term.style.height = (headerH + 20 + scaledH + paletteH + 8) + 'px';
+            });
+        }
+
+        function applySavedOrder() {
+            if (!savedOrder.length) {
+                enforceFixedEdgeOrder();
+                return;
+            }
+            const byId = Object.fromEntries($$('.plugin', mosaic).map((n) => [n.id, n]));
+            savedOrder.forEach((id) => byId[id] && mosaic.appendChild(byId[id]));
+            enforceFixedEdgeOrder();
+        }
+
+        function applySavedWidths() {
+            const cols = colCount();
+            $$('.plugin', mosaic).forEach((el) => {
+                const key = Object.keys(defaultWidths).find((k) => el.classList.contains(k));
+                const baseWidth = clamp(+el.dataset.w || (key ? defaultWidths[key] : 1), 1, 3);
+                const savedWidth = clamp(savedWidths[el.id] || baseWidth, 1, 3);
+                el.dataset.w = String(Math.min(savedWidth, cols));
+            });
+        }
+
+        function pack() {
+            const items = $$('.plugin', mosaic);
+            const cols = colCount();
+            const gap = 12;
+
+            items.forEach((el) => {
+                const width = Math.min(clamp(+el.dataset.w || 1, 1, 3), cols);
+                el.style.height = 'auto';
+                el.style.minHeight = '0px';
+                el.style.gridColumn = `auto / span ${width}`;
+                el.style.gridRowStart = 'auto';
+                el.style.gridRowEnd = 'auto';
+            });
+
+            fitNeofetch();
+
+            const heights = new Map();
+            items.forEach((el) => {
+                const rectHeight = Math.ceil(el.getBoundingClientRect().height);
+                const header = el.querySelector('.plugin-header');
+                const inner = el.querySelector('.plugin__inner');
+                let height = rectHeight;
+
+                if (header && inner) {
+                    const computed = Math.ceil(header.getBoundingClientRect().height + inner.scrollHeight + 20);
+                    height = Math.max(height, computed);
+                }
+
+                heights.set(el, height);
+            });
+
+            const colHeights = new Array(cols).fill(0);
+            const placements = [];
+
+            items.forEach((el) => {
+                const width = Math.min(clamp(+el.dataset.w || 1, 1, 3), cols);
+                const height = heights.get(el) || 100;
+                const rowSpan = Math.ceil(height + gap);
+
+                let bestCol = 0;
+                let bestHeight = Infinity;
+                for (let c = 0; c <= cols - width; c++) {
+                    const maxH = Math.max(...colHeights.slice(c, c + width));
+                    if (maxH < bestHeight) {
+                        bestHeight = maxH;
+                        bestCol = c;
+                    }
+                }
+
+                const startRow = Math.ceil(bestHeight);
+                const newHeight = bestHeight + height + gap;
+                for (let c = bestCol; c < bestCol + width; c++) {
+                    colHeights[c] = newHeight;
+                }
+
+                placements.push({
+                    el,
+                    col: bestCol,
+                    row: startRow,
+                    colSpan: width,
+                    rowSpan,
+                    height
+                });
+            });
+
+            expandHorizontally(placements, cols);
+
+            placements.forEach((p) => {
+                p.el.style.gridColumn = `${p.col + 1} / span ${p.colSpan}`;
+                p.el.style.gridRowStart = String(p.row + 1);
+                p.el.style.gridRowEnd = `span ${p.rowSpan}`;
+                p.el.style.height = `${p.height}px`;
+                p.el.dataset.currentSpan = String(p.colSpan);
+            });
+        }
+
+        try {
+            applySavedOrder();
+            applySavedWidths();
+            pack();
+            mosaic.dataset.clientPrebaked = '1';
+        } finally {
+            docEl.classList.remove('js-loading');
+            docEl.classList.add('js-loaded');
+        }
+    })();
+</script>
 
 <div class="status-bar">
     <span class="status-indicator" id="connection-status"></span>

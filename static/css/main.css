@@ -40,62 +40,6 @@
     --mosaic-fill-cap: 228px;
 }
 
-.js-loading .plugin {
-    opacity: 0;
-}
-
-.js-loading .profile-section {
-    animation: pulse 1.5s ease-in-out infinite;
-}
-
-@keyframes pulse {
-    0%, 100% {
-        opacity: 1;
-    }
-    50% {
-        opacity: 0.7;
-    }
-}
-
-.js-loaded .plugin {
-    animation: fadeIn 0.25s ease-out forwards;
-}
-
-@keyframes fadeIn {
-    from {
-        opacity: 0;
-        transform: translateY(6px);
-    }
-    to {
-        opacity: 1;
-        transform: translateY(0);
-    }
-}
-
-.js-loaded .plugin:nth-child(1) {
-    animation-delay: 0s;
-}
-
-.js-loaded .plugin:nth-child(2) {
-    animation-delay: 0.02s;
-}
-
-.js-loaded .plugin:nth-child(3) {
-    animation-delay: 0.04s;
-}
-
-.js-loaded .plugin:nth-child(4) {
-    animation-delay: 0.06s;
-}
-
-.js-loaded .plugin:nth-child(5) {
-    animation-delay: 0.08s;
-}
-
-.js-loaded .plugin:nth-child(n+6) {
-    animation-delay: 0.1s;
-}
-
 *{box-sizing:border-box}
 html,body{height:100%;width:100%}
 html{scroll-behavior:smooth;-webkit-text-size-adjust:100%}
@@ -262,11 +206,24 @@ img {
     align-items: stretch;
 }
 
-.js .profile-section {
+.js .container > .profile-section {
     position: relative;
     width: 100%;
     align-self: flex-start;
     margin: 0 0 calc(var(--gap) * 2) 0;
+}
+
+.js .mosaic > .profile-section {
+    width: auto;
+    margin: 0;
+    align-self: start;
+    min-height: 0;
+}
+
+.mosaic-prebaked > .profile-section,
+.mosaic-prebaked > .profile-section > .plugin__inner {
+    overflow: visible;
+    max-height: none;
 }
 
 .js .mosaic {
@@ -291,8 +248,12 @@ img {
     height: auto;
     align-self: start;
     overflow: visible;
-    contain: content;
-    will-change: transform, width, height;
+    contain: layout style;
+    will-change: auto;
+}
+
+.plugin.is-front {
+    z-index: 1500;
 }
 
 .plugin:hover {
@@ -1018,4 +979,24 @@ body.scroll-locked {
 .potato-toggle.active {
     background: var(--accent);
     border-color: var(--accent);
+}
+
+.mosaic-prebaked {
+    grid-auto-rows: 1px !important;
+}
+
+.mosaic-prebaked > .plugin {
+    overflow: visible;
+    contain: layout style;
+}
+
+.mosaic-prebaked > .plugin > .plugin__inner {
+    max-height: none;
+    overflow: visible;
+}
+
+.mosaic-prebaked > .profile-section > .plugin__inner,
+.mosaic-prebaked > .visitors-section > .plugin__inner {
+    max-height: none;
+    overflow: visible;
 }

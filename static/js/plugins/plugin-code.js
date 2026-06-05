@@ -5,6 +5,25 @@
         const section = document.querySelector('.code-section');
         if (!section) return;
 
+        function settleCodeLayout() {
+            if (!window.mosaicUtils) return;
+
+            if (typeof window.mosaicUtils.settleLayout === 'function') {
+                window.mosaicUtils.settleLayout(420);
+                return;
+            }
+
+            window.mosaicUtils.resizeAll();
+            requestAnimationFrame(() => window.mosaicUtils.resizeAll());
+            setTimeout(() => {
+                if (typeof window.mosaicUtils.fullRepack === 'function') {
+                    window.mosaicUtils.fullRepack();
+                } else {
+                    window.mosaicUtils.resizeAll();
+                }
+            }, 420);
+        }
+
         section.querySelectorAll('.section-toggle').forEach(toggle => {
             if (toggle.dataset.listenerAttached) return;
             toggle.dataset.listenerAttached = '1';
@@ -30,8 +49,7 @@
                 toggle.setAttribute('aria-expanded', !willCollapse);
 
                 if (window.mosaicUtils) {
-                    window.mosaicUtils.resizeAll();
-                    setTimeout(() => window.mosaicUtils.resizeAll(), 150);
+                    settleCodeLayout();
                 }
             });
         });

@@ -8,6 +8,7 @@
     let places = [];
     let config = {};
     let isHeatmapMode = true;
+    let mapResizeCleanup = null;
 
     let interactionTimeout = null;
     let initialFitDone = false;
@@ -157,8 +158,17 @@
             loadingEl.classList.add('hidden');
         }
 
+        const fullscreenTarget = container.closest('.places-map-container') || container;
+
         setupControls();
         setupInteractionHandling();
+        addPlacesFullscreenControl(fullscreenTarget);
+
+        if (mapResizeCleanup) {
+            mapResizeCleanup();
+            mapResizeCleanup = null;
+        }
+        mapResizeCleanup = setupMapResizeHandling(fullscreenTarget);
 
         window
             .matchMedia('(prefers-color-scheme: dark)')
@@ -298,6 +308,100 @@
         });
 
         updateMarkerSizes();
+    }
+
+    function invalidatePlacesMapSize() {
+        if (!map) return;
+        [0, 50, 150, 300].forEach(delay => {
+            setTimeout(() => {
+                if (map) map.invalidateSize({ pan: false, animate: false });
+            }, delay);
+        });
+    }
+
+    function setupMapResizeHandling(targetEl) {
+        if (!targetEl) return () => {};
+
+        const refresh = () => invalidatePlacesMapSize();
+        const onVisibility = () => { if (!document.hidden) refresh(); };
+
+        window.addEventListener('resize', refresh);
+        window.addEventListener('orientationchange', refresh);
+        document.addEventListener('visibilitychange', onVisibility);
+        document.addEventListener('fullscreenchange', refresh);
+
+        let resizeObserver = null;
+        if (typeof ResizeObserver !== 'undefined') {
+            resizeObserver = new ResizeObserver(() => refresh());
+            resizeObserver.observe(targetEl);
+        }
+
+        refresh();
+
+        return () => {
+            window.removeEventListener('resize', refresh);
+            window.removeEventListener('orientationchange', refresh);
+            document.removeEventListener('visibilitychange', onVisibility);
+            document.removeEventListener('fullscreenchange', refresh);
+            if (resizeObserver) resizeObserver.disconnect();
+        };
+    }
+
+    function addPlacesFullscreenControl(fullscreenTarget) {
+        if (!map || !window.L || !fullscreenTarget) return;
+
+        const PlacesFullscreenControl = L.Control.extend({
+            options: { position: 'topright' },
+
+            onAdd() {
+                const wrapper = L.DomUtil.create('div', 'leaflet-bar places-fullscreen-control');
+                const btn = L.DomUtil.create('button', 'map-control-btn places-fullscreen-btn', wrapper);
+
+                btn.type = 'button';
+                btn.title = 'Toggle fullscreen';
+                btn.setAttribute('aria-label', 'Toggle fullscreen');
+                btn.innerHTML = `<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true">
+                <path d="M7 14H5v5h5v-2H7v-3zm0-4h2V7h3V5H5v5zm10 7h-3v2h5v-5h-2v3zm0-12V5h-5v2h3v3h2V5z"/>
+            </svg>`;
+
+                const syncState = () => {
+                    btn.classList.toggle('active', document.fullscreenElement === fullscreenTarget);
+                };
+
+                L.DomEvent.disableClickPropagation(wrapper);
+                L.DomEvent.disableScrollPropagation(wrapper);
+
+                L.DomEvent.on(btn, 'click', async (e) => {
+                    L.DomEvent.stop(e);
+                    try {
+                        if (document.fullscreenElement === fullscreenTarget) {
+                            await document.exitFullscreen();
+                        } else if (fullscreenTarget.requestFullscreen) {
+                            await fullscreenTarget.requestFullscreen();
+                        }
+                    } catch (err) {
+                        console.error('Fullscreen toggle failed:', err);
+                    } finally {
+                        syncState();
+                        invalidatePlacesMapSize();
+                    }
+                });
+
+                document.addEventListener('fullscreenchange', syncState);
+                this._syncState = syncState;
+                syncState();
+
+                return wrapper;
+            },
+
+            onRemove() {
+                if (this._syncState) {
+                    document.removeEventListener('fullscreenchange', this._syncState);
+                }
+            }
+        });
+
+        map.addControl(new PlacesFullscreenControl());
     }
 
     function updateMarkerSizes() {
@@ -475,6 +579,10 @@
     }
 
     window.reinitPlacesMap = function () {
+        if (mapResizeCleanup) {
+            mapResizeCleanup();
+            mapResizeCleanup = null;
+        }
         if (map) {
             map.remove();
             map = null;

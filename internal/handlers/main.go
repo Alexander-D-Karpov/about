@@ -14,6 +14,7 @@ import (
 
 	"github.com/Alexander-D-Karpov/about/internal/assets"
 	"github.com/Alexander-D-Karpov/about/internal/config"
+	"github.com/Alexander-D-Karpov/about/internal/layout"
 	"github.com/Alexander-D-Karpov/about/internal/plugins"
 )
 
@@ -36,6 +37,7 @@ type TemplateData struct {
 	CSSHash       string
 	JSHash        string
 	Plugins       []template.HTML
+	PrebakeCSS    template.CSS
 }
 
 func NewMainHandler(pluginManager *plugins.Manager, cfg *config.Config, templateFiles embed.FS, bundler *assets.Bundler) *MainHandler {
@@ -181,13 +183,16 @@ func (h *MainHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		_, jsHash = h.bundler.JSBundle()
 	}
 
+	prebakedPlugins := layout.Prebake(renderedPlugins)
+
 	data := TemplateData{
 		Title:       "sanspie",
 		Description: "WebDev & DevSecOps",
 		PotatoMode:  potatoMode,
 		CSSHash:     cssHash,
 		JSHash:      jsHash,
-		Plugins:     renderedPlugins,
+		Plugins:     prebakedPlugins,
+		PrebakeCSS:  layout.GenerateResponsiveCSS(),
 	}
 
 	var buf bytes.Buffer

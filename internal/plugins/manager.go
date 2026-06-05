@@ -86,6 +86,7 @@ func (m *Manager) LoadAll() error {
 		NewPlacesPlugin(m.storage, m.hub),
 		NewHealthPlugin(m.storage, m.hub, m.config.HCGatewayURL, m.config.HCGatewayUser, m.config.HCGatewayPassword),
 		NewPhotosPlugin(m.storage, m.hub),
+		NewBikePlugin(m.storage, m.hub),
 	}
 
 	m.mutex.Lock()
@@ -358,7 +359,26 @@ func (m *Manager) getEnabledPluginsLocked() []Plugin {
 		return configI.Order < configJ.Order
 	})
 
-	return enabled
+	var webring, profile, projects, middle []Plugin
+	for _, p := range enabled {
+		switch p.Name() {
+		case "webring":
+			webring = append(webring, p)
+		case "profile":
+			profile = append(profile, p)
+		case "projects":
+			projects = append(projects, p)
+		default:
+			middle = append(middle, p)
+		}
+	}
+
+	result := make([]Plugin, 0, len(enabled))
+	result = append(result, webring...)
+	result = append(result, profile...)
+	result = append(result, middle...)
+	result = append(result, projects...)
+	return result
 }
 
 func (m *Manager) GetEnabledPlugins() []Plugin {

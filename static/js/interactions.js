@@ -48,278 +48,6 @@
         });
     }
 
-    let currentFilter = null;
-    let filterPopup;
-
-    function createFilterPopup(){
-        if (filterPopup) return filterPopup;
-
-        filterPopup = document.createElement('div');
-        filterPopup.className = 'tech-filter-popup';
-
-        filterPopup.innerHTML = `
-        <span class="filter-icon" style="font-size:18px;" aria-hidden="true">🔧</span>
-        <span class="filter-text">Filtering:</span>
-        <strong class="filter-tech" style="color:#7aa2ff;"></strong>
-        <button class="clear-filter-btn" type="button" aria-label="Clear project filter"
-            style="margin-left:4px;padding:6px 12px;border-radius:8px;border:1px solid rgba(255,255,255,.2);background:rgba(255,107,107,.9);color:white;cursor:pointer;font-weight:700;font-size:12px;transition:all .2s ease;">
-            Clear ✕
-        </button>
-    `;
-
-        const clearBtn = filterPopup.querySelector('.clear-filter-btn');
-        clearBtn.addEventListener('mouseover', () => {
-            clearBtn.style.background = 'rgba(220,38,38,1)';
-            clearBtn.style.transform = 'scale(1.05)';
-        });
-        clearBtn.addEventListener('mouseout', () => {
-            clearBtn.style.background = 'rgba(255,107,107,.9)';
-            clearBtn.style.transform = 'scale(1)';
-        });
-        clearBtn.addEventListener('click', (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            clearTechFilter();
-        }, {passive: false});
-
-        document.body.appendChild(filterPopup);
-        return filterPopup;
-    }
-
-    function showFilterPopup(name){
-        const p = createFilterPopup();
-        const label = p.querySelector('.filter-tech');
-        if (label) label.textContent = name;
-
-        p.classList.add('show');
-        p.style.transition = 'opacity 200ms ease, transform 200ms ease';
-        p.style.transform = 'translateX(-50%) translateY(0)';
-    }
-
-    function hideFilterPopup() {
-        if (!filterPopup) return;
-        filterPopup.classList.remove('show');
-    }
-
-    function clearTechFilter(){
-        const projectsSection = document.querySelector('.projects-section, .projects-section.plugin, .plugin.projects-section');
-        if (!projectsSection) {
-            console.warn('Projects section not found for clearing');
-            return;
-        }
-
-        projectsSection.querySelectorAll('.project-card').forEach(card => {
-            card.style.transition = 'all 0.3s ease';
-            card.style.opacity = '1';
-            card.style.transform = 'scale(1)';
-            card.style.filter = 'none';
-            card.style.outline = '';
-            card.style.outlineOffset = '';
-        });
-
-        document.querySelectorAll('.tech-item.filtered').forEach(x => x.classList.remove('filtered'));
-        currentFilter = null;
-
-        hideFilterPopup();
-
-        if (window.mosaicUtils) window.mosaicUtils.resizeAll();
-    }
-
-    function applyTechFilter(name){
-        if (!name) return;
-
-        const techSection = document.querySelector('.tech-section, .tech-section.plugin, .plugin.tech-section');
-        const projectsSection = document.querySelector('.projects-section, .projects-section.plugin, .plugin.projects-section');
-
-        if (!projectsSection) {
-            console.warn('Projects section not found');
-            return;
-        }
-
-        console.log(`Applying filter for: ${name}`);
-        currentFilter = name;
-
-        if (techSection) {
-            techSection.querySelectorAll('.tech-item').forEach(item => {
-                const label = item.querySelector('.tech-name')?.textContent ||
-                    item.title ||
-                    item.querySelector('img')?.alt || '';
-
-                if (label.toLowerCase() === name.toLowerCase()) {
-                    item.classList.add('filtered');
-                } else {
-                    item.classList.remove('filtered');
-                }
-            });
-        }
-
-        let matchCount = 0;
-        const matchingCards = [];
-
-        projectsSection.querySelectorAll('.project-card').forEach(card => {
-            const tags = Array.from(card.querySelectorAll('.tech-tag'));
-            const tagTexts = tags.map(t => t.textContent.trim().toLowerCase());
-            const searchName = name.toLowerCase();
-
-            const isMatch = tagTexts.some(tag => tag === searchName);
-
-            card.style.transition = 'all 0.3s ease';
-
-            if (isMatch) {
-                card.style.opacity = '1';
-                card.style.transform = 'scale(1)';
-                card.style.filter = 'none';
-                matchingCards.push(card);
-                matchCount++;
-            } else {
-                card.style.opacity = '0.25';
-                card.style.transform = 'scale(0.96)';
-                card.style.filter = 'grayscale(70%)';
-            }
-        });
-
-        console.log(`Found ${matchCount} matching projects`);
-
-        if (matchCount > 0) {
-            showFilterPopup(name);
-
-            projectsSection.scrollIntoView({
-                behavior: 'smooth',
-                block: 'start'
-            });
-
-            setTimeout(() => {
-                matchingCards.forEach(card => {
-                    card.style.outline = '2px solid var(--accent)';
-                    card.style.outlineOffset = '4px';
-                });
-
-                setTimeout(() => {
-                    matchingCards.forEach(card => {
-                        card.style.outline = '';
-                        card.style.outlineOffset = '';
-                    });
-                }, 2000);
-            }, 500);
-        } else {
-            console.warn(`No projects found matching "${name}"`);
-            clearTechFilter();
-        }
-
-        if (window.mosaicUtils) {
-            setTimeout(() => window.mosaicUtils.resizeAll(), 100);
-        }
-    }
-
-    function initTechFiltering() {
-        const techSection = document.querySelector('.tech-section, .tech-section.plugin, .plugin.tech-section');
-        const projectsSection = document.querySelector('.projects-section, .projects-section.plugin, .plugin.projects-section');
-
-        if (!techSection) return;
-        if (!projectsSection) return;
-
-        techSection.querySelectorAll('.tech-item').forEach(item => {
-            if (item.dataset.techFilterAttached === '1') return;
-            item.dataset.techFilterAttached = '1';
-
-            const name = item.querySelector('.tech-name')?.textContent ||
-                item.title ||
-                item.querySelector('img')?.alt || '';
-
-            if (!name) return;
-
-            item.style.cursor = 'pointer';
-
-            item.addEventListener('click', (e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                console.log(`Tech item clicked: ${name}`);
-                currentFilter = name;
-                applyTechFilter(name);
-            }, {passive: false});
-
-            // Replaced JS hover with CSS for performance
-        });
-
-        projectsSection.querySelectorAll('.tech-tag').forEach(tag => {
-            if (tag.dataset.techFilterAttached === '1') return;
-            tag.dataset.techFilterAttached = '1';
-
-            tag.style.cursor = 'pointer';
-
-            tag.addEventListener('click', (e) => {
-                e.preventDefault();
-                e.stopPropagation();
-
-                const name = tag.textContent.trim();
-                currentFilter = name;
-
-                projectsSection.scrollIntoView({
-                    behavior: 'smooth',
-                    block: 'start'
-                });
-
-                setTimeout(() => {
-                    applyTechFilter(name);
-                }, 300);
-            }, {passive: false});
-        });
-
-        if (!window.applyTechFilter) window.applyTechFilter = applyTechFilter;
-        if (!window.clearTechFilter) window.clearTechFilter = clearTechFilter;
-    }
-
-    function initCodeToggles(){
-        const sec = $('.code-section');
-        if (!sec) return;
-
-        $$('.section-toggle', sec).forEach(toggle => {
-            if (toggle.dataset.listenerAttached === '1') return;
-            toggle.dataset.listenerAttached = '1';
-
-            const id = toggle.dataset.target;
-            if (!id) return;
-
-            const content = sec.querySelector('#' + id);
-            const icon = toggle.querySelector('.toggle-icon');
-            if (!content || !icon) return;
-
-            if (id === 'wakatime-langs') {
-                content.classList.remove('collapsed');
-                icon.textContent = '▼';
-                toggle.setAttribute('aria-expanded', 'true');
-            }
-
-            toggle.addEventListener('click', (e) => {
-                e.preventDefault();
-                e.stopPropagation();
-
-                const willCollapse = !content.classList.contains('collapsed');
-                content.classList.toggle('collapsed', willCollapse);
-                icon.textContent = willCollapse ? '▶' : '▼';
-                toggle.setAttribute('aria-expanded', willCollapse ? 'false' : 'true');
-
-                if (window.mosaicUtils) {
-                    window.mosaicUtils.resizeAll();
-                    setTimeout(() => window.mosaicUtils.resizeAll(), 50);
-                }
-            }, { passive: false });
-        });
-    }
-
-    function initLastFM(){
-        const sec = $('.lastfm-section'); if (!sec) return;
-        $$('.recent-track-item', sec).forEach(item => {
-            item.style.cursor = 'pointer';
-            // Hover handled by CSS
-            on(item, 'click', () => {
-                const t = $('.recent-track-name', item)?.textContent || '';
-                const a = $('.recent-track-artist', item)?.textContent || '';
-                if (t && a && window.playTrack) window.playTrack(`${a} ${t}`);
-            });
-        });
-    }
-
     function initHealthInteractions() {
         const healthSection = document.querySelector('.health-section');
         if (!healthSection) return;
@@ -344,51 +72,58 @@
                     btn.type = 'button';
                     btn.title = 'Random Meme';
                     btn.setAttribute('aria-label', 'Get random meme');
-
                     const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
                     svg.setAttribute('viewBox', '0 0 24 24');
                     svg.setAttribute('width', '16');
                     svg.setAttribute('height', '16');
                     svg.setAttribute('fill', 'currentColor');
                     svg.innerHTML = '<path d="M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2zm7 4a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3zm-4 4a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3zm8 0a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3zm-4 4a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3z"/>';
-
                     btn.appendChild(svg);
                     toolbar.appendChild(btn);
                 }
             }
         }
 
+        const doRefresh = () => {
+            if (typeof window.refreshMeme === 'function') window.refreshMeme();
+        };
+
         if (btn && btn.dataset.listenerAttached !== '1') {
             btn.dataset.listenerAttached = '1';
-
             btn.addEventListener('click', (e) => {
                 e.preventDefault();
                 e.stopPropagation();
-
                 if (btn.disabled) return;
-
                 btn.disabled = true;
                 const svg = btn.querySelector('svg');
-                if (svg) {
-                    svg.style.animation = 'spin 0.8s linear infinite';
-                }
-
-                if (typeof window.refreshMeme === 'function') {
-                    window.refreshMeme();
-                }
-
+                if (svg) svg.style.animation = 'spin 0.8s linear infinite';
+                doRefresh();
                 setTimeout(() => {
                     btn.disabled = false;
-                    if (svg) {
-                        svg.style.animation = '';
-                    }
+                    if (svg) svg.style.animation = '';
                 }, 1500);
             }, {passive: false});
         }
 
-        const content = sec.querySelector('.meme-content');
-        if (content) {
-            content.style.cursor = 'default';
+        if (!sec.querySelector('.meme-mobile-btn')) {
+            const mobileBtn = document.createElement('button');
+            mobileBtn.className = 'meme-mobile-btn btn';
+            mobileBtn.type = 'button';
+            mobileBtn.innerHTML = '↻ New Meme';
+            mobileBtn.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                if (mobileBtn.disabled) return;
+                mobileBtn.disabled = true;
+                mobileBtn.textContent = '…';
+                doRefresh();
+                setTimeout(() => {
+                    mobileBtn.disabled = false;
+                    mobileBtn.innerHTML = '↻ New Meme';
+                }, 1500);
+            }, {passive: false});
+            const inner = sec.querySelector('.plugin__inner');
+            if (inner) inner.appendChild(mobileBtn);
         }
     }
 
@@ -428,6 +163,24 @@
             e.preventDefault();
             const base = sec.dataset.baseUrl;
             if (base) window.open(base, '_blank');
+        });
+
+        document.addEventListener('keydown', (e) => {
+            if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+            if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable) return;
+
+            const sec = document.querySelector('.webring-section');
+            if (!sec) return;
+
+            const rect = sec.getBoundingClientRect();
+            const inView = rect.top < window.innerHeight && rect.bottom > 0;
+            if (!inView) return;
+
+            e.preventDefault();
+            const link = sec.querySelector(e.key === 'ArrowLeft' ? '.webring-prev' : '.webring-next');
+            if (link && link.href) {
+                window.location.href = link.href;
+            }
         });
     }
 
@@ -597,22 +350,16 @@
             }
 
             const waitForSections = (attempt = 0) => {
-                const techSection = document.querySelector('.tech-section, .tech-section.plugin, .plugin.tech-section');
-                const projectsSection = document.querySelector('.projects-section, .projects-section.plugin, .plugin.projects-section');
+                const techSection = document.querySelector('.tech-section');
+                const projectsSection = document.querySelector('.projects-section');
 
-                if (!techSection || !projectsSection) {
-                    if (attempt < 20) {
-                        setTimeout(() => waitForSections(attempt + 1), 100);
-                        return;
-                    }
+                if ((!techSection || !projectsSection) && attempt < 20) {
+                    setTimeout(() => waitForSections(attempt + 1), 100);
+                    return;
                 }
 
                 setTimeout(() => {
                     ensureProjectsAlwaysLast();
-
-                    initTechFiltering();
-                    initCodeToggles();
-                    initLastFM(); // Hover handled by CSS now, click handled here
                     initMeme();
                     initVisitors();
                     initServices();
@@ -620,13 +367,6 @@
                     initNeofetchSwitch();
                     initAnimatedCounters();
                     initHealthInteractions();
-
-                    setTimeout(() => {
-                        ensureProjectsAlwaysLast();
-                        window.mosaicUtils && window.mosaicUtils.resizeAll();
-                    }, 120);
-
-                    window.mosaicUtils && window.mosaicUtils.resizeAll();
                 }, 80);
             };
 
@@ -638,11 +378,4 @@
 
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
     else init();
-
-    window.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape' && currentFilter) {
-            clearTechFilter();
-        }
-    });
-
 })();

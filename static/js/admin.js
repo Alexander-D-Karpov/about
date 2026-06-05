@@ -1,7 +1,8 @@
-let currentPluginData = {};
+window.currentPluginData = window.currentPluginData || {};
+let currentPluginData = window.currentPluginData;
 let fileUploadQueue = new Map();
 
-function initSettingsEditor(pluginName, settings) {
+window.initSettingsEditor = function initSettingsEditor(pluginName, settings) {
     console.log(`Initializing settings editor for ${pluginName}:`, settings);
 
     currentPluginData[pluginName] = settings;
@@ -19,7 +20,7 @@ function initSettingsEditor(pluginName, settings) {
     }
 
     renderPluginForm(container, pluginName, settings);
-}
+};
 
 function renderPluginForm(container, pluginName, settings) {
     const pluginType = getPluginType(pluginName);
@@ -202,6 +203,19 @@ function getPluginType(pluginName) {
                 description: 'text',
                 visited_date: 'string',
                 category: 'select'
+            }
+        },
+        'bike': {
+            arrayField: 'rides',
+            itemSchema: {
+                name: 'string',
+                date: 'date',
+                distance_km: 'number',
+                elevation_gain_m: 'number',
+                duration_minutes: 'number',
+                hide_first_km: 'number',
+                hide_last_km: 'number',
+                coordinates: 'gpx'
             }
         }
     };
@@ -593,7 +607,15 @@ function renderManagedArrayItem(container, pluginName, fieldName, item, index, i
 
     Object.keys(itemSchema).forEach(key => {
         const value = item[key] !== undefined ? item[key] : getDefaultValueForType(itemSchema[key]);
-        renderSchemaField(itemContent, `${fieldName}[${index}].${key}`, key, value, itemSchema[key], pluginName, `${fieldName}[${index}]`);
+        renderSchemaField(
+            itemContent,
+            `${fieldName}[${index}].${key}`,
+            key,
+            value,
+            itemSchema[key],
+            pluginName,
+            `${fieldName}[${index}]`
+        );
 
         if (pluginName === 'places') {
             const input = itemContent.querySelector(`[name="${fieldName}[${index}].${key}"]`);
@@ -602,6 +624,11 @@ function renderManagedArrayItem(container, pluginName, fieldName, item, index, i
             if (key === 'name') nameInput = input;
         }
     });
+
+    if (pluginName === 'bike') {
+        appendHiddenBikeMetaInput(itemContent, `${fieldName}[${index}].gpx_file`, item.gpx_file || '');
+        appendHiddenBikeMetaInput(itemContent, `${fieldName}[${index}].gpx_original_name`, item.gpx_original_name || '');
+    }
 
     itemDiv.appendChild(itemContent);
 
@@ -729,6 +756,78 @@ function renderSchemaField(container, fieldPath, fieldName, value, fieldType, pl
             input.value = typeof value === 'object' ? JSON.stringify(value, null, 2) : (value || '{}');
             input.name = fieldPath;
             break;
+
+        case 'gpx': {
+            const coordData = Array.isArray(value) ? value : [];
+
+            const hiddenInput = document.createElement('input');
+            hiddenInput.type = 'hidden';
+            hiddenInput.className = 'field-input';
+            hiddenInput.value = JSON.stringify(coordData);
+            hiddenInput.name = fieldPath;
+            field.appendChild(hiddenInput);
+
+            const gpxInfo = document.createElement('div');
+            gpxInfo.style.cssText = 'display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:8px;';
+
+            const infoText = document.createElement('span');
+            infoText.style.cssText = 'font-size:12px;color:var(--muted);font-family:var(--mono)';
+            infoText.textContent = coordData.length
+                ? `${coordData.length} points loaded`
+                : 'No route data';
+            gpxInfo.appendChild(infoText);
+
+            const gpxBtn = document.createElement('button');
+            gpxBtn.type = 'button';
+            gpxBtn.className = 'btn btn-sm btn-secondary';
+            gpxBtn.textContent = '📂 Replace GPX';
+            gpxBtn.onclick = () => uploadGPXForRide(field, hiddenInput, gpxInfo, fieldPath);
+            gpxInfo.appendChild(gpxBtn);
+
+            if (pluginName === 'bike') {
+                const reprocessBtn = document.createElement('button');
+                reprocessBtn.type = 'button';
+                reprocessBtn.className = 'btn btn-sm btn-secondary';
+                reprocessBtn.textContent = '↻ Re-process stored GPX';
+                reprocessBtn.onclick = () => reprocessGPXForRide(field, hiddenInput, gpxInfo, reprocessBtn);
+                gpxInfo.appendChild(reprocessBtn);
+
+                const downloadLink = document.createElement('a');
+                downloadLink.className = 'btn btn-sm btn-secondary';
+                downloadLink.textContent = '⬇ Download GPX';
+                downloadLink.target = '_blank';
+                downloadLink.rel = 'noopener';
+                downloadLink.style.display = 'none';
+                gpxInfo.appendChild(downloadLink);
+
+                const updateDownloadLink = () => {
+                    const item = field.closest('.managed-array-item');
+                    if (!item) return;
+
+                    const gpxFileInput = getBikeRideMetaInput(item, 'gpx_file');
+                    const gpxOriginalNameInput = getBikeRideMetaInput(item, 'gpx_original_name');
+                    const gpxFile = gpxFileInput ? gpxFileInput.value : '';
+                    const gpxOriginalName = gpxOriginalNameInput ? gpxOriginalNameInput.value : 'ride.gpx';
+
+                    if (gpxFile) {
+                        downloadLink.href = gpxFile;
+                        downloadLink.setAttribute('download', gpxOriginalName || 'ride.gpx');
+                        downloadLink.style.display = '';
+                    } else {
+                        downloadLink.removeAttribute('href');
+                        downloadLink.removeAttribute('download');
+                        downloadLink.style.display = 'none';
+                    }
+                };
+
+                setTimeout(updateDownloadLink, 0);
+                field._updateBikeDownloadLink = updateDownloadLink;
+            }
+
+            field.appendChild(gpxInfo);
+            container.appendChild(field);
+            return;
+        }
 
         default:
             input = document.createElement('input');
@@ -983,7 +1082,11 @@ function collectSettings(form) {
                     value = value.split(',').map(tech => tech.trim()).filter(tech => tech !== '');
                 }
 
-                itemData[fieldName] = value;
+                if (typeof value === 'string' && (value.startsWith('[') || value.startsWith('{'))) {
+                    try { itemData[fieldName] = JSON.parse(value); } catch { itemData[fieldName] = value; }
+                } else {
+                    itemData[fieldName] = value;
+                }
             });
 
             if (Object.keys(itemData).length > 0) {
@@ -1061,8 +1164,8 @@ function getDefaultValueForType(fieldType) {
         case 'boolean': return false;
         case 'text': return '';
         case 'image': return '';
-        case 'date':
-            return '';
+        case 'date': return '';
+        case 'gpx': return [];
         default: return '';
     }
 }
@@ -1779,6 +1882,205 @@ function updatePlaceFromMapClick(pluginName) {
     placesAdminMap.once('click', handler);
 }
 
+async function uploadGPXForRide(field, hiddenInput, infoEl, fieldPath) {
+    const fileInput = document.createElement('input');
+    fileInput.type = 'file';
+    fileInput.accept = '.gpx';
+
+    fileInput.addEventListener('change', async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        const formData = new FormData();
+        formData.append('file', file);
+
+        try {
+            const resp = await fetch('/admin/api/bike/upload-gpx', { method: 'POST', body: formData });
+            const result = await resp.json();
+
+            if (!result.success) {
+                showNotification('GPX error: ' + result.error, 'error');
+                return;
+            }
+
+            const ride = result.ride || {};
+            const item = field.closest('.managed-array-item');
+            if (!item) return;
+
+            hiddenInput.value = JSON.stringify(ride.coordinates || []);
+
+            const gpxFileInput = getBikeRideMetaInput(item, 'gpx_file');
+            const gpxOriginalNameInput = getBikeRideMetaInput(item, 'gpx_original_name');
+
+            if (gpxFileInput) gpxFileInput.value = ride.gpx_file || '';
+            if (gpxOriginalNameInput) gpxOriginalNameInput.value = ride.gpx_original_name || file.name || '';
+
+            setBikeRideFieldValue(item, 'name', ride.name || '', true);
+            setBikeRideFieldValue(item, 'date', ride.date || '', true);
+            setBikeRideFieldValue(item, 'distance_km', ride.distance_km || 0);
+            setBikeRideFieldValue(item, 'elevation_gain_m', ride.elevation_gain_m || 0);
+            setBikeRideFieldValue(item, 'duration_minutes', ride.duration_minutes || 0);
+
+            updateBikeRideStateFromPatch(item, {
+                coordinates: ride.coordinates || [],
+                distance_km: ride.distance_km || 0,
+                elevation_gain_m: ride.elevation_gain_m || 0,
+                duration_minutes: ride.duration_minutes || 0,
+                gpx_file: ride.gpx_file || '',
+                gpx_original_name: ride.gpx_original_name || file.name || ''
+            });
+
+            const span = infoEl.querySelector('span');
+            if (span) {
+                span.textContent = `${(ride.coordinates || []).length} points loaded`;
+            }
+
+            if (typeof field._updateBikeDownloadLink === 'function') {
+                field._updateBikeDownloadLink();
+            }
+
+            showNotification(`GPX uploaded and replaced: ${ride.name || file.name} — ${ride.distance_km || 0} km`, 'success');
+        } catch (err) {
+            showNotification('Upload failed: ' + err.message, 'error');
+        }
+    });
+
+    fileInput.click();
+}
+
+async function reprocessGPXForRide(field, hiddenInput, infoEl, btn) {
+    const item = field.closest('.managed-array-item');
+    if (!item) return;
+
+    const rideIndex = item.getAttribute('data-index');
+    if (rideIndex == null) {
+        showNotification('Ride index not found', 'error');
+        return;
+    }
+
+    const gpxFileInput = getBikeRideMetaInput(item, 'gpx_file');
+    const gpxOriginalNameInput = getBikeRideMetaInput(item, 'gpx_original_name');
+
+    const gpxFile = gpxFileInput ? gpxFileInput.value : '';
+    const gpxOriginalName = gpxOriginalNameInput ? gpxOriginalNameInput.value : '';
+
+    if (!gpxFile) {
+        showNotification('No stored GPX file for this ride. Upload GPX first.', 'error');
+        return;
+    }
+
+    const originalText = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = 'Processing…';
+    btn.style.color = '';
+
+    const fd = new FormData();
+    fd.append('ride_index', String(rideIndex));
+    fd.append('gpx_file', gpxFile);
+    fd.append('gpx_original_name', gpxOriginalName);
+
+    try {
+        const res = await fetch('/admin/api/bike/reprocess-gpx', {
+            method: 'POST',
+            body: fd
+        });
+
+        const data = await res.json();
+        if (!res.ok || !data.success) {
+            throw new Error(data.error || 'Failed to re-process GPX');
+        }
+
+        const ride = data.ride || {};
+
+        hiddenInput.value = JSON.stringify(ride.coordinates || []);
+        setBikeRideFieldValue(item, 'distance_km', ride.distance_km || 0);
+        setBikeRideFieldValue(item, 'elevation_gain_m', ride.elevation_gain_m || 0);
+        setBikeRideFieldValue(item, 'duration_minutes', ride.duration_minutes || 0);
+
+        if (gpxFileInput && ride.gpx_file) gpxFileInput.value = ride.gpx_file;
+        if (gpxOriginalNameInput && ride.gpx_original_name) gpxOriginalNameInput.value = ride.gpx_original_name;
+
+        updateBikeRideStateFromPatch(item, {
+            coordinates: ride.coordinates || [],
+            distance_km: ride.distance_km || 0,
+            elevation_gain_m: ride.elevation_gain_m || 0,
+            duration_minutes: ride.duration_minutes || 0,
+            gpx_file: ride.gpx_file || gpxFile,
+            gpx_original_name: ride.gpx_original_name || gpxOriginalName
+        });
+
+        const coordCount =
+            data.coord_count ??
+            (Array.isArray(ride.coordinates) ? ride.coordinates.length : 0);
+
+        const infoSpan = infoEl.querySelector('span');
+        if (infoSpan) {
+            infoSpan.textContent = coordCount
+                ? `${coordCount} points loaded`
+                : 'Route data updated';
+        }
+
+        if (typeof field._updateBikeDownloadLink === 'function') {
+            field._updateBikeDownloadLink();
+        }
+
+        const km = Number(ride.distance_km || 0);
+        btn.textContent = `✓ ${km.toFixed(1)}km, ${coordCount} pts`;
+        btn.style.color = 'var(--good, green)';
+
+        showNotification('GPX re-processed from stored file. Save the bike plugin to persist changes.', 'success');
+    } catch (err) {
+        btn.textContent = '✗ ' + err.message;
+        btn.style.color = 'var(--bad, red)';
+        showNotification('Re-process failed: ' + err.message, 'error');
+
+        setTimeout(() => {
+            btn.textContent = originalText;
+            btn.style.color = '';
+        }, 2500);
+    } finally {
+        btn.disabled = false;
+    }
+}
+
+function appendHiddenBikeMetaInput(parent, name, value = '') {
+    const input = document.createElement('input');
+    input.type = 'hidden';
+    input.className = 'field-input bike-meta-input';
+    input.name = name;
+    input.value = value || '';
+    parent.appendChild(input);
+}
+
+function updateBikeRideStateFromPatch(item, patch) {
+    const form = item.closest('.plugin-form');
+    if (!form) return;
+
+    const pluginName = form.dataset.plugin;
+    if (pluginName !== 'bike') return;
+
+    const index = parseInt(item.dataset.index, 10);
+    if (Number.isNaN(index)) return;
+
+    if (!currentPluginData[pluginName]) currentPluginData[pluginName] = {};
+    if (!Array.isArray(currentPluginData[pluginName].rides)) currentPluginData[pluginName].rides = [];
+
+    const existing = currentPluginData[pluginName].rides[index] || {};
+    currentPluginData[pluginName].rides[index] = { ...existing, ...patch };
+}
+
+function setBikeRideFieldValue(item, suffix, value, onlyIfEmpty = false) {
+    const input = item.querySelector(`[name$=".${suffix}"]`);
+    if (!input) return;
+
+    if (onlyIfEmpty && input.value) return;
+    input.value = value ?? '';
+}
+
+function getBikeRideMetaInput(item, suffix) {
+    return item.querySelector(`[name$=".${suffix}"]`);
+}
+
 function deletePlace(index, pluginName) {
     if (!confirm('Delete this place?')) return;
 
@@ -1898,4 +2200,3 @@ window.previewSite = previewSite;
 window.refreshData = refreshData;
 window.reloadPlugin = reloadPlugin;
 window.reloadConfig = reloadConfig;
-window.initSettingsEditor = initSettingsEditor;

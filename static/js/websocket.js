@@ -12,6 +12,7 @@
     let clientCountRequestTimeout = null;
     let imageLoadQueue = new Map();
     let wsInitialized = false;
+    let lastFMCheckSentAt = 0;
 
     function connect() {
         if (wsInitialized && ws && (ws.readyState === WebSocket.CONNECTING || ws.readyState === WebSocket.OPEN)) {
@@ -78,6 +79,7 @@
                 }, 100);
 
                 setTimeout(() => {
+                    lastFMCheckSentAt = Date.now();
                     sendMessage({type: 'check_lastfm'});
                 }, 500);
             };
@@ -152,6 +154,17 @@
         }
     }
 
+    function scheduleRecalc(target = null) {
+        if (!window.mosaicUtils) return;
+        if (target && window.mosaicUtils.notifyContentChanged) {
+            window.mosaicUtils.notifyContentChanged(target);
+            return;
+        }
+        if (window.mosaicUtils.resizeAll) {
+            window.mosaicUtils.resizeAll();
+        }
+    }
+
     function sendMessage(message) {
         if (ws && ws.readyState === WebSocket.OPEN) {
             try {
@@ -164,25 +177,34 @@
 
     function updateHealthDisplay(data) {
         const section = document.querySelector('.health-section');
-        if (!section) return;
+        if (!section || !data) return;
 
         const updates = {
-            'steps-today': data.steps_today?.toLocaleString(),
-            'calories-today': Math.round(data.calories_today),
-            'workout-minutes': data.workout_minutes,
-            'sleep-hours': data.sleep_last_night?.toFixed(1) + 'h',
-            'heart-rate': data.avg_heart_rate + ' bpm',
-            'hydration': Math.round(data.hydration_today)
+            'steps-today': data.steps_today != null ? data.steps_today.toLocaleString() : null,
+            'calories-today': data.calories_today != null ? Math.round(data.calories_today) : null,
+            'workout-minutes': data.workout_minutes != null ? data.workout_minutes : null,
+            'sleep-hours': data.sleep_last_night != null ? data.sleep_last_night.toFixed(1) + 'h' : null,
+            'heart-rate': data.avg_heart_rate != null ? data.avg_heart_rate + ' bpm' : null,
+            'hydration': data.hydration_today != null ? Math.round(data.hydration_today) : null
         };
 
+        let changed = false;
+
         Object.entries(updates).forEach(([metric, value]) => {
+            if (value == null) return;
+
             const el = section.querySelector(`[data-metric="${metric}"]`);
-            if (el && value) {
+            if (el && el.textContent !== String(value)) {
                 el.textContent = value;
                 el.classList.add('updated');
                 setTimeout(() => el.classList.remove('updated'), 500);
+                changed = true;
             }
         });
+
+        if (changed) {
+            scheduleRecalc(section);
+        }
     }
 
     function attemptReconnect() {
@@ -271,22 +293,14 @@
 
         lastFMCheckInterval = setInterval(() => {
             const now = Date.now();
-
-            if (lastFMLastResponse > 0 && (now - lastFMLastResponse) > 120000) {
-                console.warn('LastFM updates stale, reconnecting WebSocket');
-                if (shouldReconnect) {
-                    ws?.close();
-                    setTimeout(connect, 1000);
-                }
-                return;
-            }
+            if (now - lastFMCheckSentAt < 25000) return;
 
             if (ws && ws.readyState === WebSocket.OPEN && getClientCount() > 0) {
                 try {
+                    lastFMCheckSentAt = now;
                     sendMessage({ type: 'check_lastfm' });
 
                     if (lastFMCheckTimeout) clearTimeout(lastFMCheckTimeout);
-
                     lastFMCheckTimeout = setTimeout(() => {
                         console.warn('LastFM check timeout, no response in 30s');
                     }, 30000);
@@ -402,53 +416,92 @@
         }
     }
 
+    function normalizePluginForCompare(el) {
+        const clone = el.cloneNode(true);
+
+        clone.removeAttribute('style');
+
+        clone.querySelectorAll('.plugin-toolbar').forEach(n => n.remove());
+        clone.querySelectorAll('.drag-handle').forEach(n => n.classList.remove('drag-handle'));
+        clone.querySelectorAll('[data-listener-attached]').forEach(n => {
+            n.removeAttribute('data-listener-attached');
+        });
+
+        return clone.outerHTML.replace(/\s+/g, ' ').trim();
+    }
+
+    function copyMosaicState(from, to) {
+        if (from.id && !to.id) to.id = from.id;
+
+        to.style.gridColumn = from.style.gridColumn;
+        to.style.gridRowStart = from.style.gridRowStart;
+        to.style.gridRowEnd = from.style.gridRowEnd;
+        to.style.height = from.style.height;
+        to.style.minHeight = from.style.minHeight;
+
+        [
+            'w',
+            'pinned',
+            'mosaicSpan',
+            'currentSpan',
+            'mosaicMw',
+            'mosaicDirty',
+        ].forEach((key) => {
+            if (from.dataset[key] != null) {
+                to.dataset[key] = from.dataset[key];
+            }
+        });
+    }
+
     function handlePluginRendered(data) {
         if (!data || !data.plugin || !data.rendered) return;
-
-        if (data.plugin === 'meme') {
-            return;
-        }
+        if (data.plugin === 'meme') return;
 
         if (data.plugin === 'lastfm') {
             updateLastFMFromRendered(data.rendered);
             return;
         }
 
-        let section = document.querySelector(`.${data.plugin}-section`);
-        if (!section) {
-            section = document.querySelector(`[data-plugin="${data.plugin}"]`);
+        const section =
+            document.querySelector(`.${data.plugin}-section`) ||
+            document.querySelector(`[data-plugin="${data.plugin}"]`);
+
+        if (!section) return;
+
+        const temp = document.createElement('div');
+        temp.innerHTML = data.rendered.trim();
+
+        const newSection =
+            temp.querySelector(`.${data.plugin}-section`) ||
+            temp.querySelector(`[data-plugin="${data.plugin}"]`);
+
+        if (!newSection) return;
+
+        // Nothing meaningful changed - do not rebuild, do not repack, do not jump.
+        if (normalizePluginForCompare(section) === normalizePluginForCompare(newSection)) {
+            return;
         }
 
-        if (section) {
-            const prevHeight = section.offsetHeight;
-            section.style.minHeight = prevHeight + 'px';
+        const oldEl = section;
 
-            section.outerHTML = data.rendered;
+        // Preserve current grid position before replacing the DOM node.
+        copyMosaicState(oldEl, newSection);
 
-            const newSection = document.querySelector(`.${data.plugin}-section`) ||
-                document.querySelector(`[data-plugin="${data.plugin}"]`);
+        oldEl.replaceWith(newSection);
 
-            if (newSection) {
-                if (typeof window.initTechFiltering === 'function' && data.plugin === 'techstack') {
-                    window.initTechFiltering();
-                } else if (typeof window.initCodeToggles === 'function' && data.plugin === 'code') {
-                    window.initCodeToggles();
-                }
+        if (typeof window.initTechFiltering === 'function' && data.plugin === 'techstack') {
+            window.initTechFiltering();
+        } else if (typeof window.initCodeToggles === 'function' && data.plugin === 'code') {
+            window.initCodeToggles();
+        }
 
-                requestAnimationFrame(() => {
-                    newSection.style.minHeight = '';
-                    animateUpdate(newSection);
+        requestAnimationFrame(() => {
+            animateUpdate(newSection);
 
-                    if (window.mosaicUtils && window.mosaicUtils.observe) {
-                        window.mosaicUtils.observe(newSection);
-                    }
-
-                    if (window.mosaicUtils) {
-                        window.mosaicUtils.resizeAll();
-                    }
-                });
+            if (window.mosaicUtils && window.mosaicUtils.notifyPluginReplaced) {
+                window.mosaicUtils.notifyPluginReplaced(oldEl, newSection);
             }
-        }
+        });
     }
 
     function updateLastFMFromRendered(renderedHTML) {
@@ -525,6 +578,8 @@
                 setupRecentTracksHandlers(section);
             }
         }
+
+        scheduleRecalc(section);
     }
 
     function initMemeAfterRender(section) {
@@ -586,7 +641,7 @@
         const currentHeight = memeContent.offsetHeight;
         memeContent.style.minHeight = Math.max(currentHeight, 200) + 'px';
 
-        const doSwap = (imgWidth, imgHeight) => {
+        const doSwap = () => {
             lastMemeId = memeId;
 
             let newContent = '';
@@ -610,27 +665,27 @@
             if (newImg) {
                 newImg.onload = () => {
                     memeContent.style.minHeight = '';
-                    if (window.mosaicUtils) window.mosaicUtils.resizeAll();
+                    scheduleRecalc(memeContent.closest('.plugin'));
                 };
                 newImg.onerror = () => {
                     memeContent.style.minHeight = '';
-                    if (window.mosaicUtils) window.mosaicUtils.resizeAll();
+                    scheduleRecalc(memeContent.closest('.plugin'));
                 };
             } else {
                 requestAnimationFrame(() => {
                     memeContent.style.minHeight = '';
-                    if (window.mosaicUtils) window.mosaicUtils.resizeAll();
+                    scheduleRecalc(memeContent.closest('.plugin'));
                 });
             }
         };
 
         if ((meme.type === 'image' || meme.type === 'gif') && meme.image) {
             const img = new Image();
-            img.onload = () => doSwap(img.naturalWidth, img.naturalHeight);
-            img.onerror = () => doSwap(0, 0);
+            img.onload = () => doSwap();
+            img.onerror = () => doSwap();
             img.src = meme.image;
         } else {
-            doSwap(0, 0);
+            doSwap();
         }
     }
 
@@ -758,7 +813,6 @@
         const isNowPlaying = data.isPlaying === true || data.isPlaying === 'true';
 
         if (statusTextEl) {
-            // Prefer backend-provided statusText (it includes relative time when not playing)
             const finalStatus = data.statusText || (isNowPlaying ? 'Now Playing' : 'Last played');
             statusTextEl.textContent = finalStatus;
 
@@ -787,8 +841,8 @@
             updateRecentTracks(section, data.recentTracks);
         }
 
-        // Ensure click handlers survive any DOM updates
         setupRecentTracksHandlers(section);
+        scheduleRecalc(section);
     }
 
     function updateRecentTracks(section, recentTracks) {
@@ -910,6 +964,7 @@
         }
 
         animateUpdate(section);
+        scheduleRecalc(section);
     }
 
     function formatNumberWithDecimals(n) {
@@ -925,6 +980,7 @@
 
         console.debug('Steam games updated:', data.games);
         animateUpdate(section);
+        scheduleRecalc(section);
     }
 
     function updateSteamStatus(data) {
@@ -1023,6 +1079,7 @@
         }
 
         animateUpdate(section);
+        scheduleRecalc(section);
     }
 
     function getPersonaStateClass(state) {
@@ -1105,6 +1162,7 @@
 
         if (updated) {
             animateUpdate(section);
+            scheduleRecalc(section);
             console.debug('Webring updated via WebSocket');
         }
     }
@@ -1146,6 +1204,7 @@
             const visitorsSection = document.querySelector('.visitors-section');
             if (visitorsSection) {
                 animateUpdate(visitorsSection);
+                scheduleRecalc(visitorsSection);
             }
         }
     }
@@ -1153,6 +1212,10 @@
     function updateServicesStatus(data) {
         const section = document.querySelector('.services-section');
         if (!section) return;
+
+        section.removeAttribute('data-stale');
+        const updatedChip = section.querySelector('.services-updated');
+        if (updatedChip) updatedChip.textContent = 'just now';
 
         const onlineCount = section.querySelector('.online-count');
         const offlineCount = section.querySelector('.offline-count');
@@ -1191,16 +1254,21 @@
         }
 
         animateUpdate(section);
+        scheduleRecalc(section);
     }
 
     function updateSingleServiceStatus(data) {
         const section = document.querySelector('.services-section');
         if (!section) return;
 
+        let matched = false;
+
         const serviceItems = section.querySelectorAll('.service-item');
         serviceItems.forEach(item => {
             const itemName = item.querySelector('.service-link, .service-title')?.textContent;
             if (itemName === data.name) {
+                matched = true;
+
                 item.setAttribute('data-status', data.status);
 
                 const statusIndicator = item.querySelector('.status-indicator');
@@ -1220,9 +1288,20 @@
                     statusCode.setAttribute('data-code', data.status_code);
                 }
 
+                const svcSection = document.querySelector('.services-section');
+                if (svcSection) {
+                    svcSection.removeAttribute('data-stale');
+                    const chip = svcSection.querySelector('.services-updated');
+                    if (chip) chip.textContent = 'just now';
+                }
+
                 animateUpdate(item);
             }
         });
+
+        if (matched) {
+            scheduleRecalc(section);
+        }
     }
 
     function updateMeme(data) {
@@ -1237,22 +1316,23 @@
 
         if (meme.type === 'image' || meme.type === 'gif') {
             newContent = `
-                <div class="meme-${meme.type}">
-                    <img src="${meme.image}" alt="${meme.text}" loading="lazy">
-                    ${meme.text ? `<p class="meme-caption">${meme.text}</p>` : ''}
-                </div>
-            `;
+            <div class="meme-${meme.type}">
+                <img src="${meme.image}" alt="${meme.text}" loading="lazy">
+                ${meme.text ? `<p class="meme-caption">${meme.text}</p>` : ''}
+            </div>
+        `;
         } else {
             newContent = `
-                <div class="meme-text">
-                    <p class="meme-quote">${meme.text}</p>
-                    ${meme.source ? `<p class="meme-source">— ${meme.source}</p>` : ''}
-                </div>
-            `;
+            <div class="meme-text">
+                <p class="meme-quote">${meme.text}</p>
+                ${meme.source ? `<p class="meme-source">— ${meme.source}</p>` : ''}
+            </div>
+        `;
         }
 
         memeContent.innerHTML = newContent;
         animateUpdate(section);
+        scheduleRecalc(section);
     }
 
     function updateSystemInfo(data) {
@@ -1358,12 +1438,16 @@
             if (isConnected) {
                 startHeartbeat();
                 startLastFMCheck();
-                if (clientCountRequestTimeout) {
-                    clearTimeout(clientCountRequestTimeout);
-                }
+                if (clientCountRequestTimeout) clearTimeout(clientCountRequestTimeout);
                 clientCountRequestTimeout = setTimeout(() => {
                     sendMessage({ type: 'get_client_count' });
+                    clientCountRequestTimeout = null;
                 }, 100);
+                const timeSinceLast = Date.now() - lastFMCheckSentAt;
+                if (timeSinceLast > 25000) {
+                    lastFMCheckSentAt = Date.now();
+                    sendMessage({ type: 'check_lastfm' });
+                }
             } else if (shouldReconnect) {
                 connect();
             }

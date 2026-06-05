@@ -8,12 +8,6 @@
     box-shadow: none !important;
 }
 
-.steam-section .plugin-toolbar {
-    display: flex !important;
-    opacity: 1 !important;
-    visibility: visible !important;
-}
-
 .current-game {
     background: transparent;
     border-radius: 10px;

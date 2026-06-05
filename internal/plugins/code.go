@@ -133,7 +133,7 @@ func (p *CodePlugin) Render(ctx context.Context) (string, error) {
 	p.mutex.RUnlock()
 
 	tmpl := `
-	<div class="code-section section" data-w="2">
+	<div class="code-section section plugin" data-w="2">
 		<div class="plugin-header">
 			<h3 class="plugin-title">{{.SectionTitle}}</h3>
 		</div>

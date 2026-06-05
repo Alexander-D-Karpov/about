@@ -1,7 +1,6 @@
 (function () {
     'use strict';
 
-    document.documentElement.classList.add('js-loading');
     document.documentElement.classList.add('js');
 
     const $ = (q, c = document) => (c ? c.querySelector(q) : null);
@@ -49,189 +48,240 @@
         root.prepend(mosaic);
     }
 
-    mosaic.style.overflowAnchor = 'none';
+    const hasPrebakeAtBoot = mosaic.classList.contains('mosaic-prebaked');
 
-    const toMove = [...root.children].filter((el) => el !== mosaic);
-
-    toMove.forEach((el) => {
-        el.classList.add('plugin');
-        if (!el.querySelector('.plugin__inner')) {
-            const inner = document.createElement('div');
-            inner.className = 'plugin__inner';
-            while (el.firstChild) inner.appendChild(el.firstChild);
-            el.appendChild(inner);
-        }
-        if (!el.id) {
-            const guess = (el.className.match(/([a-z0-9-]+)-section/i) || [, 'tile'])[1];
-            el.id = `${guess}-${Math.random().toString(36).slice(2, 7)}`;
-        }
-        el.style.gridColumn = el.style.gridRow = '';
-        mosaic.appendChild(el);
-    });
-
-    const defaultWidths = {
-        'projects-section': 3,
-        'beatleader-section': 2,
-        'steam-section': 2,
-        'neofetch-section': 2,
-        'tech-section': 1,
-        'code-section': 2,
-        'meme-section': 1,
-        'lastfm-section': 2,
-        'webring-section': 2,
-        'social-section': 1,
-        'visitors-section': 1,
-        'info-section': 2,
-        'services-section': 2,
-        'places-section': 2,
-        'profile-section': 2,
-        'health-section': 1,
-        'personal-section': 2,
-    };
-
-    const preferredWidths = new Map();
-    const spansStoreKey = 'mosaic.spans';
     const widthsStoreKey = 'mosaic.widths';
     const orderStoreKey = 'mosaic.order';
-    const pinnedStoreKey = 'mosaic.pinned';
+    const spansStoreKey = 'mosaic.spans';
 
-    const savedWidths = safeJSON(localStorage.getItem(widthsStoreKey)) || {};
-    const savedOrder = safeJSON(localStorage.getItem(orderStoreKey)) || [];
-    const savedPinned = safeJSON(localStorage.getItem(pinnedStoreKey)) || {};
+    const safeJSON = (s) => {
+        try { return JSON.parse(s); } catch { return null; }
+    };
+    const storageGet = (k) => { try { return localStorage.getItem(k); } catch { return null; } };
+    const storageSet = (k, v) => { try { localStorage.setItem(k, v); } catch {} };
 
-    function safeJSON(s) {
-        try {
-            return JSON.parse(s);
-        } catch {
-            return null;
-        }
-    }
+    const debouncedPersistOrder = debounce(() => {
+        enforceFixedEdgeOrder(mosaic);
+        const order = pluginList().map((n) => n.id);
+        storageSet(orderStoreKey, JSON.stringify(order));
+    }, 200);
 
-    $$('.plugin', mosaic).forEach((el) => {
-        const key = Object.keys(defaultWidths).find((k) => el.classList.contains(k));
-        const w = clamp(+el.dataset.w || savedWidths[el.id] || (key ? defaultWidths[key] : 1), 1, 3);
-        el.dataset.w = String(w);
-        preferredWidths.set(el.id, w);
-        if (savedPinned[el.id]) el.dataset.pinned = '1';
-        if (el.classList.contains('profile-section')) el.dataset.pinned = '1';
-    });
+    const savedWidths = safeJSON(storageGet(widthsStoreKey)) || {};
+    const savedOrder = safeJSON(storageGet(orderStoreKey)) || [];
+
+    const MIN_COL_FALLBACK = 280;
+    const ROW_HEIGHT = 1;
+    const Z_FRONT = 1500;
+
+    let phase = 'booting';
+    let pendingPack = null;
+    let scrollIdleTimer = null;
+
+    let pluginCache = null;
+    let cachedCols = 0;
+    let cachedColsViewport = 0;
+    let cachedColsMosaic = 0;
+    let lastViewportWidth = window.innerWidth;
+    let lastMosaicWidth = mosaic.clientWidth;
 
     let overlay = null;
     let expanded = null;
     let _scrollLockY = 0;
-    let initialLoadComplete = false;
-    let userHasScrolled = false;
-    let lastScrollY = 0;
-    let isNearBottom = false;
-    let lastMosaicHeight = 0;
-    let packingInProgress = false;
-    let bottomStickTimeout = null;
 
-    let skipNextPack = false;
-    let isAtBottom = false;
+    const preferredWidths = new Map();
 
-    on(window, 'scroll', () => {
-        if (!userHasScrolled && window.scrollY > 10) {
-            userHasScrolled = true;
-        }
-        lastScrollY = window.scrollY;
-
-        const scrollY = window.scrollY;
-        const viewportHeight = window.innerHeight;
-        const docHeight = document.documentElement.scrollHeight;
-        isAtBottom = (docHeight - (scrollY + viewportHeight)) < 100;
-    }, {passive: true});
-
-    function lockBodyScroll() {
-        if (document.body.classList.contains('scroll-locked')) return;
-        _scrollLockY = window.scrollY || document.documentElement.scrollTop || 0;
-        document.body.style.position = 'fixed';
-        document.body.style.top = `-${_scrollLockY}px`;
-        document.body.style.left = '0';
-        document.body.style.right = '0';
-        document.body.style.width = '100%';
-        document.body.classList.add('scroll-locked');
+    function pluginList() {
+        if (!pluginCache) pluginCache = $$('.plugin', mosaic);
+        return pluginCache;
     }
+    function invalidatePluginCache() { pluginCache = null; }
 
-    function unlockBodyScroll() {
-        if (!document.body.classList.contains('scroll-locked')) return;
-        document.body.classList.remove('scroll-locked');
-        document.body.style.position = '';
-        document.body.style.top = '';
-        document.body.style.left = '';
-        document.body.style.right = '';
-        document.body.style.width = '';
-        window.scrollTo(0, _scrollLockY);
-    }
+    function isProjectPlugin(el) { return !!el && el.classList?.contains('projects-section'); }
+    function isWebringPlugin(el) { return !!el && el.classList?.contains('webring-section'); }
+    function isProfilePlugin(el) { return !!el && el.classList?.contains('profile-section'); }
 
-    const MIN_COL_FALLBACK = 280;
-    const ROW_HEIGHT = 1;
-
-    function batchMeasureHeights(items) {
-        items.forEach(el => {
-            el.style.height = 'auto';
-            el.style.minHeight = '';
-            el.style.gridRowEnd = 'auto';
-        });
-
-        const heights = new Map();
-        let maxH = 0;
-
-        items.forEach(el => {
-            const rect = el.getBoundingClientRect();
-            const header = el.querySelector('.plugin-header');
-            const inner = el.querySelector('.plugin__inner');
-
-            let h = Math.ceil(rect.height);
-
-            if (header && inner) {
-                const headerH = header.getBoundingClientRect().height;
-                const innerH = inner.scrollHeight;
-                const computedH = Math.ceil(headerH + innerH + 20);
-                h = Math.max(h, computedH);
+    function pluginNameFromClass(el) {
+        for (const cls of el.classList) {
+            if (cls.endsWith('-section')) {
+                return cls.slice(0, -'-section'.length);
             }
+        }
+        return 'plugin';
+    }
 
-            heights.set(el, h);
-            if (h > maxH) maxH = h;
-        });
+    function ensurePluginId(el) {
+        if (!el.id) {
+            el.id = `${pluginNameFromClass(el)}-plugin`;
+        }
+        return el.id;
+    }
 
-        return {heights, maxH};
+    function ensureAllPluginIds() {
+        pluginList().forEach(ensurePluginId);
+    }
+
+    ensureAllPluginIds();
+
+    function enforceFixedEdgeOrder(m = mosaic) {
+        const nodes = Array.from(m.children).filter((n) => n.classList?.contains('plugin'));
+        const head = nodes.filter(isWebringPlugin);
+        const second = nodes.filter(isProfilePlugin);
+        const tail = nodes.filter(isProjectPlugin);
+        const middle = nodes.filter((n) => !isWebringPlugin(n) && !isProfilePlugin(n) && !isProjectPlugin(n));
+        [...head, ...second, ...middle, ...tail].forEach((n) => m.appendChild(n));
+        invalidatePluginCache();
+    }
+
+    function applySavedOrder() {
+        if (!savedOrder.length) {
+            enforceFixedEdgeOrder(mosaic);
+            return;
+        }
+        const byId = Object.fromEntries(pluginList().map((n) => [n.id, n]));
+        savedOrder.forEach((id) => byId[id] && mosaic.appendChild(byId[id]));
+        enforceFixedEdgeOrder(mosaic);
+    }
+
+    pluginList().forEach((el) => {
+        const serverWidth = clamp(+el.dataset.w || 1, 1, 3);
+        const preferredWidth = clamp(savedWidths[el.id] || serverWidth, 1, 3);
+        el.dataset.w = String(serverWidth);
+        preferredWidths.set(el.id, preferredWidth);
+        if (el.classList.contains('profile-section')) el.dataset.pinned = '1';
+    });
+
+    function readColMin() {
+        const fromRoot = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--col-min')) || 0;
+        const fromMosaic = parseFloat(getComputedStyle(mosaic).getPropertyValue('--col-min')) || 0;
+        return fromRoot || fromMosaic || MIN_COL_FALLBACK;
+    }
+
+    function viewportPadding(vw) {
+        if (vw <= 780) return 16;
+        return clamp(vw * 0.03, 12, 28);
+    }
+
+    function mosaicWidthForViewport(vw) {
+        return Math.max(0, Math.floor(vw - viewportPadding(vw) * 2));
+    }
+
+    function effectiveMosaicWidth() {
+        const real = mosaic.clientWidth;
+        const fromViewport = mosaicWidthForViewport(window.innerWidth);
+        if (real <= 0 || real < fromViewport * 0.75) return fromViewport;
+        return real;
     }
 
     function colCount() {
+        const w = effectiveMosaicWidth();
+        const vw = window.innerWidth;
+        if (w === cachedColsMosaic && vw === cachedColsViewport && cachedCols > 0) return cachedCols;
+
         const style = getComputedStyle(mosaic);
         const gapStr = style.columnGap || style.gap || '12px';
         const gap = parseFloat(gapStr.split(/\s+/)[0]) || 12;
-        const minColRoot = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--col-min')) || 0;
-        const minColMosaic = parseFloat(getComputedStyle(mosaic).getPropertyValue('--col-min')) || 0;
-        const minCol = minColRoot || minColMosaic || MIN_COL_FALLBACK;
-        const w = mosaic.clientWidth;
-        if (w <= 0) return 1;
-        return Math.max(1, Math.floor((w + gap) / (minCol + gap)));
+        const minCol = readColMin();
+
+        cachedCols = w <= 0 ? 1 : Math.max(1, Math.floor((w + gap) / (minCol + gap)));
+        cachedColsMosaic = w;
+        cachedColsViewport = vw;
+        return cachedCols;
     }
 
     function clampSpansToCols() {
         const cols = colCount();
-        $$('.plugin', mosaic).forEach((el) => {
+        pluginList().forEach((el) => {
             let w = clamp(+el.dataset.w || 1, 1, 3);
             if (w > cols) w = cols;
             el.dataset.w = String(w);
         });
     }
 
+    function restorePreferredWidths(maxCols = colCount()) {
+        pluginList().forEach((el) => {
+            const pref = preferredWidths.get(el.id);
+            if (pref != null) el.dataset.w = String(clamp(pref, 1, Math.min(3, maxCols)));
+        });
+    }
+
+    function getAppliedSpan(el, cols) {
+        const explicit = parseInt(el.dataset.currentSpan || '', 10);
+        if (Number.isFinite(explicit) && explicit > 0) return clamp(explicit, 1, cols);
+        const m = (el.style.gridColumn || '').match(/span\s+(\d+)/i);
+        if (!m) return 0;
+        const span = parseInt(m[1], 10);
+        return Number.isFinite(span) && span > 0 ? clamp(span, 1, cols) : 0;
+    }
+
+    function setSpansForCols(items, cols) {
+        items.forEach((el) => {
+            const baseSpan = clamp(+el.dataset.w || 1, 1, Math.min(3, cols));
+            el.dataset.mosaicSpan = String(baseSpan);
+        });
+    }
+
+    function batchMeasureHeights(items) {
+        const heights = new Map();
+        let maxH = 0;
+
+        const probe = document.createElement('div');
+        probe.style.cssText =
+            'position:absolute;left:-99999px;top:0;visibility:hidden;pointer-events:none;contain:layout style;';
+        document.body.appendChild(probe);
+
+        const mosaicWidth = effectiveMosaicWidth();
+        const style = getComputedStyle(mosaic);
+        const gap = parseFloat(style.columnGap || style.gap || '12px') || 12;
+        const cols = colCount();
+        const colWidth = (mosaicWidth - gap * (cols - 1)) / cols;
+
+        items.forEach((el) => {
+            const span = parseInt(el.dataset.mosaicSpan || el.dataset.w || '1', 10) || 1;
+            const targetWidth = colWidth * span + gap * (span - 1);
+
+            const cachedH = parseFloat(el.style.height) || 0;
+            const cachedW = parseFloat(el.dataset.mosaicMw || '0');
+            const dirty = el.dataset.mosaicDirty === '1';
+
+            if (cachedH > 0 && Math.abs(cachedW - targetWidth) < 2 && !dirty) {
+                heights.set(el, cachedH);
+                if (cachedH > maxH) maxH = cachedH;
+                return;
+            }
+
+            const clone = el.cloneNode(true);
+            clone.style.cssText = `width:${targetWidth}px;height:auto;min-height:0;max-height:none;position:static;display:block;`;
+            clone.style.gridColumn = '';
+            clone.style.gridRow = '';
+            probe.appendChild(clone);
+
+            const h = Math.ceil(clone.getBoundingClientRect().height) || 100;
+            heights.set(el, h);
+            if (h > maxH) maxH = h;
+
+            el.dataset.mosaicMw = String(targetWidth);
+            el.dataset.mosaicDirty = '0';
+
+            probe.removeChild(clone);
+        });
+
+        document.body.removeChild(probe);
+        return { heights, maxH };
+    }
+
     function expandHorizontally(placements, cols) {
         placements.sort((a, b) => a.row - b.row || a.col - b.col);
-        placements.forEach((p) => {
+        for (let i = 0; i < placements.length; i++) {
+            const p = placements[i];
             while (p.col + p.colSpan < cols) {
                 const nextCol = p.col + p.colSpan;
                 let canExpand = true;
-                for (const other of placements) {
-                    if (other === p) continue;
-                    const overlapsNextCol = other.col === nextCol || (other.col < nextCol && other.col + other.colSpan > nextCol);
-                    if (!overlapsNextCol) continue;
-                    const pEnd = p.row + p.rowSpan;
-                    const oEnd = other.row + other.rowSpan;
-                    if (!(p.row >= oEnd || pEnd <= other.row)) {
+                for (let j = 0; j < placements.length; j++) {
+                    if (i === j) continue;
+                    const o = placements[j];
+                    const overlapsNext = o.col === nextCol || (o.col < nextCol && o.col + o.colSpan > nextCol);
+                    if (!overlapsNext) continue;
+                    if (!(p.row >= o.row + o.rowSpan || p.row + p.rowSpan <= o.row)) {
                         canExpand = false;
                         break;
                     }
@@ -239,73 +289,47 @@
                 if (canExpand) p.colSpan++;
                 else break;
             }
-        });
+        }
     }
 
-    function alignBottoms(placements, cols) {
-        const colEndRows = new Array(cols).fill(0);
-        placements.sort((a, b) => a.row - b.row || a.col - b.col);
-        placements.forEach((p) => {
-            for (let c = p.col; c < p.col + p.colSpan; c++) {
-                colEndRows[c] = Math.max(colEndRows[c], p.row + p.rowSpan);
-            }
-        });
-        const globalBottom = Math.max(...colEndRows);
+    function captureScrollAnchor() {
+        if (window.scrollY <= 50) return null;
+        const vh = window.innerHeight;
+        const items = pluginList();
+        for (let i = 0; i < items.length; i++) {
+            const el = items[i];
+            const r = el.getBoundingClientRect();
+            if (r.bottom > 0 && r.top < vh && r.top > -50) return { el, top: r.top };
+        }
+        return null;
+    }
 
-        const maxExtension = 100;
-        const GAP_BUFFER = 12;
-
-        placements.forEach((p) => {
-            let nextRowInCols = Infinity;
-            for (const other of placements) {
-                if (other === p) continue;
-                const overlap = other.col < (p.col + p.colSpan) && (other.col + other.colSpan) > p.col;
-                if (!overlap) continue;
-                if (other.row > p.row) nextRowInCols = Math.min(nextRowInCols, other.row);
-            }
-            const targetEnd = nextRowInCols !== Infinity ? nextRowInCols - GAP_BUFFER : globalBottom;
-            const desiredSpan = targetEnd - p.row;
-
-            const maxAllowedSpan = p.rowSpan + maxExtension;
-            if (desiredSpan > p.rowSpan && desiredSpan <= maxAllowedSpan) {
-                p.rowSpan = desiredSpan;
-            }
-        });
+    function restoreScrollAnchor(anchor) {
+        if (!anchor || !document.body.contains(anchor.el)) return;
+        const newTop = anchor.el.getBoundingClientRect().top;
+        const delta = newTop - anchor.top;
+        if (Math.abs(delta) <= 0.5) return;
+        const target = Math.max(0, window.scrollY + delta);
+        window.scrollTo(0, target);
     }
 
     function packMasonry() {
         if (expanded) return;
-        if (packingInProgress) return;
+        if (phase === 'packing') return;
 
-        // If at bottom and not initial load, skip packing to prevent jumps
-        if (isAtBottom && initialLoadComplete && !skipNextPack) {
-            return;
-        }
-        skipNextPack = false;
+        const prevPhase = phase;
+        phase = 'packing';
 
-        packingInProgress = true;
+        const anchor = captureScrollAnchor();
 
         clampSpansToCols();
         const cols = colCount();
-
-        const items = $$('.plugin', mosaic);
+        const items = pluginList();
         const style = getComputedStyle(mosaic);
         const gap = parseFloat(style.columnGap || style.gap || '12px') || 12;
 
-        // Measure heights
-        items.forEach(el => {
-            el.style.height = 'auto';
-            el.style.minHeight = '';
-            el.style.gridRowEnd = 'auto';
-        });
-
-        const heights = new Map();
-        let maxNaturalPx = 0;
-        items.forEach(el => {
-            const h = Math.ceil(el.getBoundingClientRect().height);
-            heights.set(el, h);
-            if (h > maxNaturalPx) maxNaturalPx = h;
-        });
+        setSpansForCols(items, cols);
+        const { heights, maxH: maxNaturalPx } = batchMeasureHeights(items);
 
         const cssCap = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--mosaic-fill-cap'));
         const HARD_CAP_PX = 900;
@@ -322,35 +346,25 @@
         const placements = [];
 
         items.forEach((el) => {
-            const w = Math.min(+el.dataset.w || 1, cols);
+            const w = Math.min(parseInt(el.dataset.mosaicSpan || el.dataset.w || '1', 10) || 1, cols);
             const hPx = heights.get(el) || 100;
             const rowSpan = Math.ceil((hPx + gap) / ROW_HEIGHT);
 
             let bestCol = 0;
             let bestHeight = Infinity;
             for (let c = 0; c <= cols - w; c++) {
-                const maxH = Math.max(...colHeights.slice(c, c + w));
-                if (maxH < bestHeight) {
-                    bestHeight = maxH;
-                    bestCol = c;
-                }
+                let maxH = 0;
+                for (let i = c; i < c + w; i++) if (colHeights[i] > maxH) maxH = colHeights[i];
+                if (maxH < bestHeight) { bestHeight = maxH; bestCol = c; }
             }
 
             const startRow = Math.ceil(bestHeight / ROW_HEIGHT);
             const newHeight = bestHeight + hPx + gap;
             for (let i = bestCol; i < bestCol + w; i++) colHeights[i] = newHeight;
 
-            placements.push({
-                el,
-                col: bestCol,
-                row: startRow,
-                colSpan: w,
-                rowSpan,
-                height: hPx,
-            });
+            placements.push({ el, col: bestCol, row: startRow, colSpan: w, rowSpan, height: hPx });
         });
 
-        expandHorizontally(placements, cols);
 
         const spansOut = {};
         placements.forEach((p) => {
@@ -358,152 +372,194 @@
             const maxRowsForThis = Math.max(minRows, fillCapRows);
             if (p.rowSpan > maxRowsForThis) p.rowSpan = maxRowsForThis;
 
-            p.el.style.gridColumn = `${p.col + 1} / span ${p.colSpan}`;
-            p.el.style.gridRowStart = String(p.row + 1);
-            p.el.style.gridRowEnd = `span ${p.rowSpan}`;
-            p.el.style.height = `${p.height}px`;
+            const newCol = `${p.col + 1} / span ${p.colSpan}`;
+            const newRowStart = String(p.row + 1);
+            const newRowEnd = `span ${p.rowSpan}`;
+            const newHeight = `${p.height}px`;
+
+            if (p.el.style.gridColumn !== newCol) p.el.style.gridColumn = newCol;
+            if (p.el.style.gridRowStart !== newRowStart) p.el.style.gridRowStart = newRowStart;
+            if (p.el.style.gridRowEnd !== newRowEnd) p.el.style.gridRowEnd = newRowEnd;
+            if (p.el.style.height !== newHeight) p.el.style.height = newHeight;
+            p.el.dataset.currentSpan = String(p.colSpan);
 
             spansOut[p.el.id] = p.rowSpan;
         });
 
-        localStorage.setItem(spansStoreKey, JSON.stringify(spansOut));
-        packingInProgress = false;
+        storageSet(spansStoreKey, JSON.stringify(spansOut));
+
+        restoreScrollAnchor(anchor);
+
+        phase = prevPhase === 'packing' ? 'idle' : prevPhase;
+        if (phase === 'booting') phase = 'idle';
     }
 
     let packScheduled = false;
-
     function packAll(force = false) {
-        if (document.hidden) return;
-        if (expanded) return;
-        if (packScheduled) return;
-        if (packingInProgress) return;
+        if (document.hidden || expanded) return;
+        if (phase === 'scrolling') {
+            pendingPack = pendingPack || { force };
+            return;
+        }
+        if (packScheduled || phase === 'packing') return;
 
-        // Skip if at bottom unless forced
-        if (isAtBottom && !force && initialLoadComplete) return;
-
-        if (!force && !initialLoadComplete && userHasScrolled) return;
+        if (force) {
+            pluginList().forEach((p) => {
+                p.dataset.mosaicDirty = '1';
+                p.dataset.mosaicMw = '0';
+            });
+        }
 
         packScheduled = true;
-
         requestAnimationFrame(() => {
             packScheduled = false;
-            if (force) skipNextPack = true;
             packMasonry();
-            fitNeofetch();
         });
     }
-
     const debouncedPack = debounce(() => packAll(false), 150);
 
     function fullRepack() {
+        invalidatePluginCache();
+        cachedCols = 0;
+        if (phase === 'scrolling') { pendingPack = { force: true, full: true }; return; }
         clampSpansToCols();
         packMasonry();
-        fitNeofetch();
     }
 
-    function getProjectPlugins(m) {
-        return Array.from(m.querySelectorAll('.projects-section, .projects-section.plugin'))
-            .map((n) => n.closest('.plugin') || n)
-            .filter(Boolean);
+    function flushPendingPack() {
+        if (!pendingPack || expanded || document.hidden) return;
+        const { full } = pendingPack;
+        pendingPack = null;
+        if (full) fullRepack();
+        else packAll();
     }
 
-    function getWebringPlugins(m) {
-        return Array.from(m.querySelectorAll('.webring-section, .webring-section.plugin'))
-            .map((n) => n.closest('.plugin') || n)
-            .filter(Boolean);
+    on(window, 'scroll', () => {
+        if (document.body.classList.contains('scroll-locked')) return;
+        phase = 'scrolling';
+        clearTimeout(scrollIdleTimer);
+        scrollIdleTimer = setTimeout(() => {
+            phase = 'idle';
+            flushPendingPack();
+        }, 220);
+    }, { passive: true });
+
+    function lockBodyScroll() {
+        if (document.body.classList.contains('scroll-locked')) return;
+        _scrollLockY = window.scrollY || 0;
+        document.body.style.position = 'fixed';
+        document.body.style.top = `-${_scrollLockY}px`;
+        document.body.style.left = '0';
+        document.body.style.right = '0';
+        document.body.style.width = '100%';
+        document.body.classList.add('scroll-locked');
     }
-
-    function ensureWebringFirst(m) {
-        const list = getWebringPlugins(m);
-        list.forEach((n) => {
-            if (n.parentElement === m && n !== m.firstElementChild) {
-                m.insertBefore(n, m.firstElementChild);
-            }
-        });
+    function unlockBodyScroll() {
+        if (!document.body.classList.contains('scroll-locked')) return;
+        document.body.classList.remove('scroll-locked');
+        document.body.style.position = '';
+        document.body.style.top = '';
+        document.body.style.left = '';
+        document.body.style.right = '';
+        document.body.style.width = '';
+        window.scrollTo(0, _scrollLockY);
     }
-
-    function detachProjects(m) {
-        const list = getProjectPlugins(m);
-        list.forEach((n) => n.remove());
-        return list;
-    }
-
-    function ensureProjectsLast(m) {
-        const list = getProjectPlugins(m);
-        list.forEach((n) => {
-            if (n.parentElement === m && n !== m.lastElementChild) {
-                m.appendChild(n);
-            }
-        });
-    }
-
-    function ensurePluginOrdering(m) {
-        ensureWebringFirst(m);
-        ensureProjectsLast(m);
-    }
-
-    (function initialLayout() {
-        if (savedOrder.length) {
-            const byId = Object.fromEntries($$('.plugin', mosaic).map((n) => [n.id, n]));
-            savedOrder.forEach((id) => byId[id] && mosaic.appendChild(byId[id]));
-        } else {
-            ensurePluginOrdering(mosaic);
-        }
-
-        const deferredProjects = detachProjects(mosaic);
-        packMasonry();
-
-        setTimeout(() => {
-            deferredProjects.forEach((n) => mosaic.appendChild(n));
-            packMasonry();
-        }, 50);
-
-        window.addEventListener('load', () => {
-            setTimeout(() => {
-                packMasonry();
-                fitNeofetch();
-                initialLoadComplete = true;
-            }, 200);
-        });
-
-        setTimeout(() => {
-            initialLoadComplete = true;
-        }, 1500);
-    })();
 
     function setWidth(el, w) {
-        w = clamp(w, 1, 3);
-        el.dataset.w = String(w);
-        const widths = safeJSON(localStorage.getItem(widthsStoreKey)) || {};
-        widths[el.id] = w;
-        localStorage.setItem(widthsStoreKey, JSON.stringify(widths));
-        preferredWidths.set(el.id, w);
+        ensurePluginId(el);
+
+        const cols = colCount();
+        const next = clamp(w, 1, Math.min(3, cols));
+
+        el.dataset.w = String(next);
+        el.dataset.currentSpan = String(next);
+        el.dataset.mosaicSpan = String(next);
+        el.dataset.mosaicDirty = '1';
+        el.dataset.mosaicMw = '0';
+
+        el.style.height = '';
+        el.style.minHeight = '';
+        el.style.gridColumn = '';
+        el.style.gridRowStart = '';
+        el.style.gridRowEnd = '';
+
+        const widths = safeJSON(storageGet(widthsStoreKey)) || {};
+        widths[el.id] = next;
+        storageSet(widthsStoreKey, JSON.stringify(widths));
+
+        preferredWidths.set(el.id, next);
+
+        cachedCols = 0;
+        cachedColsViewport = 0;
+        cachedColsMosaic = 0;
+
         packAll(true);
     }
 
     function toggleCollapse(el) {
         el.classList.toggle('is-collapsed');
-        setTimeout(() => packAll(true), 50);
+        el.dataset.mosaicDirty = '1';
+        packMasonry();
     }
 
-    function pin(el) {
-        el.dataset.pinned = el.dataset.pinned === '1' ? '0' : '1';
-        const map = safeJSON(localStorage.getItem(pinnedStoreKey)) || {};
-        map[el.id] = el.dataset.pinned === '1';
-        localStorage.setItem(pinnedStoreKey, JSON.stringify(map));
+    function ensureOverlay() {
+        if (overlay) return overlay;
+        overlay = document.createElement('div');
+        overlay.className = 'plugin-overlay';
+        overlay.style.zIndex = '99999';
+        overlay.addEventListener('click', (e) => { if (e.target === overlay) collapseExpanded(); });
+        document.addEventListener('keydown', (e) => { if (e.key === 'Escape') collapseExpanded(); });
+        document.body.appendChild(overlay);
+        return overlay;
+    }
 
-        const items = $$('.plugin', mosaic);
-        const pinned = items.filter((n) => n.dataset.pinned === '1');
-        const unpinned = items.filter((n) => n.dataset.pinned !== '1');
-        [...pinned, ...unpinned].forEach((n) => mosaic.appendChild(n));
+    function expand(el, updateURL = true) {
+        if (expanded === el) return collapseExpanded();
+        collapseExpanded(false);
 
-        toast(el.dataset.pinned === '1' ? 'Pinned' : 'Unpinned');
-        persistOrder();
+        const rect = el.getBoundingClientRect();
+        const ph = document.createElement('div');
+        ph.className = 'plugin plugin-placeholder';
+        ph.dataset.w = el.dataset.w || '1';
+        ph.style.gridColumn = el.style.gridColumn;
+        ph.style.gridRowStart = el.style.gridRowStart;
+        ph.style.gridRowEnd = el.style.gridRowEnd;
+        ph.style.height = rect.height + 'px';
+        mosaic.insertBefore(ph, el.nextSibling);
+
+        ensureOverlay().classList.add('in');
+        lockBodyScroll();
+
+        el.style.height = '';
+        el.classList.add('plugin--expanded');
+        overlay.appendChild(el);
+        expanded = el;
+
+        if (updateURL) {
+            const name = (el.className.match(/([a-z0-9-]+)-section/i) || [, el.id])[1] || el.id;
+            history.pushState({ expanded: name }, '', `#${name}`);
+        }
+    }
+
+    function collapseExpanded(updateURL = true) {
+        if (!expanded) {
+            ensureOverlay().classList.remove('in');
+            unlockBodyScroll();
+            return;
+        }
+        const ph = $('.plugin-placeholder', mosaic);
+        expanded.classList.remove('plugin--expanded');
+        if (ph && ph.parentNode) ph.parentNode.replaceChild(expanded, ph);
+        ensureOverlay().classList.remove('in');
+        expanded = null;
+        unlockBodyScroll();
+        invalidatePluginCache();
         packAll(true);
+        if (updateURL) history.pushState({}, '', window.location.pathname);
     }
 
-    const ICONS = {collapse: '▾', 'w-dec': '–', 'w-inc': '+', expand: '⛶'};
-    const TITLES = {collapse: 'Collapse', 'w-dec': 'Narrower', 'w-inc': 'Wider', expand: 'Expand'};
+    const ICONS = { collapse: '▾', 'w-dec': '–', 'w-inc': '+', expand: '⛶' };
+    const TITLES = { collapse: 'Collapse', 'w-dec': 'Narrower', 'w-inc': 'Wider', expand: 'Expand' };
 
     function makeDot(action, title) {
         const b = document.createElement('button');
@@ -515,17 +571,13 @@
 
         on(b, 'mouseenter', () => { b.textContent = ICONS[action] || ''; });
         on(b, 'mouseleave', () => { b.textContent = ''; });
-
-        ['pointerdown', 'mousedown', 'click'].forEach((ev) => {
-            on(b, ev, (e) => e.stopPropagation());
-        });
+        ['pointerdown', 'mousedown', 'click'].forEach((ev) => on(b, ev, (e) => e.stopPropagation()));
 
         on(b, 'click', (e) => {
             ripple(e);
             b.blur();
             handleAction(b.closest('.plugin'), action);
         });
-
         return b;
     }
 
@@ -554,8 +606,10 @@
             bar = document.createElement('div');
             bar.className = 'plugin-toolbar';
             headerRow.appendChild(bar);
-            ['collapse', 'w-dec', 'w-inc', 'expand'].forEach((action) => bar.append(makeDot(action, TITLES[action])));
-            ['pointerdown', 'mousedown', 'click'].forEach((ev) => bar.addEventListener(ev, (e) => e.stopPropagation()));
+            const actions = ['collapse', 'w-dec', 'w-inc', 'expand'];
+            actions.forEach((a) => bar.append(makeDot(a, TITLES[a])));
+            ['pointerdown', 'mousedown', 'click'].forEach((ev) =>
+                bar.addEventListener(ev, (e) => e.stopPropagation()));
         }
 
         bar.style.display = 'flex';
@@ -564,84 +618,23 @@
 
         headerRow.classList.add('drag-handle');
         headerRow.removeAttribute('draggable');
-        headerRow.addEventListener('pointerdown', onHeaderPointerDown, {passive: false});
+        headerRow.addEventListener('pointerdown', onHeaderPointerDown, { passive: false });
         headerRow.addEventListener('mousedown', bringToFront);
     }
-
-    $$('.plugin', mosaic).forEach((el) => ensureToolbar(el));
 
     function handleAction(el, action) {
         if (!el) return;
         if (action === 'expand' || action === 'view') expand(el);
-        if (action === 'collapse') toggleCollapse(el);
-        if (action === 'pin') pin(el);
-        if (action === 'w-inc') setWidth(el, (+el.dataset.w || 1) + 1);
-        if (action === 'w-dec') setWidth(el, (+el.dataset.w || 1) - 1);
+        else if (action === 'collapse') toggleCollapse(el);
+        else if (action === 'w-inc') setWidth(el, (+el.dataset.w || 1) + 1);
+        else if (action === 'w-dec') setWidth(el, (+el.dataset.w || 1) - 1);
     }
 
-    function persistOrder() {
-        const order = $$('.plugin', mosaic).map((n) => n.id);
-        localStorage.setItem(orderStoreKey, JSON.stringify(order));
-    }
-
-    function ensureOverlay() {
-        if (overlay) return overlay;
-        overlay = document.createElement('div');
-        overlay.className = 'plugin-overlay';
-        overlay.style.zIndex = '99999';
-        overlay.addEventListener('click', (e) => {
-            if (e.target === overlay) collapseExpanded();
-        });
-        document.addEventListener('keydown', (e) => {
-            if (e.key === 'Escape') collapseExpanded();
-        });
-        document.body.appendChild(overlay);
-        return overlay;
-    }
-
-    function expand(el, updateURL = true) {
-        if (expanded === el) return collapseExpanded();
-        collapseExpanded(false);
-
-        const rect = el.getBoundingClientRect();
-        const ph = document.createElement('div');
-        ph.className = 'plugin plugin-placeholder';
-        ph.dataset.w = el.dataset.w || '1';
-        ph.style.gridColumn = el.style.gridColumn;
-        ph.style.gridRowStart = el.style.gridRowStart;
-        ph.style.gridRowEnd = el.style.gridRowEnd;
-        ph.style.height = rect.height + 'px';
-        mosaic.insertBefore(ph, el.nextSibling);
-
-        ensureOverlay().classList.add('in');
-        lockBodyScroll();
-
-        el.style.height = '';
-        el.classList.add('plugin--expanded');
-        overlay.appendChild(el);
-        expanded = el;
-
-        if (updateURL) {
-            const pluginName = (el.className.match(/([a-z0-9-]+)-section/i) || [, el.id])[1] || el.id;
-            history.pushState({ expanded: pluginName }, '', `#${pluginName}`);
-        }
-    }
-
-    function collapseExpanded(updateURL = true) {
-        if (!expanded) {
-            ensureOverlay().classList.remove('in');
-            unlockBodyScroll();
-            return;
-        }
-        const ph = $('.plugin-placeholder', mosaic);
-        expanded.classList.remove('plugin--expanded');
-        if (ph && ph.parentNode) ph.parentNode.replaceChild(expanded, ph);
-        ensureOverlay().classList.remove('in');
-        expanded = null;
-
-        unlockBodyScroll();
-        packAll(true);
-        if (updateURL) history.pushState({}, '', window.location.pathname);
+    function bringToFront(e) {
+        const win = e.currentTarget.closest('.plugin');
+        if (!win) return;
+        pluginList().forEach((p) => p.classList.remove('is-front'));
+        win.classList.add('is-front');
     }
 
     let pointerDown = false, startedDrag = false;
@@ -650,52 +643,88 @@
     let dragOffsetX = 0, dragOffsetY = 0;
     let rafPending = false;
     let latestClientY = 0;
-    let maxZ = 1000;
     let autoScrollRAF = null;
-    const DRAG_START_TOL = 6;
+    let longPressTimer = null;
     let lastHoverTarget = null, lastSwapAt = 0;
-
-    function bringToFront(e) {
-        const win = e.currentTarget.closest('.plugin');
-        if (!win) return;
-        maxZ += 1;
-        win.style.zIndex = String(maxZ);
-    }
+    const DRAG_START_TOL = 6;
+    const LONG_PRESS_DELAY = 400;
 
     function isMobileOrToolbarHidden() {
         if (window.innerWidth <= 780) return true;
-        const toolbar = document.querySelector('.plugin-toolbar');
-        if (toolbar) {
-            const style = getComputedStyle(toolbar);
-            if (style.display === 'none') return true;
-        }
-        return false;
+        const tb = document.querySelector('.plugin-toolbar');
+        return tb && getComputedStyle(tb).display === 'none';
     }
 
     function onHeaderPointerDown(e) {
         if (e.button !== 0) return;
         if (isInteractive(e.target)) return;
-        if (isMobileOrToolbarHidden()) return;
 
         const win = e.currentTarget.closest('.plugin');
         if (!win) return;
-        e.preventDefault();
 
-        pointerDown = true;
-        startedDrag = false;
+        if (!isMobileOrToolbarHidden()) {
+            e.preventDefault();
+            pointerDown = true;
+            startedDrag = false;
+            handleEl = e.currentTarget;
+            dragEl = win;
+            const rect = dragEl.getBoundingClientRect();
+            startX = e.clientX;
+            startY = e.clientY;
+            latestX = rect.left;
+            latestY = rect.top;
+            latestClientY = e.clientY;
+            document.addEventListener('pointermove', onDocPointerMove, { passive: false });
+            document.addEventListener('pointerup', onDocPointerUp, { passive: false });
+            document.addEventListener('pointercancel', onDocPointerUp, { passive: false });
+            return;
+        }
+
+        const lpStartX = e.clientX, lpStartY = e.clientY;
         handleEl = e.currentTarget;
         dragEl = win;
 
-        const rect = dragEl.getBoundingClientRect();
-        startX = e.clientX;
-        startY = e.clientY;
-        latestX = rect.left;
-        latestY = rect.top;
-        latestClientY = e.clientY;
+        const teardownLP = () => {
+            document.removeEventListener('pointermove', lpMoveCheck);
+            document.removeEventListener('pointerup', cancelLP);
+            document.removeEventListener('pointercancel', cancelLP);
+        };
+        const cancelLP = () => {
+            if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
+            teardownLP();
+            dragEl = null;
+            handleEl = null;
+        };
+        const lpMoveCheck = (ev) => {
+            if (Math.hypot(ev.clientX - lpStartX, ev.clientY - lpStartY) > 10) cancelLP();
+        };
 
-        document.addEventListener('pointermove', onDocPointerMove, {passive: false});
-        document.addEventListener('pointerup', onDocPointerUp, {passive: false});
-        document.addEventListener('pointercancel', onDocPointerUp, {passive: false});
+        document.addEventListener('pointermove', lpMoveCheck, { passive: true });
+        document.addEventListener('pointerup', cancelLP, { once: true });
+        document.addEventListener('pointercancel', cancelLP, { once: true });
+
+        longPressTimer = setTimeout(() => {
+            longPressTimer = null;
+            teardownLP();
+            if (!dragEl) return;
+
+            if (navigator.vibrate) navigator.vibrate(50);
+
+            const rect = win.getBoundingClientRect();
+            pointerDown = true;
+            startedDrag = false;
+            startX = lpStartX;
+            startY = lpStartY;
+            latestX = rect.left;
+            latestY = rect.top;
+            latestClientY = lpStartY;
+
+            beginDrag({ clientX: lpStartX, clientY: lpStartY });
+
+            document.addEventListener('pointermove', onDocPointerMove, { passive: false });
+            document.addEventListener('pointerup', onDocPointerUp, { passive: false });
+            document.addEventListener('pointercancel', onDocPointerUp, { passive: false });
+        }, LONG_PRESS_DELAY);
     }
 
     function beginDrag(e) {
@@ -713,12 +742,12 @@
         placeholderEl.style.gridRowEnd = dragEl.style.gridRowEnd;
 
         mosaic.replaceChild(placeholderEl, dragEl);
+        invalidatePluginCache();
 
         dragOffsetX = e.clientX - rect.left;
         dragOffsetY = e.clientY - rect.top;
 
-        bringToFront({ currentTarget: handleEl });
-
+        dragEl.classList.add('is-front');
         dragEl.style.position = 'fixed';
         dragEl.style.left = rect.left + 'px';
         dragEl.style.top = rect.top + 'px';
@@ -733,11 +762,10 @@
         startAutoScrollLoop();
     }
 
-    function hoverSwapAt(clientX, clientY) {
+    function hoverSwapAt(x, y) {
         if (!startedDrag || !placeholderEl) return;
-
-        const under = document.elementFromPoint(clientX, clientY);
-        let target = under && under.closest('.plugin');
+        const under = document.elementFromPoint(x, y);
+        const target = under && under.closest('.plugin');
         if (!target || target === dragEl || target === placeholderEl) return;
 
         const t = now();
@@ -745,17 +773,12 @@
         lastHoverTarget = target;
         lastSwapAt = t;
 
-        swapNodes(placeholderEl, target);
-    }
-
-    function swapNodes(a, b) {
-        if (!a || !b || !a.parentNode || !b.parentNode) return;
-        const aNext = a.nextSibling;
-        const bNext = b.nextSibling;
-        const aParent = a.parentNode;
-        const bParent = b.parentNode;
-        aParent.insertBefore(b, aNext);
-        bParent.insertBefore(a, bNext);
+        const a = placeholderEl, b = target;
+        if (!a.parentNode || !b.parentNode) return;
+        const aNext = a.nextSibling, bNext = b.nextSibling;
+        a.parentNode.insertBefore(b, aNext);
+        b.parentNode.insertBefore(a, bNext);
+        invalidatePluginCache();
     }
 
     function onDocPointerMove(e) {
@@ -763,14 +786,12 @@
         latestClientY = e.clientY;
 
         if (!startedDrag) {
-            const dx = e.clientX - startX;
-            const dy = e.clientY - startY;
+            const dx = e.clientX - startX, dy = e.clientY - startY;
             if (Math.hypot(dx, dy) < DRAG_START_TOL) return;
             beginDrag(e);
         }
 
         e.preventDefault();
-
         latestX = e.clientX - dragOffsetX;
         latestY = e.clientY - dragOffsetY;
 
@@ -784,7 +805,6 @@
                 }
             });
         }
-
         hoverSwapAt(e.clientX, e.clientY);
     }
 
@@ -803,6 +823,7 @@
 
         if (dragEl && placeholderEl && placeholderEl.parentNode === mosaic) {
             mosaic.replaceChild(dragEl, placeholderEl);
+            invalidatePluginCache();
         }
         placeholderEl?.remove();
         placeholderEl = null;
@@ -822,34 +843,26 @@
 
         document.body.classList.remove('dragging-cursor');
 
-        persistOrder();
+        debouncedPersistOrder();
         packAll(true);
     }
 
     function startAutoScrollLoop() {
         const EDGE = 28;
         const MAX_STEP = 24;
-        const step = (delta) => clamp(Math.floor(delta * 1.2), 6, MAX_STEP);
-
-        function loop() {
-            if (!startedDrag) return (autoScrollRAF = null);
+        const step = (d) => clamp(Math.floor(d * 1.2), 6, MAX_STEP);
+        const loop = () => {
+            if (!startedDrag) { autoScrollRAF = null; return; }
             autoScrollRAF = requestAnimationFrame(loop);
-
             const toTop = latestClientY;
             const toBottom = window.innerHeight - latestClientY;
-
             if (toTop < EDGE) window.scrollBy(0, -step(EDGE - toTop));
             else if (toBottom < EDGE) window.scrollBy(0, step(EDGE - toBottom));
-        }
-
+        };
         if (!autoScrollRAF) autoScrollRAF = requestAnimationFrame(loop);
     }
-
     function stopAutoScrollLoop() {
-        if (autoScrollRAF) {
-            cancelAnimationFrame(autoScrollRAF);
-            autoScrollRAF = null;
-        }
+        if (autoScrollRAF) { cancelAnimationFrame(autoScrollRAF); autoScrollRAF = null; }
     }
 
     function ripple(e) {
@@ -866,132 +879,139 @@
         setTimeout(() => r.remove(), 600);
     }
 
-    let toastRoot;
+    pluginList().forEach((el) => ensureToolbar(el));
 
-    function toast(msg) {
-        toastRoot ||= (() => {
-            const r = document.createElement('div');
-            r.className = 'toast-root';
-            document.body.appendChild(r);
-            return r;
-        })();
-        const n = document.createElement('div');
-        n.className = 'toast';
-        n.textContent = msg;
-        toastRoot.appendChild(n);
-        requestAnimationFrame(() => n.classList.add('in'));
-        setTimeout(() => n.classList.remove('in'), 1600);
-        setTimeout(() => n.remove(), 1900);
-    }
+    const lastObservedHeights = new WeakMap();
+    let pendingHeightUpdate = false;
 
-    const io = new IntersectionObserver(
-        (entries) => entries.forEach((e) => e.target.classList.toggle('reveal', e.isIntersecting)),
-        {threshold: 0.08}
-    );
-    $$('.plugin', mosaic).forEach((el) => io.observe(el));
+    function applyHeightUpdates(changes) {
+        if (!changes.length) return;
 
-    if ('fonts' in document && document.fonts.ready) {
-        document.fonts.ready.then(() => {
-            if (initialLoadComplete) packAll(false);
+        const style = getComputedStyle(mosaic);
+        const gap = parseFloat(style.columnGap || style.gap || '12px') || 12;
+
+        let needsRepack = false;
+
+        changes.forEach(({ el, newHeight }) => {
+            el.dataset.mosaicDirty = '1';
+            const currentH = parseFloat(el.style.height) || 0;
+            const delta = newHeight - currentH;
+
+            if (delta > 16) {
+                needsRepack = true;
+            } else if (delta < -16) {
+                const newH = Math.ceil(newHeight);
+                const newRowSpan = Math.ceil((newH + gap) / ROW_HEIGHT);
+                el.style.height = `${newH}px`;
+                el.style.gridRowEnd = `span ${newRowSpan}`;
+            }
         });
+
+        if (needsRepack) {
+            if (phase === 'scrolling') pendingPack = pendingPack || { force: false };
+            else debouncedPack();
+        }
     }
 
-    let resizeTimeout = null;
-    let lastObservedHeights = new Map();
-
-    // Throttled Observer
     const ro = new ResizeObserver((entries) => {
-        if (!initialLoadComplete) return;
-        if (expanded) return;
-        if (packingInProgress) return;
-        if (isAtBottom) return; // Don't repack when at bottom
+        if (phase === 'booting' || expanded || phase === 'packing') return;
 
-        let hasSignificantChange = false;
+        const changes = [];
         for (const entry of entries) {
             const el = entry.target;
-            if (!document.body.contains(el)) {
-                ro.unobserve(el);
-                continue;
-            }
+            if (!document.body.contains(el)) { ro.unobserve(el); continue; }
 
             const newHeight = entry.contentRect.height;
-            const lastHeight = lastObservedHeights.get(el) || 0;
+            const lastHeight = lastObservedHeights.get(el);
 
-            if (Math.abs(newHeight - lastHeight) > 20) { // Increased threshold
-                hasSignificantChange = true;
+            if (lastHeight === undefined) {
+                lastObservedHeights.set(el, newHeight);
+                continue;
+            }
+            if (Math.abs(newHeight - lastHeight) > 32) {
+                changes.push({ el, newHeight });
                 lastObservedHeights.set(el, newHeight);
             }
         }
 
-        if (hasSignificantChange) {
-            debouncedPack();
-        }
+        if (!changes.length || pendingHeightUpdate) return;
+        pendingHeightUpdate = true;
+        requestAnimationFrame(() => {
+            pendingHeightUpdate = false;
+            applyHeightUpdates(changes);
+        });
     });
+    function observeElement(el) { if (el) ro.observe(el, { box: 'border-box' }); }
+    pluginList().forEach((n) => observeElement(n));
 
-    function observeElement(el) {
+    function notifyContentChanged(elOrSelector) {
+        let el = elOrSelector;
+        if (typeof elOrSelector === 'string') {
+            el = document.querySelector(elOrSelector);
+        }
         if (!el) return;
-        ro.observe(el, {box: 'border-box'});
-    }
 
-    $$('.plugin', mosaic).forEach((n) => observeElement(n));
-
-    const mo = new MutationObserver(throttle((mutations) => {
-        if (!initialLoadComplete) return;
-
-        let shouldPack = false;
-
-        mutations.forEach(m => {
-            if (m.type === 'childList') {
-                m.addedNodes.forEach(node => {
-                    if (node.nodeType === 1 && node.classList.contains('plugin')) {
-                        observeElement(node);
-                        ensureToolbar(node);
-                        shouldPack = true;
-                    }
-                });
-            } else if (m.type === 'attributes' && m.attributeName === 'class' && !m.target.classList.contains('plugin')) {
-                shouldPack = true;
-            }
-        });
-
-        if (shouldPack && !expanded && !packingInProgress) {
-            debouncedPack();
+        if (!el.classList.contains('plugin')) {
+            el = el.closest('.plugin');
         }
-    }, 200));
+        if (!el) return;
 
-    mo.observe(mosaic, {
-        childList: true,
-        subtree: true,
-        attributes: true,
-        attributeFilter: ['class', 'style', 'src'],
-    });
+        el.dataset.mosaicDirty = '1';
 
-    function restorePreferredWidths(maxCols = colCount()) {
-        $$('.plugin', mosaic).forEach((el) => {
-            const pref = preferredWidths.get(el.id);
-            if (pref != null) el.dataset.w = String(clamp(pref, 1, Math.min(3, maxCols)));
-        });
+        if (phase === 'booting' || expanded || phase === 'packing') return;
+        if (phase === 'scrolling') {
+            pendingPack = pendingPack || { force: false };
+            return;
+        }
+        debouncedPack();
     }
 
-    let lastCols = colCount();
+    function notifyPluginAdded(el) {
+        if (!el || !el.classList.contains('plugin')) return;
+        invalidatePluginCache();
+        observeElement(el);
+        ensureToolbar(el);
+        el.dataset.mosaicDirty = '1';
+        if (phase === 'booting' || expanded || phase === 'packing') return;
+        debouncedPack();
+    }
+
+    function notifyPluginReplaced(oldEl, newEl) {
+        if (oldEl) {
+            ro.unobserve(oldEl);
+            lastObservedHeights.delete(oldEl);
+        }
+        notifyPluginAdded(newEl);
+    }
+
     on(window, 'resize', throttle(() => {
-        if (packingInProgress) return;
+        if (phase === 'packing') return;
 
+        const nextViewportWidth = window.innerWidth;
+        const nextMosaicWidth = mosaic.clientWidth;
+        cachedCols = 0;
         const nextCols = colCount();
-        clampSpansToCols();
-        if (nextCols > lastCols) restorePreferredWidths(nextCols);
-        lastCols = nextCols;
 
-        const scrollY = window.scrollY;
-        fullRepack();
-        window.scrollTo(0, scrollY);
+        const widthChanged =
+            Math.abs(nextViewportWidth - lastViewportWidth) > 1 ||
+            Math.abs(nextMosaicWidth - lastMosaicWidth) > 1;
+
+        if (!widthChanged) return;
+
+        pluginList().forEach((el) => { el.dataset.mosaicDirty = '1'; });
+
+        clampSpansToCols();
+        if (nextCols > 1) restorePreferredWidths(nextCols);
+        lastViewportWidth = nextViewportWidth;
+        lastMosaicWidth = nextMosaicWidth;
+
+        clampSpansToCols();
+        packMasonry();
     }, 200));
 
     on(document, 'visibilitychange', () => {
-        if (!document.hidden && initialLoadComplete) packAll(false);
+        if (!document.hidden && phase === 'idle') packAll(false);
     });
-
-    let hashNavigationInitialized = false;
 
     function handleHashChange() {
         const hash = window.location.hash.slice(1);
@@ -1002,89 +1022,185 @@
             collapseExpanded(false);
         }
     }
+    on(window, 'hashchange', handleHashChange);
+    on(window, 'popstate', (e) => {
+        if (e.state && e.state.expanded) {
+            const el = $(`.${e.state.expanded}-section.plugin`);
+            if (el) expand(el, false);
+        } else if (expanded) {
+            collapseExpanded(false);
+        }
+    });
 
-    function initHashNavigation() {
-        if (hashNavigationInitialized) return;
-        hashNavigationInitialized = true;
-
-        on(window, 'hashchange', handleHashChange, { once: false });
-        on(window, 'popstate', (e) => {
-            if (e.state && e.state.expanded) {
-                const el = $(`.${e.state.expanded}-section.plugin`);
-                if (el) expand(el, false);
-            } else if (expanded) {
-                collapseExpanded(false);
+    on(document, 'keydown', (e) => {
+        if (e.altKey && e.key >= '1' && e.key <= '9') {
+            e.preventDefault();
+            const idx = parseInt(e.key, 10) - 1;
+            const items = pluginList();
+            if (items[idx]) {
+                items[idx].scrollIntoView({ behavior: 'smooth', block: 'center' });
+                setTimeout(() => expand(items[idx]), 300);
             }
-        }, { once: false });
+        }
+    });
 
-        if (window.location.hash) setTimeout(handleHashChange, 400);
+    function ready(fn) {
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', fn, { once: true });
+        } else {
+            fn();
+        }
     }
 
-    let windowManagerInitialized = false;
+    function finishBoot() {
+        document.documentElement.classList.remove('js-loading');
+        document.documentElement.classList.add('js-loaded');
+    }
 
-    function initWindowManager() {
-        if (windowManagerInitialized) return;
-        windowManagerInitialized = true;
+    (function initialLayout() {
+        const layoutVersionKey = 'mosaic.layout.version';
+        const layoutVersion = '2026-06-05-wild-cucmber';
 
-        initHashNavigation();
+        if (storageGet(layoutVersionKey) !== layoutVersion) {
+            try {
+                localStorage.removeItem('mosaic.spans');
+                localStorage.removeItem('mosaic.order');
+                localStorage.removeItem('mosaic.widths');
+                localStorage.setItem(layoutVersionKey, layoutVersion);
+            } catch {}
+        }
 
-        on(document, 'keydown', (e) => {
-            if (e.altKey && e.key >= '1' && e.key <= '9') {
-                e.preventDefault();
-                const idx = parseInt(e.key, 10) - 1;
-                const plugins = $$('.plugin', mosaic);
-                if (plugins[idx]) {
-                    plugins[idx].scrollIntoView({behavior: 'smooth', block: 'center'});
-                    setTimeout(() => expand(plugins[idx]), 300);
+        const finalizeFromPrebake = () => {
+            ensureAllPluginIds();
+
+            const items = pluginList();
+
+            const snapshot = items.map((el) => {
+                const cs = getComputedStyle(el);
+                const computedHeight = parseFloat(cs.height) || 0;
+                const naturalHeight = el.scrollHeight || 0;
+                const h = Math.max(computedHeight, naturalHeight, 120);
+
+                return {
+                    el,
+                    gridColumn: cs.gridColumn,
+                    gridRowStart: cs.gridRowStart,
+                    gridRowEnd: cs.gridRowEnd,
+                    height: `${Math.ceil(h)}px`,
+                    minHeight: `${Math.ceil(h)}px`,
+                };
+            });
+
+            mosaic.classList.remove('mosaic-prebaked');
+
+            snapshot.forEach((s) => {
+                s.el.style.gridColumn = s.gridColumn;
+                s.el.style.gridRowStart = s.gridRowStart;
+                s.el.style.gridRowEnd = s.gridRowEnd;
+                s.el.style.height = s.height;
+                s.el.style.minHeight = s.minHeight;
+
+                s.el.dataset.mosaicDirty = '0';
+                s.el.dataset.mosaicMw = '0';
+
+                const m = s.gridColumn.match(/span\s+(\d+)/i);
+                if (m) {
+                    s.el.dataset.currentSpan = String(parseInt(m[1], 10));
+                    s.el.dataset.mosaicSpan = String(parseInt(m[1], 10));
                 }
-            }
-        }, { once: false });
 
-        window.mosaicUtils = {
-            resizeAll: () => packAll(true),
-            fullRepack,
-            expand,
-            collapseExpanded,
-            getMosaic: () => mosaic,
-            observe: observeElement
+                lastObservedHeights.set(s.el, parseFloat(s.height) || 0);
+            });
+
+            applySavedOrder();
+            ensurePluginIdsAfterReorder();
+            clampSpansToCols();
+
+            phase = 'idle';
+            finishBoot();
+
+            requestAnimationFrame(() => {
+                pluginList().forEach((el) => {
+                    el.dataset.mosaicDirty = '1';
+                    el.dataset.mosaicMw = '0';
+                });
+
+                packAll(true);
+            });
+
+            if (window.location.hash) {
+                setTimeout(handleHashChange, 50);
+            }
         };
 
+        const finalizeClassic = () => {
+            applySavedOrder();
+            ensurePluginIdsAfterReorder();
+            restorePreferredWidths(colCount());
+            clampSpansToCols();
+            packMasonry();
 
-        setTimeout(() => {
-            document.documentElement.classList.remove('js-loading');
-            document.documentElement.classList.add('js-loaded');
-        }, 100);
-    }
+            phase = 'idle';
+            finishBoot();
 
-    initWindowManager();
+            if (window.location.hash) {
+                setTimeout(handleHashChange, 50);
+            }
+        };
 
-    function fitNeofetch() {
-        document.querySelectorAll('.neofetch-section .terminal').forEach((term) => {
-            const pre = term.querySelector('.neofetch-pre');
-            if (!pre) return;
-            const style = getComputedStyle(term);
-            const scale = parseFloat(style.getPropertyValue('--neo-scale')) || 1;
-            const headerH = term.querySelector('.terminal-header')?.offsetHeight || 0;
-            const paletteH = term.querySelector('.color-palette')?.offsetHeight || 0;
-            const bodyPadding = 20;
-            const scaledPreH = Math.ceil(pre.scrollHeight * scale);
-            term.style.height = headerH + bodyPadding + scaledPreH + paletteH + 8 + 'px';
+        function ensurePluginIdsAfterReorder() {
+            invalidatePluginCache();
+            ensureAllPluginIds();
+        }
+
+        if (hasPrebakeAtBoot) {
+            if (document.readyState === 'loading') {
+                document.addEventListener('DOMContentLoaded', () => {
+                    requestAnimationFrame(finalizeFromPrebake);
+                }, { once: true });
+            } else {
+                requestAnimationFrame(finalizeFromPrebake);
+            }
+        } else {
+            if (document.readyState === 'loading') {
+                document.addEventListener('DOMContentLoaded', () => {
+                    requestAnimationFrame(finalizeClassic);
+                }, { once: true });
+            } else {
+                requestAnimationFrame(finalizeClassic);
+            }
+        }
+    })();
+
+    if ('fonts' in document && document.fonts.ready) {
+        document.fonts.ready.then(() => {
+            if (phase === 'idle') {
+                pluginList().forEach((el) => { el.dataset.mosaicDirty = '1'; });
+                packAll(false);
+            }
         });
     }
-
-    document.querySelectorAll('.section-toggle').forEach((toggle) => {
-        toggle.addEventListener('click', () => {
-            setTimeout(() => packAll(true), 100);
-        });
-    });
 
     document.querySelectorAll('img').forEach((img) => {
         if (img.complete) return;
-        img.addEventListener('load', () => {
-            if (initialLoadComplete) debouncedPack();
-        }, {once: true});
-        img.addEventListener('error', () => {
-            if (initialLoadComplete) debouncedPack();
-        }, {once: true});
+        const onSettle = () => {
+            const plugin = img.closest('.plugin');
+            if (plugin) plugin.dataset.mosaicDirty = '1';
+            if (phase === 'idle') debouncedPack();
+        };
+        img.addEventListener('load', onSettle, { once: true });
+        img.addEventListener('error', onSettle, { once: true });
     });
+
+    window.mosaicUtils = {
+        resizeAll: () => packAll(true),
+        fullRepack,
+        expand,
+        collapseExpanded,
+        getMosaic: () => mosaic,
+        observe: observeElement,
+        notifyContentChanged,
+        notifyPluginAdded,
+        notifyPluginReplaced
+    };
 })();

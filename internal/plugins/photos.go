@@ -94,7 +94,7 @@ func (p *PhotosPlugin) Render(ctx context.Context) (string, error) {
 	sectionTitle := p.getConfigString(settings, "ui.sectionTitle", "Photos")
 	apiUrl := p.getConfigString(settings, "apiUrl", "https://photos.akarpov.ru")
 	apiUrl = strings.TrimRight(apiUrl, "/")
-	maxFolders := p.getConfigInt(settings, "ui.maxFolders", 4)
+	maxFolders := p.getConfigInt(settings, "ui.maxFolders", 6)
 
 	hiddenFolders := p.getHiddenFolders(settings)
 

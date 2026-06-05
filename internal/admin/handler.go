@@ -100,6 +100,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.uploadFileAPI(w, r)
 	case path == "/api/refresh" && r.Method == "POST":
 		h.refreshConfigAPI(w, r)
+	case path == "/api/bike/upload-gpx" && r.Method == "POST":
+		h.uploadGPXAPI_Bike(w, r)
+	case path == "/api/bike/reprocess-gpx" && r.Method == "POST":
+		h.reprocessGPXAPI_Bike(w, r)
 	default:
 		http.NotFound(w, r)
 	}
@@ -132,6 +136,7 @@ func (h *Handler) dashboard(w http.ResponseWriter, r *http.Request) {
 		"places":     "Map of visited places with coordinates and details",
 		"health":     "Health Connect stats via HCGateway API (steps, calories, sleep, etc.)",
 		"photos":     "Photo gallery with folder previews from photos.akarpov.ru",
+		"bike":       "Bike rides with GPX import, route maps and stats",
 	}
 
 	for name := range allPlugins {
@@ -182,6 +187,283 @@ func (h *Handler) dashboard(w http.ResponseWriter, r *http.Request) {
 		fmt.Printf("Template error: %v\n", err)
 		http.Error(w, "Template error", http.StatusInternalServerError)
 	}
+}
+
+func (h *Handler) saveBikeGPXData(originalName string, data []byte) (string, error) {
+	ext := strings.ToLower(filepath.Ext(originalName))
+	if ext != ".gpx" {
+		ext = ".gpx"
+	}
+
+	base := strings.TrimSuffix(filepath.Base(originalName), filepath.Ext(originalName))
+	if base == "" {
+		base = "ride"
+	}
+
+	filename := fmt.Sprintf("%d_%s%s", time.Now().UnixNano(), h.sanitizeFilename(base), ext)
+
+	dir := filepath.Join(h.config.MediaPath, "uploads", "bike", "gpx")
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return "", err
+	}
+
+	fullPath := filepath.Join(dir, filename)
+	if err := os.WriteFile(fullPath, data, 0644); err != nil {
+		return "", err
+	}
+
+	return fmt.Sprintf("/media/uploads/bike/gpx/%s", filename), nil
+}
+
+func (h *Handler) readBikeGPXFromURL(fileURL string) ([]byte, error) {
+	const prefix = "/media/uploads/bike/gpx/"
+	if !strings.HasPrefix(fileURL, prefix) {
+		return nil, fmt.Errorf("invalid GPX path")
+	}
+
+	name := strings.TrimPrefix(fileURL, prefix)
+	if name == "" || name != filepath.Base(name) || strings.Contains(name, "..") {
+		return nil, fmt.Errorf("invalid GPX filename")
+	}
+
+	fullPath := filepath.Join(h.config.MediaPath, "uploads", "bike", "gpx", name)
+	return os.ReadFile(fullPath)
+}
+
+func (h *Handler) getStoredBikeGPXMeta(rideIndex int) (string, string, error) {
+	cfg := h.storage.GetPluginConfig("bike")
+	if cfg.Settings == nil {
+		return "", "", fmt.Errorf("bike plugin has no settings")
+	}
+
+	rides, ok := cfg.Settings["rides"].([]interface{})
+	if !ok || rideIndex < 0 || rideIndex >= len(rides) {
+		return "", "", fmt.Errorf("ride index out of range")
+	}
+
+	ride, ok := rides[rideIndex].(map[string]interface{})
+	if !ok {
+		return "", "", fmt.Errorf("ride entry is malformed")
+	}
+
+	gpxFile, _ := ride["gpx_file"].(string)
+	gpxOriginalName, _ := ride["gpx_original_name"].(string)
+
+	if gpxFile == "" {
+		return "", "", fmt.Errorf("ride has no stored GPX file")
+	}
+
+	return gpxFile, gpxOriginalName, nil
+}
+
+func (h *Handler) mergeBikeMetadata(submitted map[string]interface{}, existing map[string]interface{}) map[string]interface{} {
+	submittedRides, ok1 := submitted["rides"].([]interface{})
+	existingRides, ok2 := existing["rides"].([]interface{})
+	if !ok1 || !ok2 {
+		return submitted
+	}
+
+	preserveKeys := []string{
+		"gpx_file",
+		"gpx_original_name",
+	}
+
+	for i := range submittedRides {
+		if i >= len(existingRides) {
+			continue
+		}
+
+		subRide, ok1 := submittedRides[i].(map[string]interface{})
+		exRide, ok2 := existingRides[i].(map[string]interface{})
+		if !ok1 || !ok2 {
+			continue
+		}
+
+		for _, key := range preserveKeys {
+			cur, exists := subRide[key]
+			if !exists || cur == nil || cur == "" {
+				if oldVal, ok := exRide[key]; ok && oldVal != nil && oldVal != "" {
+					subRide[key] = oldVal
+				}
+			}
+		}
+	}
+
+	submitted["rides"] = submittedRides
+	return submitted
+}
+
+func (h *Handler) uploadGPXAPI_Bike(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if err := r.ParseMultipartForm(10 << 20); err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Failed to parse form",
+		})
+		return
+	}
+
+	file, header, err := r.FormFile("file")
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "No file provided",
+		})
+		return
+	}
+	defer file.Close()
+
+	data, err := io.ReadAll(file)
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Failed to read file",
+		})
+		return
+	}
+
+	ride, err := plugins.ParseGPX(data)
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	gpxURL, err := h.saveBikeGPXData(header.Filename, data)
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Failed to store GPX file: " + err.Error(),
+		})
+		return
+	}
+
+	rideResponse := map[string]interface{}{
+		"name":              ride.Name,
+		"date":              ride.Date,
+		"distance_km":       ride.DistanceKm,
+		"elevation_gain_m":  ride.ElevationGainM,
+		"duration_minutes":  ride.DurationMin,
+		"coordinates":       ride.Coordinates,
+		"gpx_file":          gpxURL,
+		"gpx_original_name": header.Filename,
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success":     true,
+		"ride":        rideResponse,
+		"coord_count": len(ride.Coordinates),
+	})
+}
+
+func (h *Handler) reprocessGPXAPI_Bike(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if err := r.ParseMultipartForm(10 << 20); err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Failed to parse form",
+		})
+		return
+	}
+
+	rideIndex := -1
+	if rideIndexStr := r.FormValue("ride_index"); rideIndexStr != "" {
+		parsedIndex, err := strconv.Atoi(rideIndexStr)
+		if err != nil || parsedIndex < 0 {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"error":   "Invalid ride_index",
+			})
+			return
+		}
+		rideIndex = parsedIndex
+	}
+
+	var (
+		data            []byte
+		gpxFile         = r.FormValue("gpx_file")
+		gpxOriginalName = r.FormValue("gpx_original_name")
+	)
+
+	file, header, err := r.FormFile("file")
+	if err == nil {
+		defer file.Close()
+
+		data, err = io.ReadAll(file)
+		if err != nil {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"error":   "Failed to read uploaded file",
+			})
+			return
+		}
+
+		gpxFile, err = h.saveBikeGPXData(header.Filename, data)
+		if err != nil {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"error":   "Failed to store GPX file: " + err.Error(),
+			})
+			return
+		}
+		gpxOriginalName = header.Filename
+	} else {
+		if gpxFile == "" && rideIndex >= 0 {
+			storedFile, storedName, metaErr := h.getStoredBikeGPXMeta(rideIndex)
+			if metaErr == nil {
+				gpxFile = storedFile
+				if gpxOriginalName == "" {
+					gpxOriginalName = storedName
+				}
+			}
+		}
+
+		if gpxFile == "" {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"error":   "No stored GPX file for this ride. Upload GPX first.",
+			})
+			return
+		}
+
+		data, err = h.readBikeGPXFromURL(gpxFile)
+		if err != nil {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"error":   "Failed to read stored GPX: " + err.Error(),
+			})
+			return
+		}
+	}
+
+	parsed, err := plugins.ParseGPX(data)
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	rideResponse := map[string]interface{}{
+		"coordinates":       parsed.Coordinates,
+		"distance_km":       parsed.DistanceKm,
+		"elevation_gain_m":  parsed.ElevationGainM,
+		"duration_minutes":  parsed.DurationMin,
+		"gpx_file":          gpxFile,
+		"gpx_original_name": gpxOriginalName,
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success":     true,
+		"ride_index":  rideIndex,
+		"coord_count": len(parsed.Coordinates),
+		"ride":        rideResponse,
+	})
 }
 
 func (h *Handler) projectsAdmin(w http.ResponseWriter, r *http.Request) {
@@ -415,6 +697,13 @@ func (h *Handler) updatePluginsAPI(w http.ResponseWriter, r *http.Request) {
 	updatedPlugins := make([]string, 0, len(plugins))
 
 	for _, pluginData := range plugins {
+		if pluginData.Name == "bike" {
+			existingCfg := h.storage.GetPluginConfig(pluginData.Name)
+			if existingCfg.Settings != nil {
+				pluginData.Settings = h.mergeBikeMetadata(pluginData.Settings, existingCfg.Settings)
+			}
+		}
+
 		config := &storage.PluginConfig{
 			Enabled:  pluginData.Enabled,
 			Order:    pluginData.Order,
@@ -487,6 +776,11 @@ func (h *Handler) updatePluginAPI(w http.ResponseWriter, r *http.Request) {
 			})
 			return
 		}
+	}
+
+	existingCfg := h.storage.GetPluginConfig(pluginName)
+	if pluginName == "bike" && existingCfg.Settings != nil {
+		settings = h.mergeBikeMetadata(settings, existingCfg.Settings)
 	}
 
 	if r.MultipartForm != nil && r.MultipartForm.File != nil {
