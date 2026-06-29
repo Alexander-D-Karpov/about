@@ -120,16 +120,71 @@
         pluginList().forEach(ensurePluginId);
     }
 
+    function clearMosaicLayoutState(el) {
+        el.style.removeProperty('grid-column');
+        el.style.removeProperty('grid-row');
+        el.style.removeProperty('grid-row-start');
+        el.style.removeProperty('grid-row-end');
+        el.style.removeProperty('height');
+        el.style.removeProperty('min-height');
+
+        delete el.dataset.currentSpan;
+        delete el.dataset.mosaicSpan;
+        delete el.dataset.mosaicMw;
+        delete el.dataset.mosaicDirty;
+    }
+
+    /**
+     * Projects всегда находится после .mosaic и вообще не участвует
+     * в расчёте колонок, высот, drag-and-drop и сохранённого порядка.
+     */
+    function mountProjectsTail() {
+        const project =
+            $('.projects-section.plugin', mosaic) ||
+            $('.projects-section.plugin', root);
+
+        if (!project) return null;
+
+        ensurePluginId(project);
+        project.dataset.fixedTail = '1';
+
+        const mustMove =
+            project.parentElement !== root ||
+            project !== root.lastElementChild;
+
+        if (mustMove) {
+            clearMosaicLayoutState(project);
+            root.appendChild(project);
+            invalidatePluginCache();
+        }
+
+        return project;
+    }
+
     ensureAllPluginIds();
+    mountProjectsTail();
 
     function enforceFixedEdgeOrder(m = mosaic) {
-        const nodes = Array.from(m.children).filter((n) => n.classList?.contains('plugin'));
-        const head = nodes.filter(isWebringPlugin);
-        const second = nodes.filter(isProfilePlugin);
-        const tail = nodes.filter(isProjectPlugin);
-        const middle = nodes.filter((n) => !isWebringPlugin(n) && !isProfilePlugin(n) && !isProjectPlugin(n));
-        [...head, ...second, ...middle, ...tail].forEach((n) => m.appendChild(n));
+        const nodes = Array.from(m.children)
+            .filter((node) => node.classList?.contains('plugin'));
+
+        const webring = nodes.filter(isWebringPlugin);
+        const profile = nodes.filter(isProfilePlugin);
+
+        const middle = nodes.filter((node) =>
+            !isWebringPlugin(node) &&
+            !isProfilePlugin(node) &&
+            !isProjectPlugin(node)
+        );
+
+        [
+            ...webring,
+            ...profile,
+            ...middle,
+        ].forEach((node) => m.appendChild(node));
+
         invalidatePluginCache();
+        mountProjectsTail();
     }
 
     function applySavedOrder() {
@@ -314,7 +369,7 @@
     }
 
     function packMasonry() {
-        if (expanded) return;
+        if (document.hidden || expanded) return;
         if (phase === 'packing') return;
 
         const prevPhase = phase;
@@ -1059,7 +1114,7 @@
 
     (function initialLayout() {
         const layoutVersionKey = 'mosaic.layout.version';
-        const layoutVersion = '2026-06-05-wild-cucmber';
+        const layoutVersion = '2026-06-29-burmalda-2';
 
         if (storageGet(layoutVersionKey) !== layoutVersion) {
             try {

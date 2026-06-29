@@ -158,6 +158,22 @@
             border-color: #6a9fff;
         }
 
+        .card-style-select {
+            padding: 7px 10px;
+            background: #2a2a4a;
+            border: 1px solid #333360;
+            border-radius: 4px;
+            color: #e0e0e0;
+            font-size: 0.85rem;
+            font-weight: 600;
+            cursor: pointer;
+        }
+
+        .card-style-select:focus {
+            outline: none;
+            border-color: #6a9fff;
+        }
+
         .status-bar {
             display: flex;
             gap: 12px;
@@ -334,6 +350,23 @@
             user-select: none;
             transition: transform 0.1s, opacity 0.1s;
             border: 2px solid transparent;
+        }
+
+        .entry-card img {
+            position: relative;
+            z-index: 1;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            pointer-events: none;
+        }
+
+        .card-vertical .entry-card { width: 76px; height: 114px; }
+        .card-horizontal .entry-card { width: 130px; height: 75px; }
+
+        .card-vertical .entry-card img,
+        .card-horizontal .entry-card img {
+            object-fit: contain;
         }
 
         .entry-card:hover {
@@ -776,6 +809,7 @@
         .drop-indicator {
             width: 3px;
             height: 75px;
+            align-self: stretch;
             background: #6a9fff;
             border-radius: 2px;
             flex-shrink: 0;
@@ -919,6 +953,11 @@
             </svg>
             Side
         </button>
+        <select id="card-style-select" class="card-style-select" onchange="changeCardStyle()" title="Poster orientation">
+            <option value="square">Square</option>
+            <option value="vertical">Vertical</option>
+            <option value="horizontal">Horizontal</option>
+        </select>
         <button class="btn btn-danger" onclick="deleteTierlist()">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
                  stroke-linejoin="round">
@@ -1052,6 +1091,7 @@
 
     let tiers = DATA.tiers || [];
     let entries = DATA.entries || [];
+    let cardStyle = DATA.card_style || "square";
     let dirty = false;
     let editingEntryId = null;
     let editingTierId = null;
@@ -1109,7 +1149,7 @@
                 id: DATA.id, slug: SLUG,
                 title: document.getElementById("tl-title").value,
                 description: document.getElementById("tl-desc").value,
-                published: DATA.published, tiers: tiers, entries: entries
+                published: DATA.published, card_style: cardStyle, tiers: tiers, entries: entries
             }));
         }, 2000);
     }
@@ -1135,6 +1175,23 @@
         document.getElementById("status-text").className = "status-saving";
     }
 
+    function applyCardStyle() {
+        const c = document.getElementById("app-container");
+        c.classList.remove("card-square", "card-vertical", "card-horizontal");
+        c.classList.add("card-" + cardStyle);
+        const sel = document.getElementById("card-style-select");
+        if (sel) sel.value = cardStyle;
+    }
+
+    applyCardStyle();
+
+    function changeCardStyle() {
+        cardStyle = document.getElementById("card-style-select").value;
+        applyCardStyle();
+        markDirty();
+        broadcastState();
+    }
+
     function scheduleAutoSave() {
         if (saveTimer) clearTimeout(saveTimer);
         saveTimer = setTimeout(() => autoSave(), 1200);
@@ -1152,6 +1209,7 @@
         const payload = {
             title: document.getElementById("tl-title").value,
             description: document.getElementById("tl-desc").value,
+            card_style: cardStyle,
             tiers: tiers.map((t, i) => ({id: t.id, name: t.name, color: t.color, position: i})),
             entries: entries.map(e => ({id: e.id, tier_id: e.tier_id, name: e.name, position: e.position}))
         };
@@ -1351,10 +1409,10 @@
         card.dataset.entryId = entry.id;
 
         let inner = "";
-        if (entry.thumb_path) {
-            inner = '<img src="' + esc(entry.thumb_path) + '" alt="' + esc(entry.name) + '" loading="lazy">';
-        } else if (entry.image_path) {
-            inner = '<img src="' + esc(entry.image_path) + '" alt="' + esc(entry.name) + '" loading="lazy">';
+        const src = entry.thumb_path || entry.image_path;
+        if (src) {
+            inner = '<div class="entry-bg" style="background-image:url(' + esc(src) + ')"></div>' +
+                '<img src="' + esc(src) + '" alt="' + esc(entry.name) + '" loading="lazy">';
         } else {
             inner = '<div class="text-entry">' + esc(entry.name || "\u2014") + '</div>';
         }

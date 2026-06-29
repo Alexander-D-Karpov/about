@@ -8,6 +8,7 @@ type Tierlist struct {
 	Title       string    `json:"title"`
 	Description string    `json:"description"`
 	Published   bool      `json:"published"`
+	CardStyle   string    `json:"card_style"`
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
 	Tiers       []Tier    `json:"tiers"`
@@ -35,6 +36,7 @@ type Entry struct {
 type SaveRequest struct {
 	Title       string          `json:"title"`
 	Description string          `json:"description"`
+	CardStyle   string          `json:"card_style"`
 	Tiers       []TierSaveData  `json:"tiers"`
 	Entries     []EntrySaveData `json:"entries"`
 }

@@ -14,7 +14,8 @@ import (
 	_ "golang.org/x/image/webp"
 )
 
-const thumbSize = 200
+const thumbW = 300
+const thumbH = 300
 
 func generateThumbnail(srcPath, thumbDir string) (string, error) {
 	if err := os.MkdirAll(thumbDir, 0755); err != nil {
@@ -27,18 +28,16 @@ func generateThumbnail(srcPath, thumbDir string) (string, error) {
 	}
 	defer f.Close()
 
-	_, format, err := image.DecodeConfig(f)
-	if err != nil {
+	if _, _, err := image.DecodeConfig(f); err != nil {
 		return "", fmt.Errorf("unsupported image format: %w", err)
 	}
-	_ = format
 
 	img, err := imaging.Open(srcPath, imaging.AutoOrientation(true))
 	if err != nil {
 		return "", err
 	}
 
-	thumb := imaging.Fill(img, thumbSize, thumbSize, imaging.Center, imaging.Lanczos)
+	thumb := imaging.Fit(img, thumbW, thumbH, imaging.Lanczos)
 
 	base := filepath.Base(srcPath)
 	ext := filepath.Ext(base)

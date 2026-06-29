@@ -43,7 +43,7 @@ func (s *Store) Close() {
 }
 
 func (s *Store) loadCache() error {
-	rows, err := s.db.Query(`SELECT id, slug, title, description, published, created_at, updated_at FROM tierlists ORDER BY created_at DESC`)
+	rows, err := s.db.Query(`SELECT id, slug, title, description, published, card_style, created_at, updated_at FROM tierlists ORDER BY created_at DESC`)
 	if err != nil {
 		return err
 	}
@@ -51,7 +51,7 @@ func (s *Store) loadCache() error {
 
 	for rows.Next() {
 		tl := &Tierlist{}
-		if err := rows.Scan(&tl.ID, &tl.Slug, &tl.Title, &tl.Description, &tl.Published, &tl.CreatedAt, &tl.UpdatedAt); err != nil {
+		if err := rows.Scan(&tl.ID, &tl.Slug, &tl.Title, &tl.Description, &tl.Published, &tl.CardStyle, &tl.CreatedAt, &tl.UpdatedAt); err != nil {
 			return err
 		}
 		if err := s.loadTierlistRelations(tl); err != nil {
@@ -163,13 +163,14 @@ func (s *Store) Create(title, description string) (*Tierlist, error) {
 		Title:       title,
 		Description: description,
 		Published:   false,
+		CardStyle:   "square",
 		CreatedAt:   now,
 		UpdatedAt:   now,
 	}
 
 	err := s.db.QueryRow(
-		`INSERT INTO tierlists (slug, title, description, published, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
-		tl.Slug, tl.Title, tl.Description, tl.Published, tl.CreatedAt, tl.UpdatedAt,
+		`INSERT INTO tierlists (slug, title, description, published, card_style, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
+		tl.Slug, tl.Title, tl.Description, tl.Published, tl.CardStyle, tl.CreatedAt, tl.UpdatedAt,
 	).Scan(&tl.ID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to insert tierlist: %w", err)
@@ -208,9 +209,14 @@ func (s *Store) Save(slug string, req SaveRequest) error {
 	}
 	defer tx.Rollback()
 
+	style := req.CardStyle
+	if style != "vertical" && style != "horizontal" && style != "square" {
+		style = "square"
+	}
+
 	now := time.Now()
-	_, err = tx.Exec(`UPDATE tierlists SET title=$1, description=$2, updated_at=$3 WHERE id=$4`,
-		req.Title, req.Description, now, tl.ID)
+	_, err = tx.Exec(`UPDATE tierlists SET title=$1, description=$2, card_style=$3, updated_at=$4 WHERE id=$5`,
+		req.Title, req.Description, style, now, tl.ID)
 	if err != nil {
 		return err
 	}
@@ -282,6 +288,7 @@ func (s *Store) Save(slug string, req SaveRequest) error {
 	s.mu.Lock()
 	tl.Title = req.Title
 	tl.Description = req.Description
+	tl.CardStyle = style
 	tl.UpdatedAt = now
 	if reloaded.Tiers != nil {
 		tl.Tiers = reloaded.Tiers
@@ -479,4 +486,27 @@ func (s *Store) AddTier(tierlistID int, slug string, tier Tier) (*Tier, error) {
 	s.mu.Unlock()
 
 	return &tier, nil
+}
+
+func (s *Store) RegenThumb(entryID int, thumbPath string) error {
+	_, err := s.db.Exec(`UPDATE tier_entries SET thumb_path=$1 WHERE id=$2`, thumbPath, entryID)
+	return err
+}
+
+func (s *Store) reloadOne(slug string) error {
+	s.mu.RLock()
+	tl := s.cache[slug]
+	s.mu.RUnlock()
+	if tl == nil {
+		return fmt.Errorf("not found")
+	}
+	reloaded := &Tierlist{ID: tl.ID}
+	if err := s.loadTierlistRelations(reloaded); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	tl.Tiers = reloaded.Tiers
+	tl.Entries = reloaded.Entries
+	s.mu.Unlock()
+	return nil
 }

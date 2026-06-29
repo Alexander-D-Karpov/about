@@ -353,23 +353,27 @@ func (m *Manager) getEnabledPluginsLocked() []Plugin {
 		}
 	}
 
-	sort.Slice(enabled, func(i, j int) bool {
+	sort.SliceStable(enabled, func(i, j int) bool {
 		configI := m.storage.GetPluginConfig(enabled[i].Name())
 		configJ := m.storage.GetPluginConfig(enabled[j].Name())
 		return configI.Order < configJ.Order
 	})
 
-	var webring, profile, projects, middle []Plugin
-	for _, p := range enabled {
-		switch p.Name() {
+	var webring []Plugin
+	var profile []Plugin
+	var middle []Plugin
+	var projects []Plugin
+
+	for _, plugin := range enabled {
+		switch plugin.Name() {
 		case "webring":
-			webring = append(webring, p)
+			webring = append(webring, plugin)
 		case "profile":
-			profile = append(profile, p)
+			profile = append(profile, plugin)
 		case "projects":
-			projects = append(projects, p)
+			projects = append(projects, plugin)
 		default:
-			middle = append(middle, p)
+			middle = append(middle, plugin)
 		}
 	}
 
@@ -378,6 +382,7 @@ func (m *Manager) getEnabledPluginsLocked() []Plugin {
 	result = append(result, profile...)
 	result = append(result, middle...)
 	result = append(result, projects...)
+
 	return result
 }
 

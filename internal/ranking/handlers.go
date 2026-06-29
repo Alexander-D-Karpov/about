@@ -84,6 +84,8 @@ func (h *Handler) setupRoutes() {
 	admin.HandleFunc("/{slug}/entry", h.handleAddEntry).Methods("POST")
 	admin.HandleFunc("/{slug}/entry/{entryId}/delete", h.handleDeleteEntry).Methods("POST")
 	admin.HandleFunc("/{slug}/upload-url", h.handleUploadURL).Methods("POST")
+	admin.HandleFunc("/{slug}/regen-thumbs", h.handleRegenThumbs).Methods("POST")
+	admin.HandleFunc("/{slug}/clean-thumbs", h.handleCleanThumbs).Methods("POST")
 }
 
 func (h *Handler) basicAuth(next http.Handler) http.Handler {
@@ -704,4 +706,92 @@ func resolveImageURL(rawURL string) string {
 func (h *Handler) handleWS(w http.ResponseWriter, r *http.Request) {
 	slug := mux.Vars(r)["slug"]
 	h.ws.ServeWS(w, r, slug)
+}
+
+func (h *Handler) handleRegenThumbs(w http.ResponseWriter, r *http.Request) {
+	slug := mux.Vars(r)["slug"]
+	tl := h.store.GetBySlug(slug)
+	if tl == nil {
+		jsonError(w, "not found", 404)
+		return
+	}
+
+	dir := filepath.Join(h.config.MediaPath, "ranking", slug)
+	thumbDir := filepath.Join(dir, "thumbs")
+
+	regenerated := 0
+	failed := 0
+	for _, e := range tl.Entries {
+		if e.ImagePath == "" {
+			continue
+		}
+		rel := strings.TrimPrefix(e.ImagePath, "/media/")
+		srcPath := filepath.Join(h.config.MediaPath, rel)
+		if strings.HasSuffix(strings.ToLower(srcPath), ".svg") {
+			continue
+		}
+		if _, err := os.Stat(srcPath); err != nil {
+			failed++
+			continue
+		}
+		thumbName, err := generateThumbnail(srcPath, thumbDir)
+		if err != nil {
+			log.Printf("[Ranking] regen failed for %s: %v", srcPath, err)
+			failed++
+			continue
+		}
+		newThumb := fmt.Sprintf("/media/ranking/%s/thumbs/%s", slug, thumbName)
+		if newThumb != e.ThumbPath {
+			_, _ = h.store.db.Exec(`UPDATE tier_entries SET thumb_path=$1 WHERE id=$2`, newThumb, e.ID)
+		}
+		regenerated++
+	}
+
+	if err := h.store.reloadOne(slug); err != nil {
+		log.Printf("[Ranking] reload after regen failed: %v", err)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]int{"regenerated": regenerated, "failed": failed})
+}
+
+func (h *Handler) handleCleanThumbs(w http.ResponseWriter, r *http.Request) {
+	slug := mux.Vars(r)["slug"]
+	tl := h.store.GetBySlug(slug)
+	if tl == nil {
+		jsonError(w, "not found", 404)
+		return
+	}
+
+	keep := make(map[string]bool)
+	for _, e := range tl.Entries {
+		if e.ThumbPath == "" {
+			continue
+		}
+		keep[filepath.Base(e.ThumbPath)] = true
+	}
+
+	thumbDir := filepath.Join(h.config.MediaPath, "ranking", slug, "thumbs")
+	files, err := os.ReadDir(thumbDir)
+	if err != nil {
+		jsonError(w, "read thumbs dir: "+err.Error(), 500)
+		return
+	}
+
+	removed := 0
+	for _, f := range files {
+		if f.IsDir() {
+			continue
+		}
+		if !keep[f.Name()] {
+			if err := os.Remove(filepath.Join(thumbDir, f.Name())); err != nil {
+				log.Printf("[Ranking] failed to remove orphan thumb %s: %v", f.Name(), err)
+				continue
+			}
+			removed++
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]int{"removed": removed, "kept": len(keep)})
 }

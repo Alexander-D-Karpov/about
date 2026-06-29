@@ -489,6 +489,12 @@
 
         oldEl.replaceWith(newSection);
 
+        if (data.plugin === 'projects') {
+            newSection.dataset.fixedTail = '1';
+            clearMosaicLayoutState(newSection);
+            mountProjectsTail();
+        }
+
         if (typeof window.initTechFiltering === 'function' && data.plugin === 'techstack') {
             window.initTechFiltering();
         } else if (typeof window.initCodeToggles === 'function' && data.plugin === 'code') {

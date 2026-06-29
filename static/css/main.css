@@ -1000,3 +1000,36 @@ body.scroll-locked {
     max-height: none;
     overflow: visible;
 }
+
+.js .mosaic {
+    padding-bottom: 12px;
+}
+
+.js .container > .projects-section {
+    display: block;
+    position: relative;
+
+    width: 100%;
+    max-width: none;
+
+    height: auto !important;
+    min-height: 0 !important;
+
+    margin: 0 0 48px;
+    align-self: stretch;
+
+    grid-column: auto !important;
+    grid-row: auto !important;
+}
+
+.js .container > .projects-section .projects-grid {
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+}
+
+.js .container > .projects-section .plugin-header {
+    cursor: default;
+}
+
+.js .container > .projects-section .plugin-toolbar {
+    display: none !important;
+}

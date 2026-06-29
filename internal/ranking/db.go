@@ -28,9 +28,11 @@ func runMigrations(db *sql.DB) error {
 			title TEXT NOT NULL,
 			description TEXT DEFAULT '',
 			published BOOLEAN DEFAULT FALSE,
+			card_style TEXT NOT NULL DEFAULT 'square',
 			created_at TIMESTAMPTZ DEFAULT NOW(),
 			updated_at TIMESTAMPTZ DEFAULT NOW()
 		)`,
+		`ALTER TABLE tierlists ADD COLUMN IF NOT EXISTS card_style TEXT NOT NULL DEFAULT 'square'`,
 		`CREATE TABLE IF NOT EXISTS tiers (
 			id SERIAL PRIMARY KEY,
 			tierlist_id INTEGER NOT NULL REFERENCES tierlists(id) ON DELETE CASCADE,

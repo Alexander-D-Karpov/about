@@ -104,27 +104,6 @@
                 }, 1500);
             }, {passive: false});
         }
-
-        if (!sec.querySelector('.meme-mobile-btn')) {
-            const mobileBtn = document.createElement('button');
-            mobileBtn.className = 'meme-mobile-btn btn';
-            mobileBtn.type = 'button';
-            mobileBtn.innerHTML = '↻ New Meme';
-            mobileBtn.addEventListener('click', (e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                if (mobileBtn.disabled) return;
-                mobileBtn.disabled = true;
-                mobileBtn.textContent = '…';
-                doRefresh();
-                setTimeout(() => {
-                    mobileBtn.disabled = false;
-                    mobileBtn.innerHTML = '↻ New Meme';
-                }, 1500);
-            }, {passive: false});
-            const inner = sec.querySelector('.plugin__inner');
-            if (inner) inner.appendChild(mobileBtn);
-        }
     }
 
     function initVisitors(){ $$('.visitors-section .visitor-stat').forEach(s => s.style.cursor='pointer'); }
