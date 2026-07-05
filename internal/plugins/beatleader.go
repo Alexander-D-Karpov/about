@@ -484,18 +484,6 @@ func (p *BeatLeaderPlugin) Render(ctx context.Context) (string, error) {
 	return buf.String(), err
 }
 
-func formatNumberWithCommas(n int64) string {
-	str := fmt.Sprintf("%d", n)
-	var result []rune
-	for i, r := range str {
-		if i > 0 && (len(str)-i)%3 == 0 {
-			result = append(result, ',')
-		}
-		result = append(result, r)
-	}
-	return string(result)
-}
-
 func (p *BeatLeaderPlugin) renderLoading(settings map[string]interface{}) string {
 	sectionTitle := p.getConfigValue(settings, "ui.sectionTitle", "BeatLeader Stats")
 	loadingText := p.getConfigValue(settings, "ui.loadingText", "Loading BeatLeader data...")

@@ -1,0 +1,309 @@
+{{define "page"}}<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>sanspie</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/css/main.css">
+</head>
+<body>
+<div class="page" id="page" data-theme="{{.Theme}}">
+    <canvas id="gol" class="gol-canvas"></canvas>
+    <div class="gol-ctl">
+        <span class="gol-ctl__label">game of life</span>
+        <div class="gol-ctl__row">
+            <button class="gol-btn" id="gol-run" title="play / pause">❚❚</button>
+            <button class="gol-btn" id="gol-rand" title="randomize">{{icon "shuffle" "currentColor" 15}}</button>
+            <button class="gol-btn gol-btn--wide" id="gol-full" title="fullscreen life">view life</button>
+            <button class="gol-btn" id="theme-toggle" title="theme">{{icon "sun" "#f0c040" 15}}</button>
+        </div>
+    </div>
+    <div class="expand-backdrop" id="expand-backdrop"><button class="expand-close" id="expand-close">✕</button></div>
+    <div class="root">
+        {{template "topbar" .Top}}
+        {{template "section_profile" .Profile}}
+        {{template "section_health" .Health}}
+        {{template "section_music" .Music}}
+        {{template "section_code" .Code}}
+        {{template "section_tech" .Tech}}
+        {{template "section_games" .Games}}
+        {{template "section_travel" .Travel}}
+        {{template "section_hosting" .Hosting}}
+        {{template "section_machines" .Machines}}
+        {{template "section_projects" .Projects}}
+        <div class="root__foot"><span class="dot dot--green"></span>source on github</div>
+    </div>
+</div>
+<div id="custom-music-player" style="display:none">
+    <div class="player-artwork-mini"><img id="player-artwork-mini" src="" alt=""></div>
+    <div class="player-info"><div class="player-track-name" id="player-track-name"></div><div class="player-artist-name" id="player-artist-name"></div></div>
+    <div class="player-progress-container"><div class="player-progress-bar" id="player-progress-bar"><div class="player-progress-fill" id="player-progress-fill"></div></div><div class="player-time"><span id="player-current-time">0:00</span><span id="player-duration">0:00</span></div></div>
+    <div class="player-controls">
+        <button class="player-btn" id="player-play-pause" onclick="toggleMusicPlayPause()"><svg id="play-pause-icon" width="18" height="18" viewBox="0 0 24 24"><path fill="currentColor" d="M8 5v14l11-7z"/></svg></button>
+        <button class="player-btn player-btn--close" onclick="stopMusicPlayback()" title="Close"><svg width="16" height="16" viewBox="0 0 24 24"><path fill="currentColor" d="M18.3 5.71L12 12.01l-6.3-6.3-1.4 1.41 6.29 6.3-6.3 6.29 1.41 1.42 6.3-6.3 6.29 6.3 1.42-1.42-6.3-6.29 6.3-6.3z"/></svg></button>
+    </div>
+    <input type="range" id="player-volume" class="player-volume" min="0" max="100" value="80">
+</div>
+<audio id="lastfm-audio-element" preload="none"></audio>
+<script src="/static/js/app.js"></script>
+<script src="/static/js/live.js"></script>
+<script src="/static/js/music-player.js"></script>
+<script src="/static/js/music-recents.js"></script>
+<script src="/static/js/bike-map.js"></script>
+<script src="/static/js/places-map.js"></script>
+<script src="/static/js/greetings.js"></script>
+<script src="/static/js/lastfm-top.js"></script>
+</body>
+</html>{{end}}
+
+{{define "topbar"}}
+<div class="topbar">
+    <div class="ring">
+        <a class="ring__cell" data-ring="prev" href="{{.Webring.Prev.URL}}" rel="prev"><span class="ring__arr">←</span>{{if .Webring.Prev.Favicon}}<img class="ring__fav" src="{{.Webring.Prev.Favicon}}" alt="" width="16" height="16" style="border-radius:3px;vertical-align:middle">{{else}}<span>{{.Webring.Prev.Emoji}}</span>{{end}}<span class="ring__name">{{.Webring.Prev.Name}}</span></a>
+        <a class="ring__cell ring__cell--mid" href="{{.Webring.BaseURL}}"><span class="ring__tag">webring</span></a>
+        <a class="ring__cell" data-ring="next" href="{{.Webring.Next.URL}}" rel="next"><span class="ring__name">{{.Webring.Next.Name}}</span>{{if .Webring.Next.Favicon}}<img class="ring__fav" src="{{.Webring.Next.Favicon}}" alt="" width="16" height="16" style="border-radius:3px;vertical-align:middle">{{else}}<span>{{.Webring.Next.Emoji}}</span>{{end}}<span class="ring__arr">→</span></a>
+    </div>
+    <div class="status">
+        <span class="status__on"><span class="status__dot"></span>online</span>
+        <span class="status__sep">·</span>
+        <span><span class="status__hi" id="clock">{{.Status.ClockInit}}</span> MSK</span>
+        <span class="status__sep">·</span>
+        <span>up <span class="status__hi" id="uptime" data-uptime="{{.Status.UptimeSeconds}}">—</span></span>
+        <span class="status__sep">·</span>
+        <span><span class="status__blue">{{.Status.VisitsTotal}}</span> visits · <span class="status__green" id="connected-clients">{{.Status.VisitorsToday}}</span> today</span>
+    </div>
+</div>
+{{end}}
+
+{{define "section_profile"}}
+<section data-section="profile" data-screen-label="Profile" class="profile-section">
+    <div class="card hero">
+        <div class="hero__inner">
+            <img class="hero__avatar" src="{{.Avatar}}" alt="{{.Name}}">
+            <div class="hero__body">
+                <h1 class="hero__name">{{.Name}}</h1>
+                <div class="hero__role">{{range .Role}}<span style="color:{{.Color}}">{{.Text}}</span> {{end}}</div>
+                <div class="hero__stack">{{range .Stack}}<span style="color:{{.Color}}">{{.Text}}</span>{{end}}</div>
+                <p class="hero__bio">{{.Bio}}</p>
+                <div class="hero__socials">{{range .Socials}}<a class="soctile" href="{{.Href}}" title="{{.Label}}" target="_blank" rel="noopener">{{icon .Icon .Color 19}}</a>{{end}}</div>
+                {{if .TierURL}}<a class="tier-link" href="{{.TierURL}}">{{icon "chart" "#7db5ff" 14}} Tier Rankings</a>{{end}}
+            </div>
+        </div>
+    </div>
+</section>
+{{end}}
+
+{{define "section_health"}}
+<section data-section="health" class="health-section">
+    <div class="health">
+        {{range .}}
+        <div class="health__card">
+            <div class="health__head"><span style="color:{{.Color}};display:inline-flex">{{icon .Icon .Color 14}}</span><span class="health__label">{{.Label}}</span></div>
+            <div class="health__val" style="color:{{.Color}}">{{.Value}}<span class="health__unit"> {{.Unit}}</span></div>
+            {{spark .Kind .Data .Color}}
+            <div class="health__sub">{{.Sub}}</div>
+        </div>
+        {{end}}
+    </div>
+</section>
+{{end}}
+
+{{define "section_music"}}
+<section id="sec-music" data-section="music" data-screen-label="Music" class="lastfm-section">
+    <div class="sec__head"><span class="sec__ico sec__ico--green">{{icon "music" "#10d060" 17}}</span><span class="sec__title">Music</span><span class="sec__rule"></span><span class="sec__meta">last.fm{{if .SpotifyConnected}} · spotify{{end}}</span><button class="expand-btn" data-expand="sec-music" title="Expand">{{icon "expand" "currentColor" 15}}</button></div>
+    {{if or .LovedCount .SpotifyConnected}}<div class="music__likes">{{if .LovedCount}}<span><span style="color:#e8557a">♥&nbsp;{{.LovedCount}}</span>&nbsp;loved</span>{{end}}{{if and .LovedCount .SpotifyConnected}}<span class="music__likes-sep">·</span>{{end}}{{if .SpotifyConnected}}<span><span style="color:#10d060">{{.SpotifyLikedCount}}</span>&nbsp;liked on Spotify</span>{{end}}</div>{{end}}
+    <div class="grid-4 mb14">
+        {{range .Totals}}
+        <div class="total" style="background:{{.Color}}"><div class="total__label">{{.Label}}</div><div class="total__row"><div style="display:flex;align-items:baseline;gap:7px"><span class="total__val">{{.Value}}</span><span class="total__delta">{{.Delta}}</span></div>{{barsSpark .Spark}}</div></div>
+        {{end}}
+    </div>
+    <div class="music__main">
+        <div class="card pad current-track" data-artist="{{.Now.Artist}}" data-track="{{.Now.Title}}">
+            <div class="np" data-playing="{{.Now.Playing}}" data-started="{{.Now.StartedAt}}" data-duration="{{.Now.DurationSec}}">
+                <div class="np__artwrap">
+                    <img class="np__art" src="{{.Now.Art}}" alt="">
+                    <span class="np__pill {{if .Now.Playing}}is-playing{{end}}"><span class="np__pdot"></span>{{if .Now.Playing}}PLAYING{{else}}PLAYED{{end}}</span>
+                </div>
+                <div class="np__info">
+                    <div class="np__head">
+                        <div class="np__title">{{.Now.Title}}</div>
+                        <div class="np__artist">{{.Now.Artist}}</div>
+                        {{if .Now.Album}}<div class="np__album">{{.Now.Album}}</div>{{end}}
+                    </div>
+                    <div class="np__foot">
+                        {{if .Now.Playing}}
+                        <div class="np__progress">
+                            <div class="np__bar"><div class="np__fill" style="width:{{.Now.ProgressPct}}"></div></div>
+                            <div class="np__time"><span class="np__elapsed">{{.Now.Elapsed}}</span><span>{{.Now.Duration}}</span></div>
+                        </div>
+                        {{end}}
+                        <div class="np__row">
+                            <button class="np__play np__play--sm" onclick="playCurrentLastFMTrack()" title="Play"><svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M8 5v14l11-7z"/></svg></button>
+                            <a class="btn-lfm btn-lfm--sm" href="{{.Now.LastfmURL}}" target="_blank" rel="noopener">{{icon "lastfm" "#fff" 13}}Last.fm</a>
+                            {{if .Now.LovedLastfm}}<span class="np__chip np__chip--loved" title="Loved on Last.fm">♥</span>{{end}}
+                            {{if .Now.LikedSpotify}}<span class="np__chip np__chip--spotify" title="Liked on Spotify"><svg viewBox="0 0 24 24" width="13" height="13" fill="#10d060"><path d="M12 0C5.4 0 0 5.4 0 12s5.4 12 12 12 12-5.4 12-12S18.66 0 12 0zm5.5 17.35c-.23.38-.72.5-1.1.28-3-1.84-6.78-2.25-11.24-1.23-.43.1-.87-.17-.96-.6-.1-.44.17-.87.6-.97 4.88-1.11 9.06-.64 12.42 1.42.38.23.5.72.28 1.1zm1.47-3.27c-.28.46-.9.6-1.36.32-3.44-2.11-8.68-2.72-12.75-1.49-.52.16-1.07-.13-1.23-.65-.16-.52.13-1.07.65-1.23 4.65-1.41 10.43-.73 14.38 1.7.46.28.6.9.31 1.35zm.13-3.4C15.53 8.28 8.6 8.05 4.9 9.18c-.62.19-1.28-.16-1.47-.78-.19-.62.16-1.28.78-1.47 4.25-1.29 11.9-1.04 16.14 1.48.56.33.74 1.05.41 1.61-.33.55-1.05.73-1.61.4z"/></svg></span>{{end}}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="card pad recent"><div class="recent__h">Recently played</div><div class="recent__list">
+            {{range .Recent}}<div class="recent__item" data-play="{{.Artist}} {{.Title}}">{{if .Image}}<img class="recent__ico" style="object-fit:cover" src="{{.Image}}" alt="" loading="lazy">{{else}}<span class="recent__ico" style="background:{{.Bg}};color:{{.Color}}">{{.Initial}}</span>{{end}}<div class="recent__info"><div class="recent__name">{{.Title}}{{if .Loved}} <span style="color:#e8557a">♥</span>{{end}}{{if .LikedSpotify}} <svg viewBox="0 0 24 24" width="11" height="11" fill="#10d060" style="vertical-align:-1px" title="Liked on Spotify"><path d="M12 0C5.4 0 0 5.4 0 12s5.4 12 12 12 12-5.4 12-12S18.66 0 12 0zm5.5 17.35c-.23.38-.72.5-1.1.28-3-1.84-6.78-2.25-11.24-1.23-.43.1-.87-.17-.96-.6-.1-.44.17-.87.6-.97 4.88-1.11 9.06-.64 12.42 1.42.38.23.5.72.28 1.1zm1.47-3.27c-.28.46-.9.6-1.36.32-3.44-2.11-8.68-2.72-12.75-1.49-.52.16-1.07-.13-1.23-.65-.16-.52.13-1.07.65-1.23 4.65-1.41 10.43-.73 14.38 1.7.46.28.6.9.31 1.35zm.13-3.4C15.53 8.28 8.6 8.05 4.9 9.18c-.62.19-1.28-.16-1.47-.78-.19-.62.16-1.28.78-1.47 4.25-1.29 11.9-1.04 16.14 1.48.56.33.74 1.05.41 1.61-.33.55-1.05.73-1.61.4z"/></svg>{{end}}</div><div class="recent__artist">{{.Artist}}</div></div><div class="recent__ago">{{.Ago}}</div></div>{{end}}
+        </div></div>
+    </div>
+    <div class="lfmrow mt14">
+        <div class="card pad" data-lfm-top="artists">
+            <div class="lfm__h"><span>Top Artists</span>
+                <select class="lfm-period" data-lfm-period="artists" aria-label="Top artists period">
+                    <option value="overall" selected>all time</option>
+                    <option value="7day">7 days</option>
+                    <option value="1month">30 days</option>
+                    <option value="3month">90 days</option>
+                    <option value="6month">180 days</option>
+                    <option value="12month">365 days</option>
+                </select>
+            </div>
+            <div class="cover4" data-lfm-grid="artists">{{range .TopArtists}}<div class="cover" style="background:{{.Bg}}">{{if .Image}}<img src="{{.Image}}" alt="">{{end}}<div class="cover__shade"></div><div class="cover__cap"><div class="cover__name">{{.Name}}</div><div class="cover__plays">{{.Plays}}</div></div></div>{{end}}</div>
+        </div>
+        <div class="card pad" data-lfm-top="albums">
+            <div class="lfm__h"><span>Top Albums</span>
+                <select class="lfm-period" data-lfm-period="albums" aria-label="Top albums period">
+                    <option value="overall" selected>all time</option>
+                    <option value="7day">7 days</option>
+                    <option value="1month">30 days</option>
+                    <option value="3month">90 days</option>
+                    <option value="6month">180 days</option>
+                    <option value="12month">365 days</option>
+                </select>
+            </div>
+            <div class="cover4" data-lfm-grid="albums">{{range .TopAlbums}}<div class="cover" style="background:{{.Bg}}">{{if .Image}}<img src="{{.Image}}" alt="">{{end}}<div class="cover__shade"></div><div class="cover__cap"><div class="cover__name">{{.Name}}</div><div class="cover__plays">{{.Plays}}</div></div></div>{{end}}</div>
+        </div>
+    </div>
+    <div class="grid-2 mt14">
+        <div class="card pad"><div class="lfm__h"><span class="cap">Weekly scrobbles</span><span class="lfm__sub">busiest · {{.WeeklyPeak}}</span></div><canvas id="weekly" class="weekly" width="520" height="200"></canvas><div class="weekly__days"><span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span><span>Sun</span></div></div>
+        <div class="card pad"><div class="cap mb16">Top genres</div><div class="tags">{{range .Tags}}<span class="tag" style="font-size:{{.SizePx}}px;color:{{.Color}}">{{.Name}}<span class="tag__n">{{.Plays}}</span></span>{{end}}</div></div>
+    </div>
+    <script type="application/json" id="weekly-data">{{.WeeklyJSON}}</script>
+</section>
+{{end}}
+
+{{define "section_code"}}
+<section id="sec-code" data-section="code" data-screen-label="Code" class="code-section">
+    <div class="sec__head"><span class="sec__ico sec__ico--blue">{{icon "code" "#4d9fff" 17}}</span><span class="sec__title">Code</span><span class="sec__rule"></span><span class="sec__meta">github · gitea</span><button class="expand-btn" data-expand="sec-code" title="Expand">{{icon "expand" "currentColor" 15}}</button></div>
+    <div class="grid-4 mb14">
+        {{range .Totals}}<div class="ctotal"><div class="ctotal__bar" style="background:{{.Accent}}"></div><div class="ctotal__head"><span class="ctotal__ico" style="background:{{.Chip}};color:{{.Accent}}">{{icon .Icon .Accent 15}}</span><span class="ctotal__label">{{.Label}}</span></div><div class="ctotal__val">{{.Value}}</div></div>{{end}}
+    </div>
+    <div class="card pad mb14">
+        <div class="contrib__h"><span class="contrib__title">{{.ContribTitle}}</span><span class="lfm__sub">github · gitea</span></div>
+        <div class="contrib">
+            <div>
+                <div class="heat"><div class="heat__dow"><span></span><span>Mon</span><span></span><span>Wed</span><span></span><span>Fri</span><span></span></div><div class="heat__cells">{{range .ContribCells}}<div title="{{.Title}}" style="background:{{.Color}}"></div>{{end}}</div></div>
+                <div class="heat__legend">Less<span style="background:{{.HeatEmpty}}"></span><span style="background:rgba(16,208,96,.34)"></span><span style="background:rgba(16,208,96,.62)"></span><span style="background:#10d060"></span>More</div>
+            </div>
+            <div class="cstats">{{range .ContribStats}}<div><div style="display:flex;align-items:baseline;gap:6px"><span class="cstats__v" style="color:{{.Color}}">{{.Value}}</span><span class="cstats__u">{{.Unit}}</span></div><div class="cstats__l">{{.Label}}</div></div>{{end}}</div>
+        </div>
+    </div>
+    <div class="grid-2" style="align-items:start">
+        <div class="card pad"><div class="lfm__h"><span class="cap">Languages</span><span class="lfm__sub">across repos</span></div><div class="langbar">{{range .Langs}}<span style="width:{{.Pct}};background:{{.Color}}"></span>{{end}}</div>{{range .Langs}}<div class="lang"><span class="lang__dot" style="background:{{.Color}}"></span><span class="lang__name">{{.Name}}</span><span class="lang__track"><span style="width:{{.BarPct}};background:{{.Color}}"></span></span><span class="lang__pct">{{.Pct}}</span></div>{{end}}</div>
+        <div class="card pad">
+            <div class="cap mb12">Recent activity</div>
+            {{range .Activity}}<div class="act"><span style="color:{{.Color}}">{{icon .Icon .Color 15}}</span><div class="act__b"><div class="act__t">{{.Text}}</div><div class="act__meta"><span>{{.Meta}}</span>{{if .HasDiff}}<span class="diff"><span class="diff__add">+{{.Add}}</span><span class="diff__del">−{{.Del}}</span>{{diffBar .DiffG}}</span>{{end}}</div></div></div>{{end}}
+            <div class="cap" style="margin:16px 0 12px">This week · <span style="color:#4d9fff">{{.WeekTotal}}</span></div>
+            {{range .ThisWeek}}<div class="week"><div class="week__top"><span>{{.Name}}</span><span class="week__time">{{.Time}}</span></div><div class="week__track"><span style="width:{{.Width}};background:{{.Color}}"></span></div></div>{{end}}
+        </div>
+    </div>
+</section>
+{{end}}
+
+{{define "section_tech"}}
+<section data-section="techstack" class="tech-section">
+    <div class="sec__head"><span class="sec__ico sec__ico--steel">{{icon "tech" "#9fb4c6" 17}}</span><span class="sec__title">Technologies</span><span class="sec__rule"></span></div>
+    <div class="card techwrap" style="padding:16px 18px">{{range .}}<span class="techchip"><span style="display:inline-flex;color:var(--ink-3)">{{icon .Icon "var(--ink-3)" 15}}</span>{{.Name}}</span>{{end}}</div>
+</section>
+{{end}}
+
+{{define "section_games"}}
+<section id="sec-games" data-section="games" data-screen-label="Games" class="steam-section">
+    <div class="sec__head"><span class="sec__ico sec__ico--purple">{{icon "games" "#b055ff" 17}}</span><span class="sec__title">Games</span><span class="sec__rule"></span><span class="sec__meta">steam · beatleader</span><button class="expand-btn" data-expand="sec-games" title="Expand">{{icon "expand" "currentColor" 15}}</button></div>
+    <div class="gamesrow mb14">
+        {{if .InGame}}
+        <div class="ingame"><img class="ingame__cover" src="{{.Current.Cover}}" alt=""><div class="ingame__b"><div><div class="ingame__tag"><span class="ingame__dot"></span>Currently in-game</div><div class="ingame__name">{{.Current.Name}}</div><div class="ingame__sub">{{.Current.Session}} · {{.Current.Total}} · {{.Current.Chapter}}</div></div><div class="ingame__row"><div class="ingame__ach"><div class="ingame__ach-h"><span>achievements</span><span>{{.Current.AchDone}} / {{.Current.AchTotal}}</span></div><div class="ingame__ach-t"><div style="width:{{.Current.AchPct}}"></div></div></div><a class="btn-steam" href="{{.Current.SteamURL}}" target="_blank" rel="noopener">View on Steam</a></div></div></div>
+        {{end}}
+        <div class="card pad recentgames"><div class="cap mb12">Recently played</div><div class="rg" style="grid-template-columns:{{if .InGame}}1fr{{else}}repeat(3,1fr){{end}}">{{range .RecentGames}}<div class="rg__item">{{if .Image}}<img class="rg__ico" src="{{.Image}}" alt="" loading="lazy" style="object-fit:cover">{{else}}<span class="rg__ico" style="background:{{.Bg}};color:{{.Color}}">{{.Initial}}</span>{{end}}<div style="min-width:0"><div class="rg__name">{{.Name}}</div><div class="rg__weeks">{{.Weeks}}</div></div></div>{{end}}</div></div>
+    </div>
+    <div class="grid-2-1">
+        <div class="col">
+            <div class="card pad"><div class="cap mb14">Top by playtime</div>{{range .TopGames}}<div class="tg"><span class="tg__rank">{{.Rank}}</span>{{if .Image}}<img class="tg__ico" src="{{.Image}}" alt="" loading="lazy" style="object-fit:cover">{{else}}<span class="tg__ico" style="background:{{.Bg}};color:{{.Color}}">{{.Initial}}</span>{{end}}<span class="tg__name">{{.Name}}</span><span class="tg__hrs">{{.Hours}}</span></div>{{end}}</div>
+            <div class="grid-2">
+                <div class="card pad"><div class="cap mb14">Top tags by playtime</div><div class="langbar langbar--tall">{{range .Genres}}<span style="width:{{.Share}};background:{{.Color}}"></span>{{end}}</div><div class="genlist">{{range .Genres}}<div class="gen"><span class="gen__dot" style="background:{{.Color}}"></span><span class="gen__name">{{.Name}}</span><span class="gen__hrs">{{.Hours}}</span></div>{{end}}</div></div>
+                <div class="card pad"><div class="cap mb8">Playtime by platform</div><canvas id="platform" class="donut" width="320" height="320"></canvas><div class="platlist">{{range .Platforms}}<div class="plat"><span class="plat__dot" style="background:{{.Color}}"></span>{{.Name}}</div>{{end}}</div></div>
+            </div>
+        </div>
+        <div class="card pad">
+            <div class="cap cap--purple mb14">BeatLeader</div>
+            <div class="bl__box"><div class="bl__top"><div><div class="bl__l">Performance points</div><div class="bl__pp">{{.BL.PP}}<span class="bl__pp-u"> pp</span></div></div><div class="bl__ranks"><div class="bl__rank"><div class="bl__rank-v bl__rank-v--p">{{.BL.RankGlobal}}</div><div class="bl__rank-l">global</div></div><div class="bl__rank"><div class="bl__rank-v">{{.BL.RankRU}}</div><div class="bl__rank-l"><span class="flag-ru"></span> RU</div></div></div></div><div class="bl__stats"><div><div class="bl__sv">{{.BL.AvgAcc}}</div><div class="bl__sl">avg accuracy</div></div><div><div class="bl__sv">{{.BL.RankedPlays}}</div><div class="bl__sl">ranked plays</div></div><div><div class="bl__sv">{{.BL.Cubes}}</div><div class="bl__sl">cubes sliced</div></div></div></div>
+            <div class="cap mb12">Recent maps</div>
+            <div class="blmaps">{{range .BL.Maps}}{{if .Replay}}<a class="blmap" href="{{.Replay}}" target="_blank" rel="noopener noreferrer">{{if .Image}}<img class="blmap__ico" src="{{.Image}}" alt="" loading="lazy" style="object-fit:cover">{{else}}<span class="blmap__ico">{{.Initial}}</span>{{end}}<div class="blmap__b"><div class="blmap__name">{{.Name}}</div><div class="blmap__diff" style="color:{{.DiffColor}}">{{.Diff}}</div></div><div class="blmap__r"><div class="blmap__acc">{{.Acc}}</div><div class="blmap__pp">{{.PP}}</div></div></a>{{else}}<div class="blmap">{{if .Image}}<img class="blmap__ico" src="{{.Image}}" alt="" loading="lazy" style="object-fit:cover">{{else}}<span class="blmap__ico">{{.Initial}}</span>{{end}}<div class="blmap__b"><div class="blmap__name">{{.Name}}</div><div class="blmap__diff" style="color:{{.DiffColor}}">{{.Diff}}</div></div><div class="blmap__r"><div class="blmap__acc">{{.Acc}}</div><div class="blmap__pp">{{.PP}}</div></div></div>{{end}}{{end}}</div>
+        </div>
+    </div>
+    <script type="application/json" id="platform-data">{{.PlatformJSON}}</script>
+</section>
+{{end}}
+
+{{define "section_travel"}}
+<section id="sec-travel" data-section="travel" data-screen-label="Travel" class="bike-section">
+    <div class="sec__head"><span class="sec__ico sec__ico--amber">{{icon "bike" "#f0a040" 17}}</span><span class="sec__title">Travel &amp; photos</span><span class="sec__rule"></span><span class="sec__meta">rides · places · albums</span><button class="expand-btn" data-expand="sec-travel" title="Expand">{{icon "expand" "currentColor" 15}}</button></div>
+    <div class="card bikewrap mb14" style="padding:22px">
+        <div class="bikewrap__h">My little bike rides</div>
+        <div class="biketotals"><div><div class="biketotals__big" style="color:#f0a040">{{.Totals.Distance}}</div><div class="biketotals__sub">total distance · {{.Totals.Rides}} rides</div></div><div class="biketotals__grid"><div><div class="biketotals__v">{{.Totals.Elevation}}</div><div class="biketotals__l">elevation ↑</div></div><div><div class="biketotals__v">{{.Totals.Time}}</div><div class="biketotals__l">in the saddle</div></div><div><div class="biketotals__v">{{.Totals.Avg}}</div><div class="biketotals__l">avg ride</div></div><div><div class="biketotals__v">{{.Totals.Longest}}</div><div class="biketotals__l">longest</div></div></div></div>
+        <div class="bike-grid">
+            <div class="bike-map-container"><div class="map-loading" id="bike-map-loading"><span class="loading"></span></div><div class="bike-map" id="bike-map"></div><div class="map-controls"><button class="map-control-btn" id="bike-fit-bounds" title="Fit all">⊡</button></div></div>
+            <div class="bike-rides-list">{{range $i, $r := .Rides}}<div class="bike-ride-item" data-ride="{{$i}}" style="border-left-color:{{$r.Color}}"><div class="bike-ride-info"><div style="display:flex;justify-content:space-between;gap:8px"><span class="bike-ride-name">{{$r.Name}}</span><span class="bike-ride-date">{{$r.Date}}</span></div><div class="bike-ride-chips"><span class="bike-chip">{{$r.Km}}</span><span class="bike-chip">{{$r.Elev}}</span><span class="bike-chip">{{$r.Time}}</span><span class="bike-chip">{{$r.Speed}}</span></div>{{if $r.Prof}}{{bikeSpark $r.Prof $r.Color}}{{end}}</div></div>{{end}}</div>
+        </div>
+    </div>
+    <div class="grid-1-1_35">
+        <div class="card pad" style="padding:22px"><div class="sub-title mb16">Visited places</div><div class="places-map-container"><div class="map-loading" id="map-loading"><span class="loading"></span></div><div class="places-map" id="places-map"></div><div class="map-controls"><button class="map-control-btn active" id="toggle-heatmap" title="Heatmap">◉</button><button class="map-control-btn" id="fit-bounds" title="Fit all">⊡</button></div></div></div>
+        <div class="card pad" style="padding:22px"><div class="albums__h"><span class="sub-title">Photos</span><span class="lfm__sub">{{len .Albums}} albums · {{.PlacesCount}}</span></div><div class="albums">{{range .Albums}}<div class="album"><div class="album__cover">{{if .Cover}}<img src="{{.Cover}}" alt="">{{end}}</div><div class="album__meta"><span class="album__name">{{.Name}}</span><span class="album__count">{{.Count}}</span></div></div>{{end}}</div></div>
+    </div>
+    <script type="application/json" id="bike-data">{{.BikeJSON}}</script>
+    <script type="application/json" id="places-data">{{.PlacesJSON}}</script>
+    <script type="application/json" id="places-config">{{.PlacesConfig}}</script>
+</section>
+{{end}}
+
+{{define "section_hosting"}}
+<section id="sec-hosting" data-section="services" data-screen-label="Hosting" class="services-section">
+    <div class="sec__head"><span class="sec__ico sec__ico--teal">{{icon "host" "#2fd4c4" 17}}</span><span class="sec__title">Stuff I host</span><span class="sec__rule"></span><span class="sec__meta sec__meta--green">{{.Online}} / {{.Total}} online</span><button class="expand-btn" data-expand="sec-hosting" title="Expand">{{icon "expand" "currentColor" 15}}</button></div>
+    <div class="svcgrid">{{range .Services}}<a class="svc service-item" href="{{.URL}}" data-url="{{.URL}}" target="_blank" rel="noopener"><span class="svc__ico">{{icon .Icon "#2fd4c4" 18}}</span><div class="svc__b"><div class="svc__top"><span class="svc__name service-title">{{.Name}}</span><span class="svc__ping"><span class="status-indicator status-{{.Status}}"></span>{{.Ping}}</span></div><div class="svc__desc">{{.Desc}}</div></div></a>{{end}}</div>
+</section>
+{{end}}
+
+{{define "section_machines"}}
+<section id="sec-machines" data-section="machines" data-screen-label="Machines" class="neofetch-section">
+    <div class="sec__head"><span class="sec__ico sec__ico--blue">{{icon "machine" "#4d9fff" 17}}</span><span class="sec__title">Machines</span><span class="sec__rule"></span><button class="expand-btn" data-expand="sec-machines" title="Expand">{{icon "expand" "currentColor" 15}}</button></div>
+    <div class="machrow">
+        <div class="term">
+            <div class="term__bar"><span class="term__l term__l--r"></span><span class="term__l term__l--y"></span><span class="term__l term__l--g"></span><div class="machine-buttons">{{range .Machines}}<button class="machine-btn" data-machine="{{.Key}}"{{if eq .Key $.Active}} data-active="true"{{end}}>{{.Label}}</button>{{end}}</div></div>
+            <div class="term__body">
+                {{range .Machines}}
+                <div class="neofetch-output" id="neofetch-{{.Key}}"{{if ne .Key $.Active}} style="display:none"{{end}}>
+                    <div class="term__cmd"><span style="color:#10d060">❯</span> ./netfetch show --all</div>
+                    <div class="neofetch"><pre class="neofetch__art">{{.ASCII}}</pre><div><div class="neofetch__user"><b>{{.User}}</b>@<b>{{.Host}}</b></div><div class="neofetch__rule">{{.Rule}}</div>{{range .Rows}}<div class="neofetch__row"><span class="neofetch__k">{{.K}}</span>: <span class="neofetch__v">{{.V}}</span></div>{{end}}</div></div>
+                </div>
+                {{end}}
+            </div>
+        </div>
+        <div class="memebox" data-live="meme"><div class="memebox__h"><div class="memebox__t"><span class="memebox__ico">{{icon "dice" "#f0a040" 17}}</span>Random meme</div><button class="memebox__btn" id="meme-shuffle">{{icon "dice" "currentColor" 13}} new</button></div><div class="memebox__img meme-content">{{if .Meme.Image}}<img src="{{.Meme.Image}}" alt="">{{else}}<p>{{.Meme.Text}}</p>{{end}}</div></div>
+    </div>
+</section>
+{{end}}
+
+{{define "section_projects"}}
+<section id="sec-projects" data-section="projects" data-screen-label="Projects" class="projects-section">
+    <div class="sec__head"><span class="sec__ico sec__ico--pink">{{icon "projects" "#e8557a" 17}}</span><span class="sec__title">Projects</span><span class="sec__rule"></span><button class="expand-btn" data-expand="sec-projects" title="Expand">{{icon "expand" "currentColor" 15}}</button></div>
+    <div class="projects">{{range .}}<div class="proj"><div class="proj__img">{{if .Image}}<img src="{{.Image}}" alt="">{{end}}</div><div class="proj__b"><div class="proj__name">{{.Name}}</div><div class="proj__desc">{{.Desc}}</div><div class="proj__links">{{if .Source}}<a class="proj__src" href="{{.Source}}" target="_blank" rel="noopener">Source</a>{{end}}{{if .Demo}}<a class="proj__demo" href="{{.Demo}}" target="_blank" rel="noopener">Demo</a>{{end}}</div><div class="proj__tags">{{range .Tags}}<span class="proj__tag">{{.}}</span>{{end}}</div></div></div>{{end}}</div>
+</section>
+{{end}}

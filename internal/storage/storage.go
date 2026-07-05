@@ -164,7 +164,7 @@ func (s *Storage) createDailyBackupFromBytes(data []byte) {
 
 	today := time.Now().Format("2006-01-02")
 	backupFile := filepath.Join(backupDir, fmt.Sprintf("config_%s.json", today))
-	tempFile := backupFile + ".tmp"
+	tempFile := fmt.Sprintf("%s.%d.tmp", backupFile, time.Now().UnixNano())
 
 	f, err := os.OpenFile(tempFile, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
 	if err != nil {
@@ -383,20 +383,20 @@ func (s *Storage) GetPluginConfig(pluginName string) *PluginConfig {
 	s.mutex.RLock()
 	defer s.mutex.RUnlock()
 
-	plugins, ok := s.data["plugins"].(map[string]interface{})
-	if !ok {
-		return &PluginConfig{Enabled: true, Order: 0, Settings: make(map[string]interface{})}
-	}
-
-	pluginData, ok := plugins[pluginName].(map[string]interface{})
-	if !ok {
-		return &PluginConfig{Enabled: true, Order: 0, Settings: make(map[string]interface{})}
-	}
-
 	config := &PluginConfig{
 		Enabled:  true,
 		Order:    0,
 		Settings: make(map[string]interface{}),
+	}
+
+	plugins, ok := s.data["plugins"].(map[string]interface{})
+	if !ok {
+		return config
+	}
+
+	pluginData, ok := plugins[pluginName].(map[string]interface{})
+	if !ok {
+		return config
 	}
 
 	if enabled, ok := pluginData["enabled"].(bool); ok {
@@ -408,7 +408,9 @@ func (s *Storage) GetPluginConfig(pluginName string) *PluginConfig {
 		config.Order = orderInt
 	}
 	if settings, ok := pluginData["settings"].(map[string]interface{}); ok {
-		config.Settings = settings
+		for k, v := range settings {
+			config.Settings[k] = v
+		}
 	}
 
 	return config

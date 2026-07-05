@@ -64,8 +64,11 @@ func (m *Manager) LoadAll() error {
 		m.InvalidatePluginCache("beatleader")
 	})
 
-	lastfmPlugin := NewLastFMPlugin(m.storage, m.hub, m.config.LastFMKey)
+	lastfmPlugin := NewLastFMPlugin(m.storage, m.hub, m.config.LastFMKey, m.config.MediaPath, m.config)
 	lastfmPlugin.SetPluginManager(m)
+	lastfmPlugin.SetSectionRenderer(func() {
+		m.RenderSectionLive(context.Background(), "lastfm")
+	})
 
 	plugins := []Plugin{
 		NewProfilePlugin(m.storage, m.hub),
@@ -76,7 +79,7 @@ func (m *Manager) LoadAll() error {
 		NewWebringPlugin(m.storage, m.hub),
 		lastfmPlugin,
 		beatLeaderPlugin,
-		NewSteamPlugin(m.storage, m.hub, m.config.SteamKey),
+		NewSteamPlugin(m.storage, m.hub, m.config.SteamKey, m.config.MediaPath),
 		NewVisitorsPlugin(m.storage, m.hub, m.config.DataPath),
 		NewServicesPlugin(m.storage, m.hub),
 		NewCodePlugin(m.storage, m.hub),

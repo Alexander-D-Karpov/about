@@ -432,11 +432,8 @@
     function setupRideListScrolling() {
         const list = document.querySelector('.bike-rides-list');
         if (!list) return;
-
         list.style.overflowY = 'auto';
         list.style.overflowX = 'hidden';
-        list.style.height = '280px';
-        list.style.maxHeight = '280px';
         list.style.scrollBehavior = 'smooth';
         list.style.webkitOverflowScrolling = 'touch';
     }
@@ -583,6 +580,13 @@
 
         invalidateBikeMapSize();
 
+        [120, 350, 700].forEach(d => setTimeout(() => {
+            if (map && allCoords.length && selectedRideIndex == null) {
+                map.invalidateSize({ animate: false });
+                map.fitBounds(L.latLngBounds(allCoords), { padding: [30, 30], maxZoom: 13 });
+            }
+        }, d));
+
         document.querySelectorAll('.bike-ride-item').forEach(item => {
             const idx = parseInt(item.dataset.ride, 10);
 
@@ -603,17 +607,6 @@
             const chips = item.querySelector('.bike-ride-chips');
             if (chips) chips.after(toggleBtn);
             else item.appendChild(toggleBtn);
-
-            const elevData = rides[idx] ? getElevationData(rides[idx]) : [];
-            if (elevData.length > 1) {
-                const sparkline = document.createElement('div');
-                sparkline.className = 'bike-ride-sparkline';
-                const info = item.querySelector('.bike-ride-info');
-                if (info) {
-                    sparkline.innerHTML = drawSparklineSVG(elevData, 120, 24);
-                    info.appendChild(sparkline);
-                }
-            }
 
             item.addEventListener('mouseenter', () => {
                 if (!hiddenRides.has(idx)) highlightRide(idx);

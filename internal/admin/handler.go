@@ -523,6 +523,8 @@ func (h *Handler) saveProjectsAPI(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) filterInternalSettings(settings map[string]interface{}) map[string]interface{} {
 	internalKeys := []string{
 		"imageCache",
+		"stats_cache",
+		"imgLocalCache",
 		"current_data",
 		"daily_averages",
 		"sleep_records",

@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Alexander-D-Karpov/about/internal/config"
 	"github.com/Alexander-D-Karpov/about/internal/storage"
 	"github.com/Alexander-D-Karpov/about/internal/stream"
 )
@@ -48,6 +49,27 @@ type LastFMPlugin struct {
 
 	scheduledUpdate *time.Timer
 	scheduleMutex   sync.Mutex
+	mediaPath       string
+	stats           *lfmStats
+	statsMutex      sync.RWMutex
+	statsRunning    bool
+	weeklyRunning   bool
+	genresRunning   bool
+	imgLocal        map[string]string
+	imgLocalMu      sync.RWMutex
+
+	sectionRenderer func()
+
+	spotify      *SpotifyClient
+	lovedSet     map[string]struct{}
+	lovedCount   int
+	lovedMu      sync.RWMutex
+	spSavedCache map[string]bool
+	spLikedCount int
+	spSavedMu    sync.RWMutex
+	spNow        *SpotifyNowPlaying
+	spNowAt      time.Time
+	spNowMu      sync.RWMutex
 }
 
 type LastFMResponse struct {
@@ -207,18 +229,31 @@ func (p *LastFMPlugin) scheduleEndOfTrackUpdate(remainingSeconds int) {
 	})
 }
 
-func NewLastFMPlugin(storage *storage.Storage, hub *stream.Hub, apiKey string) *LastFMPlugin {
+func NewLastFMPlugin(storage *storage.Storage, hub *stream.Hub, apiKey, mediaPath string, cfg *config.Config) *LastFMPlugin {
 	plugin := &LastFMPlugin{
-		storage:    storage,
-		hub:        hub,
-		apiKey:     apiKey,
-		httpClient: NewHTTPClientWithTimeout(15 * time.Second),
-		stopPoll:   make(chan struct{}),
-		imageCache: make(map[string]imageCacheEntry),
+		storage:      storage,
+		hub:          hub,
+		apiKey:       apiKey,
+		mediaPath:    mediaPath,
+		httpClient:   NewHTTPClientWithTimeout(15 * time.Second),
+		stopPoll:     make(chan struct{}),
+		imageCache:   make(map[string]imageCacheEntry),
+		imgLocal:     make(map[string]string),
+		spotify:      NewSpotifyClient(cfg.SpotifyClientID, cfg.SpotifyClientSecret, cfg.SpotifyRefreshToken),
+		lovedSet:     make(map[string]struct{}),
+		spSavedCache: make(map[string]bool),
 	}
 
 	plugin.loadImageCache()
+	plugin.loadImgLocalCache()
+	plugin.loadStats()
+	plugin.loadSpotifySavedCache()
 	go plugin.startConstantPolling()
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+		defer cancel()
+		plugin.refreshSpotifySavedIfStale(ctx)
+	}()
 
 	return plugin
 }
@@ -668,6 +703,38 @@ func (p *LastFMPlugin) UpdateData(ctx context.Context) error {
 		}
 	}
 
+	p.scheduleStatsRefresh(username)
+	p.lastUpdateTime = time.Now()
+
+	p.statsMutex.RLock()
+	hasStats := p.stats != nil
+	statsStale := p.stats == nil || time.Since(p.stats.UpdatedAt) > 20*time.Minute
+	p.statsMutex.RUnlock()
+
+	if statsStale {
+		if !hasStats {
+			fctx, fcancel := context.WithTimeout(context.Background(), 90*time.Second)
+			if err := p.UpdateStats(fctx, username); err != nil {
+				log.Printf("[LastFM] initial stats update failed: %v", err)
+			}
+			fcancel()
+		} else {
+			go func() {
+				sctx, scancel := context.WithTimeout(context.Background(), 120*time.Second)
+				defer scancel()
+				if err := p.UpdateStats(sctx, username); err != nil {
+					log.Printf("[LastFM] stats update failed: %v", err)
+				}
+			}()
+		}
+	}
+
+	go func() {
+		c, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+		defer cancel()
+		p.refreshSpotifySavedIfStale(c)
+	}()
+
 	p.lastUpdateTime = time.Now()
 
 	return nil
@@ -872,6 +939,7 @@ func (p *LastFMPlugin) updateRecentTracksInternal(ctx context.Context, username 
 
 	if trackChanged {
 		p.broadcastTrackUpdate(newCurrentTrack, response.RecentTracks.Track, newIsPlaying)
+		p.requestSectionRender()
 	}
 
 	return trackChanged, nil
@@ -896,56 +964,22 @@ func (p *LastFMPlugin) tryAkarpovImageFallback(ctx context.Context, track *LastF
 			track.Image = []struct {
 				Text string `json:"#text"`
 				Size string `json:"size"`
-			}{
-				{Text: entry.URL, Size: "extralarge"},
-			}
+			}{{Text: entry.URL, Size: "extralarge"}}
 		}
 		return
 	}
 	p.imageCacheMutex.RUnlock()
 
-	searchQuery := fmt.Sprintf("%s %s", track.Artist.Text, track.Name)
-	searchURL := fmt.Sprintf("https://new.akarpov.ru/api/v1/music/search/?query=%s", url.QueryEscape(searchQuery))
-
-	client := &http.Client{Timeout: 8 * time.Second}
-	req, err := http.NewRequestWithContext(ctx, "GET", searchURL, nil)
-	if err != nil {
-		return
-	}
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return
-	}
-
-	var searchResp AkarpovrMusicSearchResponse
-	if err := json.NewDecoder(resp.Body).Decode(&searchResp); err != nil {
-		return
-	}
-
-	if len(searchResp.Songs) == 0 {
-		p.imageCacheMutex.Lock()
-		p.imageCache[cacheKey] = imageCacheEntry{URL: "", CachedAt: time.Now().Unix()}
-		p.imageCacheMutex.Unlock()
-		return
-	}
+	songs := p.akarpovSearch(ctx, fmt.Sprintf("%s %s", track.Artist.Text, track.Name))
 
 	imageURL := ""
-	for _, song := range searchResp.Songs {
+	for _, song := range songs {
 		if song.ImageCropped != "" {
 			imageURL = song.ImageCropped
-			if !strings.HasPrefix(imageURL, "http") {
-				imageURL = "https://new.akarpov.ru" + imageURL
-			}
-			break
-		}
-		if song.Album.ImageCropped != "" {
+		} else if song.Album.ImageCropped != "" {
 			imageURL = song.Album.ImageCropped
+		}
+		if imageURL != "" {
 			if !strings.HasPrefix(imageURL, "http") {
 				imageURL = "https://new.akarpov.ru" + imageURL
 			}
@@ -961,10 +995,7 @@ func (p *LastFMPlugin) tryAkarpovImageFallback(ctx context.Context, track *LastF
 		track.Image = []struct {
 			Text string `json:"#text"`
 			Size string `json:"size"`
-		}{
-			{Text: imageURL, Size: "extralarge"},
-		}
-		log.Printf("[LastFM] Found image from akarpov.ru for %s - %s", track.Artist.Text, track.Name)
+		}{{Text: imageURL, Size: "extralarge"}}
 	}
 }
 
@@ -1542,4 +1573,12 @@ func (p *LastFMPlugin) fetchTrackLength(ctx context.Context, artist, trackName s
 	}
 
 	return 0
+}
+
+func (p *LastFMPlugin) SetSectionRenderer(fn func()) { p.sectionRenderer = fn }
+
+func (p *LastFMPlugin) requestSectionRender() {
+	if p.sectionRenderer != nil {
+		go p.sectionRenderer()
+	}
 }

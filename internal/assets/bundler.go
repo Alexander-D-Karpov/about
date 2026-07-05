@@ -5,20 +5,18 @@ import (
 	"crypto/md5"
 	"embed"
 	"fmt"
-	"io/fs"
 	"path/filepath"
-	"sort"
-	"strings"
 	"sync"
 )
 
 type Bundler struct {
-	staticFS  embed.FS
+	staticFS embed.FS
+	once     sync.Once
+
 	cssBundle []byte
 	jsBundle  []byte
 	cssHash   string
 	jsHash    string
-	once      sync.Once
 
 	potatoCSSBundle []byte
 	potatoJSBundle  []byte
@@ -26,78 +24,43 @@ type Bundler struct {
 	potatoJSHash    string
 }
 
+var (
+	cssFiles = []string{"main.css"}
+	jsFiles  = []string{
+		"app.js",
+		"live.js",
+		"music-player.js",
+		"music-recents.js",
+		"bike-map.js",
+		"places-map.js",
+		"greetings.js",
+	}
+	potatoCSSFiles = []string{"main.css"}
+	potatoJSFiles  = []string{"app.js", "live.js", "music-recents.js"}
+)
+
 func NewBundler(staticFS embed.FS) *Bundler {
 	return &Bundler{staticFS: staticFS}
 }
 
 func (b *Bundler) Build() {
 	b.once.Do(func() {
-		b.cssBundle, b.cssHash = b.bundleDir("static/css", ".css", []string{"main.css"}, []string{"potato.css", "admin.css"})
-		b.jsBundle, b.jsHash = b.bundleDir("static/js", ".js", []string{"websocket.js", "windowManager.js"}, []string{"potato-windowManager.js", "admin.js"})
-
-		b.potatoCSSBundle, b.potatoCSSHash = b.bundleDir("static/css", ".css", []string{"potato.css"}, []string{"main.css", "admin.css"})
-		b.potatoJSBundle, b.potatoJSHash = b.bundleDir("static/js", ".js", []string{"websocket.js", "potato-windowManager.js"}, []string{"windowManager.js", "admin.js"})
+		b.cssBundle, b.cssHash = b.bundle("static/css", cssFiles)
+		b.jsBundle, b.jsHash = b.bundle("static/js", jsFiles)
+		b.potatoCSSBundle, b.potatoCSSHash = b.bundle("static/css", potatoCSSFiles)
+		b.potatoJSBundle, b.potatoJSHash = b.bundle("static/js", potatoJSFiles)
 	})
 }
 
-func writeHeader(buf bytes.Buffer) bytes.Buffer {
-	buf.WriteString("/* Bundled Assets */\n")
-	buf.WriteString("/* Bundled by: me! :3 */\n")
-	return buf
-}
-
-func (b *Bundler) bundleDir(dir, ext string, priorityFirst, exclude []string) ([]byte, string) {
+func (b *Bundler) bundle(dir string, files []string) ([]byte, string) {
 	var buf bytes.Buffer
-	buf = writeHeader(buf)
-
-	files, err := b.listFiles(dir, ext)
-	if err != nil {
-		return nil, ""
-	}
-
-	excludeMap := make(map[string]bool)
-	for _, e := range exclude {
-		excludeMap[e] = true
-	}
-
-	priorityMap := make(map[string]int)
-	for i, p := range priorityFirst {
-		priorityMap[p] = i
-	}
-
-	sort.Slice(files, func(i, j int) bool {
-		pi, okI := priorityMap[files[i]]
-		pj, okJ := priorityMap[files[j]]
-
-		if okI && okJ {
-			return pi < pj
-		}
-		if okI {
-			return true
-		}
-		if okJ {
-			return false
-		}
-
-		isPluginI := strings.HasPrefix(files[i], "plugin-")
-		isPluginJ := strings.HasPrefix(files[j], "plugin-")
-		if isPluginI != isPluginJ {
-			return !isPluginI
-		}
-
-		return files[i] < files[j]
-	})
+	buf.WriteString("/* Bundled Assets */\n/* Bundled by: me! :3 */\n")
 
 	for _, name := range files {
-		if excludeMap[name] {
-			continue
-		}
-
 		data, err := b.staticFS.ReadFile(filepath.Join(dir, name))
 		if err != nil {
 			continue
 		}
-
 		buf.WriteString(fmt.Sprintf("\n/* === %s === */\n", name))
 		buf.Write(data)
 		buf.WriteString("\n")
@@ -105,70 +68,6 @@ func (b *Bundler) bundleDir(dir, ext string, priorityFirst, exclude []string) ([
 
 	hash := fmt.Sprintf("%x", md5.Sum(buf.Bytes()))[:8]
 	return buf.Bytes(), hash
-}
-
-func (b *Bundler) bundlePotato(dir, ext string, include []string) ([]byte, string) {
-	var buf bytes.Buffer
-	buf = writeHeader(buf)
-
-	for _, name := range include {
-		data, err := b.staticFS.ReadFile(filepath.Join(dir, name))
-		if err != nil {
-			continue
-		}
-
-		buf.WriteString(fmt.Sprintf("\n/* === %s === */\n", name))
-		buf.Write(data)
-		buf.WriteString("\n")
-	}
-
-	files, _ := b.listFiles(dir, ext)
-	includeMap := make(map[string]bool)
-	for _, i := range include {
-		includeMap[i] = true
-	}
-
-	for _, name := range files {
-		if includeMap[name] {
-			continue
-		}
-
-		if strings.Contains(name, "plugin-") && strings.HasPrefix(filepath.Dir(name), "plugins") {
-			data, err := b.staticFS.ReadFile(filepath.Join(dir, name))
-			if err != nil {
-				continue
-			}
-			buf.WriteString(fmt.Sprintf("\n/* === %s === */\n", name))
-			buf.Write(data)
-			buf.WriteString("\n")
-		}
-	}
-
-	hash := fmt.Sprintf("%x", md5.Sum(buf.Bytes()))[:8]
-	return buf.Bytes(), hash
-}
-
-func (b *Bundler) listFiles(dir, ext string) ([]string, error) {
-	var files []string
-
-	err := fs.WalkDir(b.staticFS, dir, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-
-		if d.IsDir() {
-			return nil
-		}
-
-		if filepath.Ext(path) == ext {
-			relPath, _ := filepath.Rel(dir, path)
-			files = append(files, relPath)
-		}
-
-		return nil
-	})
-
-	return files, err
 }
 
 func (b *Bundler) CSSBundle() ([]byte, string)       { return b.cssBundle, b.cssHash }

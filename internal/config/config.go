@@ -27,6 +27,10 @@ type Config struct {
 	PrometheusPushInterval int
 	// Prometheus Query (Reading data for stats page)
 	PrometheusQueryURL string
+
+	SpotifyClientID     string
+	SpotifyClientSecret string
+	SpotifyRefreshToken string
 }
 
 func Load() *Config {
@@ -51,6 +55,10 @@ func Load() *Config {
 		PrometheusPushInterval: getEnvInt("PROMETHEUS_PUSH_INTERVAL", 15),
 
 		PrometheusQueryURL: strings.TrimRight(getEnv("PROMETHEUS_QUERY_URL", ""), "/"),
+
+		SpotifyClientID:     getEnv("SPOTIFY_CLIENT_ID", ""),
+		SpotifyClientSecret: getEnv("SPOTIFY_CLIENT_SECRET", ""),
+		SpotifyRefreshToken: getEnv("SPOTIFY_REFRESH_TOKEN", ""),
 	}
 }
 

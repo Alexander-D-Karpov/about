@@ -1,11 +1,11 @@
 package handlers
 
 import (
-	"bytes"
 	"context"
 	"embed"
 	"fmt"
 	"html/template"
+	"io"
 	"log"
 	"net/http"
 	"strings"
@@ -14,7 +14,6 @@ import (
 
 	"github.com/Alexander-D-Karpov/about/internal/assets"
 	"github.com/Alexander-D-Karpov/about/internal/config"
-	"github.com/Alexander-D-Karpov/about/internal/layout"
 	"github.com/Alexander-D-Karpov/about/internal/plugins"
 )
 
@@ -98,140 +97,37 @@ func (h *MainHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	mainCtx, cancel := context.WithTimeout(r.Context(), 6*time.Second)
-	defer cancel()
-
-	userAgent := r.Header.Get("User-Agent")
-	isCurl := strings.Contains(strings.ToLower(userAgent), "curl")
-
 	if visitorsPlugin, exists := h.pluginManager.GetPlugin("visitors"); exists {
 		if visitors, ok := visitorsPlugin.(*plugins.VisitorsPlugin); ok {
 			visitors.RecordVisit(r.UserAgent(), getClientIP(r))
 		}
 	}
 
-	if isCurl {
+	if strings.Contains(strings.ToLower(r.Header.Get("User-Agent")), "curl") {
 		h.renderTextResponse(w, r)
 		return
 	}
 
-	potatoMode := IsPotatoMode(r)
-
-	// Set cookie if potato mode activated via URL param
-	if _, hasParam := r.URL.Query()["potato"]; hasParam {
-		val := r.URL.Query().Get("potato")
-		cookieVal := "1"
-		if val == "0" || val == "false" {
-			cookieVal = "0"
-		}
-		http.SetCookie(w, &http.Cookie{
-			Name:     "potato_mode",
-			Value:    cookieVal,
-			Path:     "/",
-			MaxAge:   365 * 24 * 60 * 60,
-			HttpOnly: false,
-			SameSite: http.SameSiteLaxMode,
-		})
+	theme := "dark"
+	if c, err := r.Cookie("theme"); err == nil && (c.Value == "light" || c.Value == "dark") {
+		theme = c.Value
 	}
 
-	type renderResult struct {
-		plugins []template.HTML
-		err     error
-	}
+	ctx, cancel := context.WithTimeout(r.Context(), 6*time.Second)
+	defer cancel()
 
-	done := make(chan renderResult, 1)
-
-	go func() {
-		defer func() {
-			if rec := recover(); rec != nil {
-				log.Printf("Plugin rendering panic: %v", rec)
-				done <- renderResult{nil, fmt.Errorf("rendering failed: %v", rec)}
-			}
-		}()
-
-		renderedPlugins := h.pluginManager.GetRenderedPlugins(mainCtx)
-		done <- renderResult{renderedPlugins, nil}
-	}()
-
-	var renderedPlugins []template.HTML
-
-	select {
-	case result := <-done:
-		if result.err != nil {
-			log.Printf("Plugin rendering error: %v", result.err)
-			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-			return
-		}
-		renderedPlugins = result.plugins
-
-	case <-mainCtx.Done():
-		log.Printf("Main handler timeout - rendering taking too long")
-		h.serveMinimalPage(w)
-		return
-
-	case <-r.Context().Done():
-		log.Printf("Client disconnected during rendering")
-		return
-	}
-
-	var cssHash, jsHash string
-	if potatoMode {
-		_, cssHash = h.bundler.PotatoCSSBundle()
-		_, jsHash = h.bundler.PotatoJSBundle()
-	} else {
-		_, cssHash = h.bundler.CSSBundle()
-		_, jsHash = h.bundler.JSBundle()
-	}
-
-	prebakedPlugins := layout.Prebake(renderedPlugins)
-
-	data := TemplateData{
-		Title:       "sanspie",
-		Description: "WebDev & DevSecOps",
-		PotatoMode:  potatoMode,
-		CSSHash:     cssHash,
-		JSHash:      jsHash,
-		Plugins:     prebakedPlugins,
-		PrebakeCSS:  layout.GenerateResponsiveCSS(),
-	}
-
-	var buf bytes.Buffer
-	templateCtx, templateCancel := context.WithTimeout(mainCtx, 1*time.Second)
-	defer templateCancel()
-
-	var tmpl *template.Template
-	if potatoMode {
-		tmpl = h.potatoTemplate
-	} else {
-		tmpl = h.template
-	}
-
-	templateDone := make(chan error, 1)
-	go func() {
-		templateDone <- tmpl.Execute(&buf, data)
-	}()
-
-	select {
-	case err := <-templateDone:
-		if err != nil {
-			log.Printf("Error executing template: %v", err)
-			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-			return
-		}
-	case <-templateCtx.Done():
-		log.Printf("Template execution timeout")
-		http.Error(w, "Request timeout", http.StatusRequestTimeout)
+	html, err := h.pluginManager.BuildPage(ctx, theme)
+	if err != nil {
+		log.Printf("BuildPage error: %v", err)
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 		return
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
-	w.Header().Set("Pragma", "no-cache")
-	w.Header().Set("Expires", "0")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
-
 	w.WriteHeader(http.StatusOK)
-	_, _ = buf.WriteTo(w)
+	_, _ = io.WriteString(w, string(html))
 }
 
 func (h *MainHandler) serveMinimalPage(w http.ResponseWriter) {

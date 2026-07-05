@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Alexander-D-Karpov/about/internal/storage"
@@ -16,21 +17,35 @@ import (
 )
 
 type SteamPlugin struct {
-	storage       *storage.Storage
-	hub           *stream.Hub
-	apiKey        string
-	recentGames   []SteamGame
-	topGames      []SteamGame
-	playerSummary *SteamPlayerSummary
-	lastUpdate    time.Time
+	storage        *storage.Storage
+	hub            *stream.Hub
+	apiKey         string
+	mediaPath      string
+	httpClient     *http.Client
+	recentGames    []SteamGame
+	topGames       []SteamGame
+	playerSummary  *SteamPlayerSummary
+	lastUpdate     time.Time
+	imgLocal       map[string]string
+	imgMu          sync.RWMutex
+	platformTotals map[string]int
+	genreTotals    map[string]int
+	genreCache     map[int][]string
+	statMu         sync.RWMutex
+	genreMu        sync.RWMutex
 }
 
 type SteamGame struct {
-	Name        string `json:"name"`
-	Playtime2w  int    `json:"playtime_2weeks"`
-	PlaytimeAll int    `json:"playtime_forever"`
-	AppID       int    `json:"appid"`
-	ImgIconURL  string `json:"img_icon_url"`
+	Name            string `json:"name"`
+	Playtime2w      int    `json:"playtime_2weeks"`
+	PlaytimeAll     int    `json:"playtime_forever"`
+	PlaytimeWindows int    `json:"playtime_windows_forever"`
+	PlaytimeMac     int    `json:"playtime_mac_forever"`
+	PlaytimeLinux   int    `json:"playtime_linux_forever"`
+	PlaytimeDeck    int    `json:"playtime_deck_forever"`
+	AppID           int    `json:"appid"`
+	ImgIconURL      string `json:"img_icon_url"`
+	LocalIcon       string `json:"-"`
 }
 
 type SteamCurrentGame struct {
@@ -60,6 +75,7 @@ type SteamPlayerSummary struct {
 	GameExtraInfo            string `json:"gameextrainfo,omitempty"`
 	GameServerIP             string `json:"gameserverip,omitempty"`
 	GameServerSteamID        string `json:"gameserversteamid,omitempty"`
+	LocalGameCover           string `json:"-"`
 }
 
 type SteamResponse struct {
@@ -82,12 +98,19 @@ type SteamPlayerSummaryResponse struct {
 	} `json:"response"`
 }
 
-func NewSteamPlugin(storage *storage.Storage, hub *stream.Hub, apiKey string) *SteamPlugin {
-	return &SteamPlugin{
-		storage: storage,
-		hub:     hub,
-		apiKey:  apiKey,
+func NewSteamPlugin(storage *storage.Storage, hub *stream.Hub, apiKey, mediaPath string) *SteamPlugin {
+	p := &SteamPlugin{
+		storage:    storage,
+		hub:        hub,
+		apiKey:     apiKey,
+		mediaPath:  mediaPath,
+		httpClient: NewHTTPClientWithTimeout(15 * time.Second),
+		imgLocal:   make(map[string]string),
+		genreCache: make(map[int][]string),
 	}
+	p.loadImgLocalCache()
+	p.loadGenreCache()
+	return p
 }
 
 func (p *SteamPlugin) Name() string {
@@ -475,27 +498,28 @@ func (p *SteamPlugin) updatePlayerSummary(steamID string) error {
 			oldPersonaState = p.playerSummary.PersonaState
 		}
 
-		p.playerSummary = &response.Response.Players[0]
+		player := response.Response.Players[0]
+		if player.GameID != "" {
+			player.LocalGameCover = p.localizeImage(steamHeaderURLStr(player.GameID))
+		}
+		p.playerSummary = &player
 
-		newGameStatus := p.playerSummary.GameExtraInfo
-		newPersonaState := p.playerSummary.PersonaState
+		newGameStatus := player.GameExtraInfo
+		newPersonaState := player.PersonaState
 
 		if oldGameStatus != newGameStatus || oldPersonaState != newPersonaState {
-			gameImage := ""
-			if p.playerSummary.GameID != "" {
-				gameImage = fmt.Sprintf(
-					"https://cdn.cloudflare.steamstatic.com/steam/apps/%s/header.jpg",
-					p.playerSummary.GameID,
-				)
+			gameImage := player.LocalGameCover
+			if gameImage == "" && player.GameID != "" {
+				gameImage = steamHeaderURLStr(player.GameID)
 			}
 
 			p.hub.Broadcast("steam_status_update", map[string]interface{}{
 				"isPlaying":    newGameStatus != "",
 				"currentGame":  newGameStatus,
 				"gameImage":    gameImage,
-				"gameId":       p.playerSummary.GameID,
+				"gameId":       player.GameID,
 				"personaState": newPersonaState,
-				"personaName":  p.playerSummary.PersonaName,
+				"personaName":  player.PersonaName,
 				"timestamp":    time.Now().Unix(),
 			})
 		}
@@ -550,6 +574,8 @@ func (p *SteamPlugin) updateRecentGames(steamID string) error {
 		games = games[:10]
 	}
 
+	p.localizeIcons(games)
+
 	oldCount := len(p.recentGames)
 	p.recentGames = games
 
@@ -600,6 +626,12 @@ func (p *SteamPlugin) updateTopGames(steamID string) error {
 
 	games := response.Response.Games
 
+	all := make([]SteamGame, len(games))
+	copy(all, games)
+	p.computePlatformTotals(all)
+	p.computeGenreTotals(all)
+	go p.fetchMissingGenres(all)
+
 	sort.Slice(games, func(i, j int) bool {
 		return games[i].PlaytimeAll > games[j].PlaytimeAll
 	})
@@ -612,6 +644,7 @@ func (p *SteamPlugin) updateTopGames(steamID string) error {
 		fmt.Printf("Warning: Failed to update recent playtime: %v\n", err)
 	}
 
+	p.localizeIcons(games)
 	p.topGames = games
 	return nil
 }

@@ -116,6 +116,9 @@ func main() {
 	wsHandler := handlers.NewWebSocketHandler(hub)
 	r.HandleFunc("/ws", wsHandler.ServeHTTP)
 
+	lfmTopHandler := handlers.NewLastFMTopHandler(pluginManager)
+	r.HandleFunc("/api/lastfm/top", lfmTopHandler.ServeHTTP).Methods("GET")
+
 	potatoHandler := handlers.NewPotatoHandler()
 	r.Handle("/api/potato", potatoHandler)
 
