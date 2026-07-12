@@ -1,1458 +1,797 @@
 package plugins
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"html/template"
-	"net/http"
+	"log"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
+	"github.com/Alexander-D-Karpov/about/internal/config"
 	"github.com/Alexander-D-Karpov/about/internal/storage"
 	"github.com/Alexander-D-Karpov/about/internal/stream"
 )
 
+const (
+	codeGithubInterval = 30 * time.Minute
+	codeWakaInterval   = 30 * time.Minute
+)
+
 type CodePlugin struct {
-	storage          *storage.Storage
-	hub              *stream.Hub
-	githubData       *GitHubUserData
-	wakatimeData     *WakatimeData
-	allRepoLanguages []LanguageStat
-	lastUpdate       time.Time
-	mutex            sync.RWMutex
+	storage *storage.Storage
+	hub     *stream.Hub
+	config  *config.Config
+	store   *CodeStatsStore
+	git     *GitActivity
+
+	mu         sync.RWMutex
+	github     *GitHubCodeStats
+	wakatime   *WakatimeStats
+	lastGithub time.Time
+	lastWaka   time.Time
+
+	recentRepos     []GitRecentRepo
+	lastRecentRepos time.Time
+
+	invalidateCache func()
+	bgStarted       sync.Once
+	updating        int32
 }
 
-type RepoLanguageBreakdown struct {
-	Name       string
-	Percentage float64
-	Color      string
+type codeWeekSeg struct {
+	Name    string
+	Color   string
+	Percent string
+	Text    string
 }
 
-type GitHubUserData struct {
-	Login        string            `json:"login"`
-	Name         string            `json:"name"`
-	PublicRepos  int               `json:"public_repos"`
-	Followers    int               `json:"followers"`
-	Following    int               `json:"following"`
-	CreatedAt    time.Time         `json:"created_at"`
-	UpdatedAt    time.Time         `json:"updated_at"`
-	Bio          string            `json:"bio"`
-	Location     string            `json:"location"`
-	TotalCommits int               `json:"-"`
-	TotalStars   int               `json:"-"`
-	TopLanguages []LanguageStat    `json:"-"`
-	RecentRepos  []GitHubRepo      `json:"-"`
-	CommitStats  GitHubCommitStats `json:"-"`
-}
-
-type GitHubRepo struct {
-	Name         string                  `json:"name"`
-	Stars        int                     `json:"stargazers_count"`
-	Language     string                  `json:"language"`
-	UpdatedAt    time.Time               `json:"updated_at"`
-	Description  string                  `json:"description"`
-	LanguagesURL string                  `json:"languages_url"`
-	Languages    []RepoLanguageBreakdown `json:"-"`
-}
-
-type GitHubCommitStats struct {
-	TotalCommits    int            `json:"total_commits"`
-	WeeklyCommits   []int          `json:"weekly_commits"`
-	LanguageStats   map[string]int `json:"language_stats"`
-	ContributionMap map[string]int `json:"contribution_map"`
-}
-
-type LanguageStat struct {
-	Name       string  `json:"name"`
-	Percentage float64 `json:"percentage"`
-	Color      string  `json:"color"`
-	Bytes      int     `json:"bytes"`
-}
-
-type WakatimeData struct {
-	TotalTime struct {
-		Seconds float64 `json:"seconds"`
-		Text    string  `json:"text"`
-	} `json:"total_time"`
-	LastWeek struct {
-		Seconds float64 `json:"seconds"`
-		Text    string  `json:"text"`
-	} `json:"last_week"`
-	Languages []WakatimeLanguage `json:"languages"`
-	Editors   []struct {
-		Name         string  `json:"name"`
-		TotalSeconds float64 `json:"total_seconds"`
-		Percent      float64 `json:"percent"`
-		Text         string  `json:"text"`
-	} `json:"editors"`
-	OperatingSystems []struct {
-		Name         string  `json:"name"`
-		TotalSeconds float64 `json:"total_seconds"`
-		Percent      float64 `json:"percent"`
-		Text         string  `json:"text"`
-	} `json:"operating_systems"`
-}
-
-type WakatimeLanguage struct {
-	Name         string  `json:"name"`
-	TotalSeconds float64 `json:"total_seconds"`
-	Percent      float64 `json:"percent"`
-	Text         string  `json:"text"`
-	Color        string  `json:"color"`
-}
-
-func NewCodePlugin(storage *storage.Storage, hub *stream.Hub) *CodePlugin {
+func NewCodePlugin(st *storage.Storage, hub *stream.Hub, cfg *config.Config) *CodePlugin {
+	store := NewCodeStatsStore(cfg.DataPath)
 	p := &CodePlugin{
-		storage: storage,
+		storage: st,
 		hub:     hub,
+		config:  cfg,
+		store:   store,
 	}
-	p.loadPersistedData()
+	p.git = NewGitActivity(st, hub, "code", store)
+	p.github, p.lastGithub = store.GetGitHub()
+	p.wakatime, p.lastWaka = store.GetWakatime()
+	if p.github != nil {
+		log.Printf("[Code] restored github stats from file (age %s)", time.Since(p.lastGithub).Round(time.Minute))
+	}
+	if p.wakatime != nil {
+		log.Printf("[Code] restored wakatime stats from file (age %s)", time.Since(p.lastWaka).Round(time.Minute))
+	}
+	p.recentRepos, p.lastRecentRepos = store.GetRecentRepos()
+	if len(p.recentRepos) > 0 {
+		log.Printf("[Code] restored %d recent repos from file (age %s)", len(p.recentRepos), time.Since(p.lastRecentRepos).Round(time.Minute))
+	}
+	p.startBackground()
 	return p
 }
 
-func (p *CodePlugin) Name() string {
-	return "code"
+func (p *CodePlugin) Name() string      { return "code" }
+func (p *CodePlugin) Git() *GitActivity { return p.git }
+
+func (p *CodePlugin) SetCacheInvalidator(fn func()) {
+	p.invalidateCache = fn
 }
 
-func (p *CodePlugin) Render(ctx context.Context) (string, error) {
-	config := p.storage.GetPluginConfig(p.Name())
-	settings := config.Settings
-
-	sectionTitle := p.getConfigValue(settings, "ui.sectionTitle", "Coding Stats")
-	showGitHub := p.getConfigBool(settings, "ui.showGitHub", true)
-	showWakatime := p.getConfigBool(settings, "ui.showWakatime", true)
-	showLanguages := p.getConfigBool(settings, "ui.showLanguages", true)
-
-	githubUsername := p.getConfigValue(settings, "github.username", "")
-
-	p.mutex.RLock()
-	allRepoLanguages := p.allRepoLanguages
-	p.mutex.RUnlock()
-
-	tmpl := `
-	<div class="code-section section plugin" data-w="2">
-		<div class="plugin-header">
-			<h3 class="plugin-title">{{.SectionTitle}}</h3>
-		</div>
-		<div class="plugin__inner">
-			{{if .AllRepoLanguages}}
-			<div class="code-lang-summary">
-				<div class="lang-summary-label">Languages across all repositories</div>
-				<div class="lang-summary-bar">
-					{{range .AllRepoLanguages}}
-					<div class="lang-segment" style="flex: {{printf "%.2f" .Percentage}}; background: {{.Color}};" title="{{.Name}} {{printf "%.1f" .Percentage}}%"></div>
-					{{end}}
-				</div>
-				<div class="lang-summary-legend">
-					{{range .AllRepoLanguages}}
-					<span class="lang-legend-item"><span class="lang-dot" style="background: {{.Color}};"></span>{{.Name}} <span class="lang-pct">{{printf "%.1f" .Percentage}}%</span></span>
-					{{end}}
-				</div>
-			</div>
-			{{end}}
-
-			{{if and .ShowGitHub .GitHubData}}
-			<div class="stats-overview">
-				<div class="stat-card">
-					<div class="stat-number">{{.GitHubData.PublicRepos}}</div>
-					<div class="stat-label">Repos</div>
-				</div>
-				<div class="stat-card">
-					<div class="stat-number">{{.GitHubData.TotalStars}}</div>
-					<div class="stat-label">Stars</div>
-				</div>
-				<div class="stat-card">
-					<div class="stat-number">{{.GitHubData.Followers}}</div>
-					<div class="stat-label">Followers</div>
-				</div>
-				<div class="stat-card">
-					<div class="stat-number">{{.GitHubData.TotalCommits}}</div>
-					<div class="stat-label">Commits</div>
-				</div>
-			</div>
-			{{end}}
-
-			{{if and .ShowWakatime .WakatimeData}}
-			<div class="time-summary">
-				<div class="time-card">
-					<span class="time-value">{{.WakatimeData.LastWeek.Text}}</span>
-					<span class="time-label">this week</span>
-				</div>
-				<div class="time-card">
-					<span class="time-value">{{.WakatimeData.TotalTime.Text}}</span>
-					<span class="time-label">all time</span>
-				</div>
-			</div>
-			{{end}}
-
-			{{if and .ShowWakatime .WakatimeData .WakatimeData.Languages}}
-			<div class="code-subsection">
-				<button class="section-toggle" data-target="wakatime-langs" type="button" aria-expanded="true">
-					<span class="toggle-icon">▼</span>
-					<span>This Week</span>
-					<span class="section-count">({{len .WakatimeData.Languages}} langs)</span>
-				</button>
-				<div class="collapsible-content" id="wakatime-langs">
-					<div class="wakatime-list">
-						{{range .WakatimeData.Languages}}
-						{{if gt .Percent 1.0}}
-						<div class="waka-item">
-							<span class="waka-lang">{{.Name}}</span>
-							<div class="waka-bar">
-								<div class="waka-fill" style="width: {{.Percent}}%; background-color: {{.Color}};"></div>
-							</div>
-							<span class="waka-time">{{.Text}}</span>
-						</div>
-						{{end}}
-						{{end}}
-					</div>
-
-					{{if .WakatimeData.Editors}}
-					<div class="editor-list">
-						{{range .WakatimeData.Editors}}
-						{{if gt .Percent 5.0}}
-						<span class="editor-chip">{{.Name}} {{printf "%.0f" .Percent}}%</span>
-						{{end}}
-						{{end}}
-					</div>
-					{{end}}
-				</div>
-			</div>
-			{{end}}
-
-			{{if and .ShowLanguages .GitHubData .GitHubData.TopLanguages}}
-			<div class="code-subsection">
-				<button class="section-toggle" data-target="languages" type="button" aria-expanded="false">
-					<span class="toggle-icon">▶</span>
-					<span>Top Languages</span>
-					<span class="section-count">({{len .GitHubData.TopLanguages}})</span>
-				</button>
-				<div class="collapsible-content collapsed" id="languages">
-					<div class="language-chart">
-						{{range .GitHubData.TopLanguages}}
-						<div class="language-item">
-							<div class="lang-info">
-								<span class="lang-name">{{.Name}}</span>
-								<span class="lang-percent">{{printf "%.1f" .Percentage}}%</span>
-							</div>
-							<div class="lang-bar">
-								<div class="lang-fill" style="width: {{.Percentage}}%; background-color: {{.Color}};"></div>
-							</div>
-						</div>
-						{{end}}
-					</div>
-				</div>
-			</div>
-			{{end}}
-
-			{{if and .ShowGitHub .GitHubData .GitHubData.RecentRepos}}
-			<div class="code-subsection">
-				<button class="section-toggle" data-target="repos" type="button" aria-expanded="false">
-					<span class="toggle-icon">▶</span>
-					<span>Recent Repos</span>
-					<span class="section-count">({{len .GitHubData.RecentRepos}})</span>
-				</button>
-				<div class="collapsible-content collapsed" id="repos">
-					<div class="repo-list">
-						{{range .GitHubData.RecentRepos}}
-						<div class="repo-item" onclick="window.open('https://github.com/{{$.GitHubUsername}}/{{.Name}}', '_blank')">
-							<div class="repo-content">
-								<div class="repo-name">{{.Name}}</div>
-								{{if .Languages}}
-								{{$total := 0.0}}
-								{{range .Languages}}{{$total = add $total .Percentage}}{{end}}
-								<div class="repo-lang-bar">
-									{{range .Languages}}
-									<div style="flex: {{.Percentage}}; background-color: {{.Color}};" title="{{.Name}} {{printf "%.1f" .Percentage}}%"></div>
-									{{end}}
-									{{if lt $total 100.0}}
-									<div style="flex: {{printf "%.6f" (sub 100.0 $total)}}; background-color: #8b949e;" title="Other {{printf "%.1f" (sub 100.0 $total)}}%"></div>
-									{{end}}
-								</div>
-								{{else if .Language}}
-								<div class="repo-lang-bar">
-									<div style="flex: 100; background-color: {{call $.GetLanguageColor .Language}};" title="{{.Language}} 100%"></div>
-								</div>
-								{{end}}
-							</div>
-							<div class="repo-tags">
-								{{if .Language}}<span class="repo-lang">{{.Language}}</span>{{end}}
-								{{if gt .Stars 0}}<span class="repo-stars">★{{.Stars}}</span>{{end}}
-							</div>
-						</div>
-						{{end}}
-					</div>
-				</div>
-			</div>
-			{{end}}
-
-			{{if not (or .GitHubData .WakatimeData)}}
-			<div class="no-data">
-				<p class="text-muted">Configure GitHub username or WakaTime API key to see coding statistics.</p>
-			</div>
-			{{end}}
-		</div>
-	</div>`
-
-	data := struct {
-		SectionTitle     string
-		ShowGitHub       bool
-		ShowWakatime     bool
-		ShowLanguages    bool
-		GitHubData       *GitHubUserData
-		WakatimeData     *WakatimeData
-		AllRepoLanguages []LanguageStat
-		GitHubUsername   string
-		GetLanguageColor func(string) string
-	}{
-		SectionTitle:     sectionTitle,
-		ShowGitHub:       showGitHub,
-		ShowWakatime:     showWakatime,
-		ShowLanguages:    showLanguages,
-		GitHubData:       p.githubData,
-		WakatimeData:     p.wakatimeData,
-		AllRepoLanguages: allRepoLanguages,
-		GitHubUsername:   githubUsername,
-		GetLanguageColor: GetLanguageColor,
-	}
-
-	funcMap := template.FuncMap{
-		"printf": fmt.Sprintf,
-		"add":    func(a, b float64) float64 { return a + b },
-		"sub":    func(a, b float64) float64 { return a - b },
-		"div": func(a, b int) int {
-			if b == 0 {
-				return 0
-			}
-			return a / b
-		},
-		"mul": func(a, b int) int { return a * b },
-		"lt":  func(a, b float64) bool { return a < b },
-	}
-
-	t, err := template.New("code").Funcs(funcMap).Parse(tmpl)
-	if err != nil {
-		return "", err
-	}
-
-	var buf strings.Builder
-	err = t.Execute(&buf, data)
-	if err != nil {
-		return "", err
-	}
-
-	return buf.String(), nil
+func (p *CodePlugin) startBackground() {
+	p.bgStarted.Do(func() {
+		go p.backgroundLoop()
+	})
 }
 
-func (p *CodePlugin) checkRecentCommits(client *http.Client, username, repoName string, since time.Time) bool {
-	commitsURL := fmt.Sprintf("https://api.github.com/repos/%s/%s/commits?since=%s&author=%s&per_page=1",
-		username, repoName, since.Format(time.RFC3339), username)
-
-	req, err := http.NewRequest("GET", commitsURL, nil)
-	if err != nil {
-		return false
-	}
-
-	config := p.storage.GetPluginConfig(p.Name())
-	if token := p.getConfigValue(config.Settings, "github.token", ""); token != "" {
-		req.Header.Set("Authorization", "token "+token)
-	}
-
-	req.Header.Set("User-Agent", "AboutPage/1.0")
-	req.Header.Set("Accept", "application/vnd.github.v3+json")
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return false
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != 200 {
-		return false
-	}
-
-	var commits []interface{}
-	if err := json.NewDecoder(resp.Body).Decode(&commits); err != nil {
-		return false
-	}
-
-	return len(commits) > 0
-}
-
-func (p *CodePlugin) persistData() {
-	config := p.storage.GetPluginConfig(p.Name())
-	settings := config.Settings
-	if settings == nil {
-		settings = make(map[string]interface{})
-	}
-
-	if p.githubData != nil {
-		ghCache := map[string]interface{}{
-			"login":         p.githubData.Login,
-			"name":          p.githubData.Name,
-			"public_repos":  p.githubData.PublicRepos,
-			"followers":     p.githubData.Followers,
-			"following":     p.githubData.Following,
-			"bio":           p.githubData.Bio,
-			"location":      p.githubData.Location,
-			"total_commits": p.githubData.TotalCommits,
-			"total_stars":   p.githubData.TotalStars,
+func (p *CodePlugin) backgroundLoop() {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("[Code] background stats loop panic recovered: %v", r)
+			time.Sleep(time.Minute)
+			go p.backgroundLoop()
 		}
-
-		var recentRepos []interface{}
-		for _, repo := range p.githubData.RecentRepos {
-			var langs []interface{}
-			for _, l := range repo.Languages {
-				langs = append(langs, map[string]interface{}{
-					"name":       l.Name,
-					"percentage": l.Percentage,
-					"color":      l.Color,
-				})
-			}
-			recentRepos = append(recentRepos, map[string]interface{}{
-				"name":          repo.Name,
-				"stars":         repo.Stars,
-				"language":      repo.Language,
-				"updated_at":    repo.UpdatedAt.Format(time.RFC3339),
-				"description":   repo.Description,
-				"languages_url": repo.LanguagesURL,
-				"languages":     langs,
-			})
-		}
-		ghCache["recent_repos"] = recentRepos
-
-		var topLangs []interface{}
-		for _, l := range p.githubData.TopLanguages {
-			topLangs = append(topLangs, map[string]interface{}{
-				"name":       l.Name,
-				"percentage": l.Percentage,
-				"color":      l.Color,
-				"bytes":      l.Bytes,
-			})
-		}
-		ghCache["top_languages"] = topLangs
-
-		settings["github_cache"] = ghCache
-	}
-
-	if p.wakatimeData != nil {
-		wkCache := map[string]interface{}{
-			"total_seconds": p.wakatimeData.TotalTime.Seconds,
-			"total_text":    p.wakatimeData.TotalTime.Text,
-			"week_seconds":  p.wakatimeData.LastWeek.Seconds,
-			"week_text":     p.wakatimeData.LastWeek.Text,
-		}
-
-		var langs []interface{}
-		for _, l := range p.wakatimeData.Languages {
-			langs = append(langs, map[string]interface{}{
-				"name":          l.Name,
-				"total_seconds": l.TotalSeconds,
-				"percent":       l.Percent,
-				"text":          l.Text,
-				"color":         l.Color,
-			})
-		}
-		wkCache["languages"] = langs
-
-		var editors []interface{}
-		for _, e := range p.wakatimeData.Editors {
-			editors = append(editors, map[string]interface{}{
-				"name":          e.Name,
-				"total_seconds": e.TotalSeconds,
-				"percent":       e.Percent,
-				"text":          e.Text,
-			})
-		}
-		wkCache["editors"] = editors
-
-		settings["wakatime_cache"] = wkCache
-	}
-
-	p.mutex.RLock()
-	if len(p.allRepoLanguages) > 0 {
-		var allLangs []interface{}
-		for _, l := range p.allRepoLanguages {
-			allLangs = append(allLangs, map[string]interface{}{
-				"name":       l.Name,
-				"percentage": l.Percentage,
-				"color":      l.Color,
-				"bytes":      l.Bytes,
-			})
-		}
-		settings["all_repo_languages_cache"] = allLangs
-	}
-	p.mutex.RUnlock()
-
-	settings["last_cache_time"] = time.Now().Format(time.RFC3339)
-
-	config.Settings = settings
-	if err := p.storage.SetPluginConfig(p.Name(), config); err != nil {
-		fmt.Printf("[Code] Failed to persist cache: %v\n", err)
+	}()
+	time.Sleep(45 * time.Second)
+	log.Printf("[Code] background loop started (hourly refresh, %s full recollect, partial retried hourly)", gitStatsInterval)
+	p.hourlyCycle()
+	ticker := time.NewTicker(time.Hour)
+	defer ticker.Stop()
+	for range ticker.C {
+		p.hourlyCycle()
 	}
 }
 
-func (p *CodePlugin) loadPersistedData() {
-	config := p.storage.GetPluginConfig(p.Name())
-	if config.Settings == nil {
+func (p *CodePlugin) hourlyCycle() {
+	start := time.Now()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	if _, err := p.git.Update(ctx); err != nil {
+		log.Printf("[Code] hourly git refresh failed: %v", err)
+	}
+	cancel()
+	p.git.RefreshToday()
+	p.collectHeavyStats()
+	go p.git.PrefetchDayDetails(400)
+	log.Printf("[Code] hourly cycle done in %v", time.Since(start).Round(time.Second))
+}
+
+func (p *CodePlugin) collectHeavyStats() {
+	changed := p.git.EnsureStats(false)
+	if !changed {
 		return
 	}
-
-	ghCache, ok := config.Settings["github_cache"].(map[string]interface{})
-	if ok {
-		gh := &GitHubUserData{
-			Login:        getStringC(ghCache, "login"),
-			Name:         getStringC(ghCache, "name"),
-			PublicRepos:  int(getFloat(ghCache, "public_repos")),
-			Followers:    int(getFloat(ghCache, "followers")),
-			Following:    int(getFloat(ghCache, "following")),
-			Bio:          getStringC(ghCache, "bio"),
-			Location:     getStringC(ghCache, "location"),
-			TotalCommits: int(getFloat(ghCache, "total_commits")),
-			TotalStars:   int(getFloat(ghCache, "total_stars")),
-		}
-
-		if reposRaw, ok := ghCache["recent_repos"].([]interface{}); ok {
-			for _, r := range reposRaw {
-				rm, ok := r.(map[string]interface{})
-				if !ok {
-					continue
-				}
-				repo := GitHubRepo{
-					Name:         getStringC(rm, "name"),
-					Stars:        int(getFloat(rm, "stars")),
-					Language:     getStringC(rm, "language"),
-					Description:  getStringC(rm, "description"),
-					LanguagesURL: getStringC(rm, "languages_url"),
-				}
-				if t, err := time.Parse(time.RFC3339, getStringC(rm, "updated_at")); err == nil {
-					repo.UpdatedAt = t
-				}
-				if langsRaw, ok := rm["languages"].([]interface{}); ok {
-					for _, lr := range langsRaw {
-						lm, ok := lr.(map[string]interface{})
-						if !ok {
-							continue
-						}
-						repo.Languages = append(repo.Languages, RepoLanguageBreakdown{
-							Name:       getStringC(lm, "name"),
-							Percentage: getFloat(lm, "percentage"),
-							Color:      getStringC(lm, "color"),
-						})
-					}
-				}
-				gh.RecentRepos = append(gh.RecentRepos, repo)
-			}
-		}
-
-		if langsRaw, ok := ghCache["top_languages"].([]interface{}); ok {
-			for _, lr := range langsRaw {
-				lm, ok := lr.(map[string]interface{})
-				if !ok {
-					continue
-				}
-				gh.TopLanguages = append(gh.TopLanguages, LanguageStat{
-					Name:       getStringC(lm, "name"),
-					Percentage: getFloat(lm, "percentage"),
-					Color:      getStringC(lm, "color"),
-					Bytes:      int(getFloat(lm, "bytes")),
-				})
-			}
-		}
-
-		p.githubData = gh
-		fmt.Printf("[Code] Loaded cached GitHub data: %d repos, %d stars\n", gh.PublicRepos, gh.TotalStars)
+	log.Printf("[Code] git stats changed, invalidating render cache")
+	if p.invalidateCache != nil {
+		p.invalidateCache()
 	}
-
-	wkCache, ok := config.Settings["wakatime_cache"].(map[string]interface{})
-	if ok {
-		wk := &WakatimeData{}
-		wk.TotalTime.Seconds = getFloat(wkCache, "total_seconds")
-		wk.TotalTime.Text = getStringC(wkCache, "total_text")
-		wk.LastWeek.Seconds = getFloat(wkCache, "week_seconds")
-		wk.LastWeek.Text = getStringC(wkCache, "week_text")
-
-		if langsRaw, ok := wkCache["languages"].([]interface{}); ok {
-			for _, lr := range langsRaw {
-				lm, ok := lr.(map[string]interface{})
-				if !ok {
-					continue
-				}
-				wk.Languages = append(wk.Languages, WakatimeLanguage{
-					Name:         getStringC(lm, "name"),
-					TotalSeconds: getFloat(lm, "total_seconds"),
-					Percent:      getFloat(lm, "percent"),
-					Text:         getStringC(lm, "text"),
-					Color:        getStringC(lm, "color"),
-				})
-			}
-		}
-
-		if editorsRaw, ok := wkCache["editors"].([]interface{}); ok {
-			for _, er := range editorsRaw {
-				em, ok := er.(map[string]interface{})
-				if !ok {
-					continue
-				}
-				wk.Editors = append(wk.Editors, struct {
-					Name         string  `json:"name"`
-					TotalSeconds float64 `json:"total_seconds"`
-					Percent      float64 `json:"percent"`
-					Text         string  `json:"text"`
-				}{
-					Name:         getStringC(em, "name"),
-					TotalSeconds: getFloat(em, "total_seconds"),
-					Percent:      getFloat(em, "percent"),
-					Text:         getStringC(em, "text"),
-				})
-			}
-		}
-
-		p.wakatimeData = wk
-		fmt.Printf("[Code] Loaded cached Wakatime data: %s\n", wk.TotalTime.Text)
-	}
-
-	if allLangsRaw, ok := config.Settings["all_repo_languages_cache"].([]interface{}); ok {
-		var allLangs []LanguageStat
-		for _, lr := range allLangsRaw {
-			lm, ok := lr.(map[string]interface{})
-			if !ok {
-				continue
-			}
-			allLangs = append(allLangs, LanguageStat{
-				Name:       getStringC(lm, "name"),
-				Percentage: getFloat(lm, "percentage"),
-				Color:      getStringC(lm, "color"),
-				Bytes:      int(getFloat(lm, "bytes")),
-			})
-		}
-		p.mutex.Lock()
-		p.allRepoLanguages = allLangs
-		p.mutex.Unlock()
-	}
-
-	if cacheTime, ok := config.Settings["last_cache_time"].(string); ok {
-		if t, err := time.Parse(time.RFC3339, cacheTime); err == nil {
-			p.lastUpdate = t
-		}
-	}
+	p.hub.Broadcast("plugin_update", map[string]interface{}{
+		"plugin": "code",
+		"action": "stats_updated",
+	})
 }
 
 func (p *CodePlugin) UpdateData(ctx context.Context) error {
-	if time.Since(p.lastUpdate) < 6*time.Hour {
+	if !atomic.CompareAndSwapInt32(&p.updating, 0, 1) {
 		return nil
 	}
-
-	hasCachedData := p.githubData != nil || p.wakatimeData != nil
-
-	if hasCachedData {
-		go func() {
-			err := p.doUpdate(ctx)
-			if err != nil {
-				fmt.Printf("Error updating code plugin data: %v\n", err)
-				return
+	go func() {
+		defer atomic.StoreInt32(&p.updating, 0)
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("[Code] background update panic recovered: %v", r)
 			}
 		}()
-		return nil
-	}
-
-	return p.doUpdate(ctx)
-}
-
-func (p *CodePlugin) doUpdate(ctx context.Context) error {
-	config := p.storage.GetPluginConfig(p.Name())
-	settings := config.Settings
-
-	if githubUsername := p.getConfigValue(settings, "github.username", ""); githubUsername != "" {
-		if err := p.updateGitHubData(githubUsername); err != nil {
-			fmt.Printf("Warning: Failed to update GitHub data: %v\n", err)
+		bctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+		defer cancel()
+		start := time.Now()
+		changed := p.updateExternal(bctx)
+		log.Printf("[Code] background update finished in %v (changed=%t)", time.Since(start).Round(time.Millisecond), changed)
+		if changed {
+			if p.invalidateCache != nil {
+				p.invalidateCache()
+			}
+			p.hub.Broadcast("plugin_update", map[string]interface{}{
+				"plugin": p.Name(),
+				"action": "data_updated",
+			})
 		}
-	}
-
-	if wakatimeKey := p.getConfigValue(settings, "wakatime.api_key", ""); wakatimeKey != "" {
-		if err := p.updateWakatimeData(wakatimeKey); err != nil {
-			fmt.Printf("Warning: Failed to update WakaTime data: %v\n", err)
-		}
-	}
-
-	p.lastUpdate = time.Now()
-	p.persistData()
+	}()
 	return nil
 }
 
-func (p *CodePlugin) fetchAllRepoLanguages(client *http.Client, username string, repos []GitHubRepo) []LanguageStat {
-	config := p.storage.GetPluginConfig(p.Name())
-	token := p.getConfigValue(config.Settings, "github.token", "")
+func (p *CodePlugin) updateExternal(ctx context.Context) bool {
+	changed := false
+	settings := p.storage.GetPluginConfig(p.Name()).Settings
 
-	allLanguageBytes := make(map[string]int)
-
-	for _, repo := range repos {
-		if repo.LanguagesURL == "" {
-			continue
-		}
-
-		req, err := http.NewRequest("GET", repo.LanguagesURL, nil)
-		if err != nil {
-			continue
-		}
-
-		if token != "" {
-			req.Header.Set("Authorization", "token "+token)
-		}
-		req.Header.Set("User-Agent", "AboutPage/1.0")
-		req.Header.Set("Accept", "application/vnd.github.v3+json")
-
-		resp, err := client.Do(req)
-		if err != nil {
-			continue
-		}
-
-		if resp.StatusCode != 200 {
-			resp.Body.Close()
-			continue
-		}
-
-		var languages map[string]int
-		if err := json.NewDecoder(resp.Body).Decode(&languages); err != nil {
-			resp.Body.Close()
-			continue
-		}
-		resp.Body.Close()
-
-		for lang, bytes := range languages {
-			allLanguageBytes[lang] += bytes
-		}
-
-		time.Sleep(50 * time.Millisecond)
-	}
-
-	totalBytes := 0
-	for _, bytes := range allLanguageBytes {
-		totalBytes += bytes
-	}
-
-	var avgLanguages []LanguageStat
-	if totalBytes > 0 {
-		for lang, bytes := range allLanguageBytes {
-			percentage := float64(bytes) / float64(totalBytes) * 100
-			if percentage >= 0.5 {
-				avgLanguages = append(avgLanguages, LanguageStat{
-					Name:       lang,
-					Percentage: percentage,
-					Color:      GetLanguageColor(lang),
-					Bytes:      bytes,
-				})
-			}
-		}
-
-		for i := 0; i < len(avgLanguages); i++ {
-			for j := i + 1; j < len(avgLanguages); j++ {
-				if avgLanguages[i].Percentage < avgLanguages[j].Percentage {
-					avgLanguages[i], avgLanguages[j] = avgLanguages[j], avgLanguages[i]
+	if p.getBool(settings, "ui.showGitHub", true) {
+		p.mu.RLock()
+		stale := time.Since(p.lastGithub) > codeGithubInterval
+		p.mu.RUnlock()
+		if stale {
+			username := p.getStr(settings, "github.username", "")
+			token := p.getStr(settings, "github.token", "")
+			if username != "" {
+				start := time.Now()
+				log.Printf("[Code] fetching github profile stats for %s...", username)
+				stats, err := fetchGitHubCodeStats(ctx, p.git.client, username, token)
+				if err != nil {
+					log.Printf("[Code] github stats fetch failed: %v", err)
+				} else {
+					p.mu.Lock()
+					p.github = stats
+					p.lastGithub = time.Now()
+					p.mu.Unlock()
+					p.store.SetGitHub(stats)
+					changed = true
+					log.Printf("[Code] github stats fetched in %v: %d repos, %d stars, %d followers",
+						time.Since(start).Round(time.Millisecond), stats.PublicRepos, stats.TotalStars, stats.Followers)
 				}
 			}
 		}
-
-		if len(avgLanguages) > 12 {
-			avgLanguages = avgLanguages[:12]
+	}
+	if p.getBool(settings, "ui.showWakatime", true) {
+		p.mu.RLock()
+		stale := time.Since(p.lastWaka) > codeWakaInterval
+		p.mu.RUnlock()
+		if stale {
+			apiKey := p.getStr(settings, "wakatime.api_key", "")
+			if apiKey != "" {
+				start := time.Now()
+				log.Printf("[Code] fetching wakatime stats...")
+				stats, err := fetchWakatimeStats(ctx, p.git.client, apiKey)
+				if err != nil {
+					log.Printf("[Code] wakatime stats fetch failed: %v", err)
+				} else {
+					p.mu.Lock()
+					if !stats.OSUpToDate && p.wakatime != nil && p.wakatime.OSUpToDate && len(p.wakatime.OSAllTime) > 0 {
+						stats.OSAllTime = p.wakatime.OSAllTime
+						stats.OSRange = p.wakatime.OSRange
+						stats.OSUpToDate = true
+					}
+					p.wakatime = stats
+					p.lastWaka = time.Now()
+					p.mu.Unlock()
+					p.store.SetWakatime(stats)
+					changed = true
+					log.Printf("[Code] wakatime stats fetched in %v: %s / 7d, %d languages, os range: %s (up_to_date=%t)",
+						time.Since(start).Round(time.Millisecond), stats.Text7d, stats.LangCount, stats.OSRange, stats.OSUpToDate)
+				}
+			}
 		}
 	}
-
-	return avgLanguages
+	p.mu.RLock()
+	reposStale := time.Since(p.lastRecentRepos) > gitRecentReposInterval
+	p.mu.RUnlock()
+	if reposStale {
+		start := time.Now()
+		log.Printf("[Code] collecting recent repos...")
+		repos := p.git.CollectRecentRepos(ctx)
+		if len(repos) > 0 {
+			p.mu.Lock()
+			p.recentRepos = repos
+			p.lastRecentRepos = time.Now()
+			p.mu.Unlock()
+			p.store.SetRecentRepos(repos)
+			changed = true
+			log.Printf("[Code] recent repos collected in %v: %d repos", time.Since(start).Round(time.Millisecond), len(repos))
+		} else {
+			log.Printf("[Code] recent repos collection returned nothing (%v)", time.Since(start).Round(time.Millisecond))
+		}
+	}
+	gitChanged, err := p.git.Update(ctx)
+	if err != nil {
+		log.Printf("[Code] git activity update failed: %v", err)
+	}
+	if gitChanged {
+		changed = true
+	}
+	return changed
 }
 
-func (p *CodePlugin) updateGitHubData(username string) error {
-	client := &http.Client{Timeout: 15 * time.Second}
-	fmt.Println("Updating github info...")
+type codeLangView struct {
+	Name    string
+	Color   string
+	Percent string
+	Width   string
+}
 
-	userURL := fmt.Sprintf("https://api.github.com/users/%s", username)
-	req, err := http.NewRequest("GET", userURL, nil)
-	if err != nil {
-		return err
+type codeWakaLangView struct {
+	Name  string
+	Color string
+	Text  string
+	Width string
+}
+
+type codeEditorView struct {
+	Name    string
+	Percent string
+}
+
+type codeRepoView struct {
+	Name        string
+	URL         string
+	MainLang    string
+	MainColor   string
+	Commits     int
+	Langs       []codeLangView
+	Stars       int
+	Source      string
+	SourceColor string
+}
+
+func compactWakaText(s string) string {
+	s = strings.ReplaceAll(s, " hrs", "h")
+	s = strings.ReplaceAll(s, " hr", "h")
+	s = strings.ReplaceAll(s, " mins", "m")
+	s = strings.ReplaceAll(s, " min", "m")
+	s = strings.ReplaceAll(s, " secs", "s")
+	s = strings.ReplaceAll(s, " sec", "s")
+	return s
+}
+
+type codeOSView struct {
+	Name    string
+	Color   string
+	Percent string
+	Text    string
+}
+
+func osColor(name string) string {
+	switch strings.ToLower(name) {
+	case "linux":
+		return "#f0a010"
+	case "windows":
+		return "#4d9fff"
+	case "mac", "macos", "darwin":
+		return "#b0b8c4"
+	case "android":
+		return "#3ad38b"
+	case "freebsd", "openbsd":
+		return "#ff5c7a"
+	default:
+		return "#8B949E"
 	}
+}
 
-	config := p.storage.GetPluginConfig(p.Name())
-	if token := p.getConfigValue(config.Settings, "github.token", ""); token != "" {
-		req.Header.Set("Authorization", "token "+token)
+func (p *CodePlugin) Render(ctx context.Context) (string, error) {
+	select {
+	case <-ctx.Done():
+		return "", ctx.Err()
+	default:
 	}
+	settings := p.storage.GetPluginConfig(p.Name()).Settings
+	sectionTitle := p.getStr(settings, "ui.sectionTitle", "Coding Stats")
+	showGitHub := p.getBool(settings, "ui.showGitHub", true)
+	showWaka := p.getBool(settings, "ui.showWakatime", true)
+	showLangs := p.getBool(settings, "ui.showLanguages", true)
+	ghUsername := p.getStr(settings, "github.username", "")
 
-	req.Header.Set("User-Agent", "AboutPage/1.0")
-	req.Header.Set("Accept", "application/vnd.github.v3+json")
+	p.mu.RLock()
+	gh := p.github
+	wk := p.wakatime
+	p.mu.RUnlock()
 
-	resp, err := client.Do(req)
-	if err != nil {
-		return fmt.Errorf("failed to fetch user data: %w", err)
-	}
-	defer resp.Body.Close()
+	gitCommits, _, _, gitRepos, gitPartial := p.git.CurrentStats()
 
-	if resp.StatusCode != 200 {
-		return fmt.Errorf("GitHub API returned status %d for user %s", resp.StatusCode, username)
-	}
-
-	var userData GitHubUserData
-	if err := json.NewDecoder(resp.Body).Decode(&userData); err != nil {
-		return fmt.Errorf("failed to decode user data: %w", err)
-	}
-
-	reposURL := fmt.Sprintf("https://api.github.com/users/%s/repos?sort=updated&per_page=100", username)
-	req, err = http.NewRequest("GET", reposURL, nil)
-	if err != nil {
-		return fmt.Errorf("failed to create repos request: %w", err)
-	}
-
-	if token := p.getConfigValue(config.Settings, "github.token", ""); token != "" {
-		req.Header.Set("Authorization", "token "+token)
-	}
-
-	req.Header.Set("User-Agent", "AboutPage/1.0")
-	req.Header.Set("Accept", "application/vnd.github.v3+json")
-
-	resp, err = client.Do(req)
-	if err != nil {
-		return fmt.Errorf("failed to fetch repos: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != 200 {
-		var errorResp struct {
-			Message          string `json:"message"`
-			DocumentationURL string `json:"documentation_url"`
+	var langs []codeLangView
+	if showLangs && gh != nil && len(gh.Languages) > 0 {
+		maxPct := gh.Languages[0].Percent
+		for _, l := range gh.Languages {
+			if l.Percent > maxPct {
+				maxPct = l.Percent
+			}
 		}
-		if err := json.NewDecoder(resp.Body).Decode(&errorResp); err == nil {
-			return fmt.Errorf("GitHub API error (status %d): %s", resp.StatusCode, errorResp.Message)
+		if maxPct <= 0 {
+			maxPct = 1
 		}
-		return fmt.Errorf("GitHub API returned status %d", resp.StatusCode)
-	}
-
-	var repos []GitHubRepo
-	if err := json.NewDecoder(resp.Body).Decode(&repos); err != nil {
-		return fmt.Errorf("failed to decode repos (status %d): %w", resp.StatusCode, err)
-	}
-
-	allRepoLanguages := p.fetchAllRepoLanguages(client, username, repos)
-
-	totalStars := 0
-	languageBytes := make(map[string]int)
-	for _, repo := range repos {
-		totalStars += repo.Stars
-		if repo.Language != "" {
-			languageBytes[repo.Language] += 1000
+		for _, l := range gh.Languages {
+			langs = append(langs, codeLangView{
+				Name:    l.Name,
+				Color:   l.Color,
+				Percent: fmt.Sprintf("%.1f%%", l.Percent),
+				Width:   fmt.Sprintf("%.2f", l.Percent/maxPct*100),
+			})
 		}
 	}
 
-	totalBytes := 0
-	for _, bytes := range languageBytes {
-		totalBytes += bytes
+	var weekBar []codeWeekSeg
+	if showWaka && wk != nil && wk.Hours7d > 0 {
+		totalSec := wk.Hours7d * 3600
+		for _, l := range wk.Languages {
+			pct := l.Seconds / totalSec * 100
+			if pct < 0.5 {
+				continue
+			}
+			weekBar = append(weekBar, codeWeekSeg{
+				Name:    l.Name,
+				Color:   GetLanguageColor(l.Name),
+				Percent: fmt.Sprintf("%.2f%%", pct),
+				Text:    compactWakaText(l.Text),
+			})
+		}
 	}
 
-	var topLanguages []LanguageStat
-	for lang, bytes := range languageBytes {
-		if totalBytes > 0 {
-			percentage := float64(bytes) / float64(totalBytes) * 100
-			if percentage >= 1.0 {
-				color := GetLanguageColor(lang)
-				topLanguages = append(topLanguages, LanguageStat{
-					Name:       lang,
-					Percentage: percentage,
-					Color:      color,
-					Bytes:      bytes,
+	p.mu.RLock()
+	recent := append([]GitRecentRepo(nil), p.recentRepos...)
+	p.mu.RUnlock()
+
+	var repos []codeRepoView
+	if showGitHub {
+		for _, r := range recent {
+			rv := codeRepoView{
+				Name:        r.Name,
+				URL:         r.URL,
+				MainLang:    r.MainLang,
+				MainColor:   GetLanguageColor(r.MainLang),
+				Commits:     r.Commits,
+				Stars:       r.Stars,
+				Source:      r.Source,
+				SourceColor: r.SourceColor,
+			}
+			for _, l := range r.Languages {
+				rv.Langs = append(rv.Langs, codeLangView{
+					Name:    l.Name,
+					Color:   l.Color,
+					Percent: fmt.Sprintf("%.1f%%", l.Percent),
 				})
 			}
+			repos = append(repos, rv)
 		}
-	}
-
-	for i := 0; i < len(topLanguages); i++ {
-		for j := i + 1; j < len(topLanguages); j++ {
-			if topLanguages[i].Percentage < topLanguages[j].Percentage {
-				topLanguages[i], topLanguages[j] = topLanguages[j], topLanguages[i]
+		if len(repos) == 0 && gh != nil {
+			for _, r := range gh.RecentRepos {
+				rv := codeRepoView{
+					Name:      r.Name,
+					URL:       r.URL,
+					MainLang:  r.MainLang,
+					MainColor: GetLanguageColor(r.MainLang),
+					Commits:   r.Commits,
+					Stars:     r.Stars,
+				}
+				for _, l := range r.Languages {
+					rv.Langs = append(rv.Langs, codeLangView{Name: l.Name, Color: l.Color, Percent: fmt.Sprintf("%.1f%%", l.Percent)})
+				}
+				repos = append(repos, rv)
 			}
 		}
 	}
 
-	if len(topLanguages) > 8 {
-		topLanguages = topLanguages[:8]
-	}
+	var wakaLangs []codeWakaLangView
+	var editors []codeEditorView
+	var osAll []codeOSView
+	waka7d, wakaTotal := "", ""
+	wakaLangCount := 0
+	if showWaka && wk != nil {
+		for _, o := range wk.OSAllTime {
+			osAll = append(osAll, codeOSView{
+				Name:    o.Name,
+				Color:   osColor(o.Name),
+				Percent: fmt.Sprintf("%.0f%%", o.Percent),
+				Text:    compactWakaText(o.Text),
+			})
+		}
 
-	timeSince := time.Now().AddDate(0, -3, 0)
-	var recentActiveRepos []GitHubRepo
-
-	for _, repo := range repos {
-		if repo.UpdatedAt.After(timeSince) {
-			hasRecentCommits := p.checkRecentCommits(client, username, repo.Name, timeSince)
-			if hasRecentCommits {
-				recentActiveRepos = append(recentActiveRepos, repo)
+		waka7d = compactWakaText(wk.Text7d)
+		if wk.HoursTotal >= 100 {
+			wakaTotal = fmt.Sprintf("%sh", formatCount(int(wk.HoursTotal)))
+		} else {
+			wakaTotal = compactWakaText(wk.TextTotal)
+		}
+		wakaLangCount = wk.LangCount
+		if wakaLangCount == 0 {
+			wakaLangCount = len(wk.Languages)
+		}
+		maxPct := 0.0
+		for _, l := range wk.Languages {
+			if l.Percent > maxPct {
+				maxPct = l.Percent
 			}
 		}
-	}
-
-	for i := 0; i < len(recentActiveRepos); i++ {
-		for j := i + 1; j < len(recentActiveRepos); j++ {
-			if recentActiveRepos[i].UpdatedAt.Before(recentActiveRepos[j].UpdatedAt) {
-				recentActiveRepos[i], recentActiveRepos[j] = recentActiveRepos[j], recentActiveRepos[i]
+		if maxPct <= 0 {
+			maxPct = 1
+		}
+		for i, l := range wk.Languages {
+			if i >= 10 {
+				break
 			}
+			wakaLangs = append(wakaLangs, codeWakaLangView{
+				Name:  l.Name,
+				Color: GetLanguageColor(l.Name),
+				Text:  l.Text,
+				Width: fmt.Sprintf("%.2f", l.Percent/maxPct*100),
+			})
+		}
+		for _, e := range wk.Editors {
+			editors = append(editors, codeEditorView{
+				Name:    e.Name,
+				Percent: fmt.Sprintf("%.0f%%", e.Percent),
+			})
 		}
 	}
 
-	for i := range recentActiveRepos {
-		if recentActiveRepos[i].LanguagesURL != "" {
-			recentActiveRepos[i].Languages = p.fetchRepoLanguages(client, recentActiveRepos[i].LanguagesURL)
+	osLabel := ""
+	if len(osAll) > 0 {
+		osLabel = "OS · all time"
+		if wk != nil && wk.OSRange != "" {
+			osLabel = "OS · " + wk.OSRange
 		}
 	}
 
-	commitStats := p.fetchCommitStats(client, username, repos)
-
-	totalCommitsLastYear := p.fetchTotalCommits(client, username)
-	if totalCommitsLastYear > 0 {
-		commitStats.TotalCommits = totalCommitsLastYear
+	totalRepos := gitRepos
+	if totalRepos == 0 && gh != nil {
+		totalRepos = gh.PublicRepos
 	}
 
-	userData.TotalStars = totalStars
-	userData.TopLanguages = topLanguages
-	userData.RecentRepos = recentActiveRepos
-	userData.TotalCommits = commitStats.TotalCommits
-	userData.CommitStats = commitStats
+	gitCommitsStr := ""
+	if gitCommits > 0 {
+		prefix := ""
+		if gitPartial {
+			prefix = "~"
+		}
+		gitCommitsStr = prefix + gitFormatComma(gitCommits)
+	}
 
-	p.githubData = &userData
+	const tmpl = `
+<section class="code-section section plugin" data-w="2">
+	<header class="plugin-header">
+		<h3 class="plugin-title">{{.SectionTitle}}</h3>
+		{{if .GithubURL}}<a class="btn btn-sm code-header-link" href="{{.GithubURL}}" target="_blank" rel="noopener" aria-label="GitHub profile"><svg viewBox="0 0 24 24" width="15" height="15"><path fill="currentColor" d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg></a>{{end}}
+	</header>
+	<div class="plugin__inner">
+		{{if .HasTopStats}}
+		<div class="code-stats">
+			{{if .TotalRepos}}
+			<div class="code-stat" title="repositories across all git sources">
+				<span class="code-stat-value">{{.TotalRepos}}</span>
+				<span class="code-stat-label">repos</span>
+			</div>
+			{{end}}
+			{{if .GitCommits}}
+			<div class="code-stat" title="commits across all git sources">
+				<span class="code-stat-value">{{.GitCommits}}</span>
+				<span class="code-stat-label">commits</span>
+			</div>
+			{{end}}
+			{{if .GitHub}}
+			<div class="code-stat">
+				<span class="code-stat-value">{{.GitHub.TotalStars}}</span>
+				<span class="code-stat-label">stars</span>
+			</div>
+			<div class="code-stat">
+				<span class="code-stat-value">{{.GitHub.Followers}}</span>
+				<span class="code-stat-label">followers</span>
+			</div>
+			{{end}}
+			{{if .Waka7d}}
+			<div class="code-stat">
+				<span class="code-stat-value">{{.Waka7d}}</span>
+				<span class="code-stat-label">coded / 7d</span>
+			</div>
+			{{end}}
+			{{if .WakaTotal}}
+			<div class="code-stat">
+				<span class="code-stat-value">{{.WakaTotal}}</span>
+				<span class="code-stat-label">coded total</span>
+			</div>
+			{{end}}
+		</div>
+		{{end}}
+		{{.GitTopHTML}}
+		{{if .WakaLangs}}
+		<details class="code-block" open>
+			<summary><span>This Week</span><span class="code-block-meta">{{if .Waka7d}}{{.Waka7d}} · {{end}}{{.WakaLangCount}} langs</span></summary>
+			<div class="code-block-body">
+				{{if .WeekBar}}
+				<div class="code-langbar">
+					{{range .WeekBar}}<i style="width:{{.Percent}};background:{{.Color}}" title="{{.Name}} {{.Text}}"></i>{{end}}
+				</div>
+				{{end}}
+				<div class="code-lang-rows">
+					{{range .WakaLangs}}
+					<div class="code-lang-row">
+						<span class="code-lang-name">{{.Name}}</span>
+						<div class="code-lang-bar"><i style="width:{{.Width}}%;background:{{.Color}}"></i></div>
+						<span class="code-lang-val">{{.Text}}</span>
+					</div>
+					{{end}}
+				</div>
+				{{if .Editors}}
+				<div class="code-editors">
+					{{range .Editors}}<span class="code-editor">{{.Name}} <em>{{.Percent}}</em></span>{{end}}
+				</div>
+				{{end}}
+			</div>
+		</details>
+		{{end}}
+		{{if .Languages}}
+		<details class="code-block" open>
+			<summary><span>Top Languages</span><span class="code-block-meta">{{len .Languages}}</span></summary>
+			<div class="code-block-body">
+				<div class="code-langbar">
+					{{range .Languages}}<i style="width:{{.Percent}};background:{{.Color}}" title="{{.Name}} {{.Percent}}"></i>{{end}}
+				</div>
+				<div class="code-lang-rows">
+					{{range .Languages}}
+					<div class="code-lang-row">
+						<span class="code-lang-name">{{.Name}} <em>{{.Percent}}</em></span>
+						<div class="code-lang-bar"><i style="width:{{.Width}}%;background:{{.Color}}"></i></div>
+					</div>
+					{{end}}
+				</div>
+			</div>
+		</details>
+		{{end}}
+		{{if .OSAll}}
+		<div class="code-os">
+			<span class="code-os-label">{{.OSLabel}}</span>
+			<div class="code-langbar code-langbar--thin code-os-bar">
+				{{range .OSAll}}<i style="width:{{.Percent}};background:{{.Color}}" title="{{.Name}} {{.Text}} ({{.Percent}})"></i>{{end}}
+			</div>
+			<div class="code-os-chips">
+				{{range .OSAll}}<span class="code-editor"><i class="code-os-dot" style="background:{{.Color}}"></i>{{.Name}} <em>{{.Percent}}</em></span>{{end}}
+			</div>
+		</div>
+		{{end}}
+		{{if .Repos}}
+		<details class="code-block" open>
+			<summary><span>Recent Repos</span><span class="code-block-meta">{{len .Repos}} · 3mo</span></summary>
+			<div class="code-block-body">
+				{{range .Repos}}
+				<a class="code-repo code-repo--compact" href="{{.URL}}" target="_blank" rel="noopener">
+					<div class="code-repo-row">
+						<span class="code-repo-dot" style="background:{{.MainColor}}"></span>
+						<span class="code-repo-name">{{.Name}}</span>
+						<span class="code-repo-cmeta">
+							{{if .MainLang}}<em>{{.MainLang}}</em>{{end}}
+							{{if .Stars}}<span class="code-repo-stars">★ {{.Stars}}</span>{{end}}
+							{{if .Commits}}<b>{{.Commits}}c</b>{{end}}
+							{{if .Source}}<span class="code-repo-src" style="--sc:{{.SourceColor}}">{{.Source}}</span>{{end}}
+						</span>
+					</div>
+					{{if .Langs}}
+					<div class="code-langbar code-langbar--thin">
+						{{range .Langs}}<i style="width:{{.Percent}};background:{{.Color}}" title="{{.Name}} {{.Percent}}"></i>{{end}}
+					</div>
+					{{end}}
+				</a>
+				{{end}}
+			</div>
+		</details>
+		{{end}}
+		{{.GitFeedHTML}}
+	</div>
+</section>`
 
-	p.mutex.Lock()
-	p.allRepoLanguages = allRepoLanguages
-	p.mutex.Unlock()
+	githubURL := ""
+	if ghUsername != "" && showGitHub {
+		githubURL = "https://github.com/" + ghUsername
+	}
+	data := struct {
+		SectionTitle  string
+		GitHub        *GitHubCodeStats
+		TotalRepos    int
+		GitCommits    string
+		HasTopStats   bool
+		Languages     []codeLangView
+		Waka7d        string
+		WakaTotal     string
+		WakaLangs     []codeWakaLangView
+		WakaLangCount int
+		Editors       []codeEditorView
+		WeekBar       []codeWeekSeg
+		Repos         []codeRepoView
+		GitTopHTML    template.HTML
+		GitFeedHTML   template.HTML
+		GithubURL     string
+		OSAll         []codeOSView
+		OSLabel       string
+	}{
+		SectionTitle:  sectionTitle,
+		TotalRepos:    totalRepos,
+		GitCommits:    gitCommitsStr,
+		Languages:     langs,
+		Waka7d:        waka7d,
+		WakaTotal:     wakaTotal,
+		WakaLangs:     wakaLangs,
+		WakaLangCount: wakaLangCount,
+		Editors:       editors,
+		Repos:         repos,
+		GitTopHTML:    template.HTML(p.git.RenderTopHTML()),
+		GitFeedHTML:   template.HTML(p.git.RenderFeedHTML()),
+		GithubURL:     githubURL,
+		WeekBar:       weekBar,
+		OSAll:         osAll,
+		OSLabel:       osLabel,
+	}
+	if showGitHub {
+		data.GitHub = gh
+	}
+	data.HasTopStats = data.TotalRepos > 0 || data.GitCommits != "" || data.GitHub != nil || data.Waka7d != "" || data.WakaTotal != ""
 
-	p.hub.Broadcast("github_update", map[string]interface{}{
-		"repos":     userData.PublicRepos,
-		"followers": userData.Followers,
-		"stars":     userData.TotalStars,
-		"languages": len(topLanguages),
-	})
-
-	fmt.Println("Updating github info... done")
-	return nil
+	t, err := template.New("code").Parse(tmpl)
+	if err != nil {
+		return "", err
+	}
+	var buf strings.Builder
+	if err := t.Execute(&buf, data); err != nil {
+		return "", err
+	}
+	return buf.String(), nil
 }
 
-func (p *CodePlugin) updateWakatimeData(apiKey string) error {
-	client := &http.Client{Timeout: 30 * time.Second}
-
-	weekURL := "https://wakatime.com/api/v1/users/current/stats/last_7_days"
-	req, err := http.NewRequest("GET", weekURL, nil)
-	if err != nil {
-		return err
+func (p *CodePlugin) RenderText(ctx context.Context) (string, error) {
+	p.mu.RLock()
+	gh := p.github
+	p.mu.RUnlock()
+	commits, adds, dels, _, _ := p.git.CurrentStats()
+	parts := []string{}
+	if gh != nil {
+		parts = append(parts, fmt.Sprintf("%d repos, %d stars", gh.PublicRepos, gh.TotalStars))
 	}
-	req.Header.Set("Authorization", "Basic "+apiKey)
-	req.Header.Set("User-Agent", "AboutPage/1.0")
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return err
+	if commits > 0 {
+		parts = append(parts, fmt.Sprintf("%s commits, +%s/-%s lines",
+			gitFormatCount(commits), gitFormatCount(adds), gitFormatCount(dels)))
 	}
-	defer resp.Body.Close()
-
-	var weekData struct {
-		Data struct {
-			TotalSeconds float64 `json:"total_seconds"`
-			Languages    []struct {
-				Name         string  `json:"name"`
-				TotalSeconds float64 `json:"total_seconds"`
-				Percent      float64 `json:"percent"`
-				Text         string  `json:"text"`
-			} `json:"languages"`
-			Editors []struct {
-				Name         string  `json:"name"`
-				TotalSeconds float64 `json:"total_seconds"`
-				Percent      float64 `json:"percent"`
-				Text         string  `json:"text"`
-			} `json:"editors"`
-			OperatingSystems []struct {
-				Name         string  `json:"name"`
-				TotalSeconds float64 `json:"total_seconds"`
-				Percent      float64 `json:"percent"`
-				Text         string  `json:"text"`
-			} `json:"operating_systems"`
-		} `json:"data"`
+	if len(parts) == 0 {
+		return "Code: No data yet", nil
 	}
-
-	if err := json.NewDecoder(resp.Body).Decode(&weekData); err != nil {
-		return err
-	}
-
-	allTimeURL := "https://wakatime.com/api/v1/users/current/all_time_since_today"
-	req, err = http.NewRequest("GET", allTimeURL, nil)
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Authorization", "Basic "+apiKey)
-	req.Header.Set("User-Agent", "AboutPage/1.0")
-
-	resp, err = client.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	var allTimeData struct {
-		Data struct {
-			TotalSeconds float64 `json:"total_seconds"`
-			Text         string  `json:"text"`
-		} `json:"data"`
-	}
-
-	if err := json.NewDecoder(resp.Body).Decode(&allTimeData); err != nil {
-		return err
-	}
-
-	if len(weekData.Data.Languages) == 0 && weekData.Data.TotalSeconds == 0 && p.wakatimeData != nil {
-		p.hub.Broadcast("wakatime_update", map[string]interface{}{
-			"week_hours": p.wakatimeData.LastWeek.Seconds / 3600,
-			"total_text": p.wakatimeData.TotalTime.Text,
-			"languages":  len(p.wakatimeData.Languages),
-		})
-		return nil
-	}
-
-	weekHours := weekData.Data.TotalSeconds / 3600
-	weekTimeText := fmt.Sprintf("%.1f hrs", weekHours)
-
-	var languages []WakatimeLanguage
-	for _, lang := range weekData.Data.Languages {
-		languages = append(languages, WakatimeLanguage{
-			Name:         lang.Name,
-			TotalSeconds: lang.TotalSeconds,
-			Percent:      lang.Percent,
-			Text:         lang.Text,
-			Color:        GetLanguageColor(lang.Name),
-		})
-	}
-
-	wakatimeData := &WakatimeData{
-		TotalTime: struct {
-			Seconds float64 `json:"seconds"`
-			Text    string  `json:"text"`
-		}{
-			Seconds: allTimeData.Data.TotalSeconds,
-			Text:    allTimeData.Data.Text,
-		},
-		LastWeek: struct {
-			Seconds float64 `json:"seconds"`
-			Text    string  `json:"text"`
-		}{
-			Seconds: weekData.Data.TotalSeconds,
-			Text:    weekTimeText,
-		},
-		Languages:        languages,
-		Editors:          weekData.Data.Editors,
-		OperatingSystems: weekData.Data.OperatingSystems,
-	}
-
-	p.wakatimeData = wakatimeData
-
-	p.hub.Broadcast("wakatime_update", map[string]interface{}{
-		"week_hours": weekHours,
-		"total_text": allTimeData.Data.Text,
-		"languages":  len(weekData.Data.Languages),
-	})
-
-	return nil
+	return "Code: " + strings.Join(parts, "; "), nil
 }
 
 func (p *CodePlugin) GetSettings() map[string]interface{} {
-	config := p.storage.GetPluginConfig(p.Name())
-	return config.Settings
+	return p.storage.GetPluginConfig(p.Name()).Settings
 }
 
 func (p *CodePlugin) SetSettings(settings map[string]interface{}) error {
-	config := p.storage.GetPluginConfig(p.Name())
-	config.Settings = settings
-
-	err := p.storage.SetPluginConfig(p.Name(), config)
-	if err != nil {
+	cfg := p.storage.GetPluginConfig(p.Name())
+	cfg.Settings = settings
+	if err := p.storage.SetPluginConfig(p.Name(), cfg); err != nil {
 		return err
 	}
-
+	p.mu.Lock()
+	p.lastGithub = time.Time{}
+	p.lastWaka = time.Time{}
+	p.mu.Unlock()
+	p.git.ReloadSources()
 	p.hub.Broadcast("plugin_update", map[string]interface{}{
 		"plugin": p.Name(),
 		"action": "settings_changed",
 	})
-
 	return nil
 }
 
-func (p *CodePlugin) getConfigValue(settings map[string]interface{}, key string, defaultValue string) string {
-	keys := strings.Split(key, ".")
-	current := settings
-
-	for i, k := range keys {
-		if i == len(keys)-1 {
-			if value, ok := current[k].(string); ok {
-				return value
-			}
-			return defaultValue
-		} else {
-			if next, ok := current[k].(map[string]interface{}); ok {
-				current = next
-			} else {
-				return defaultValue
-			}
-		}
-	}
-
-	return defaultValue
-}
-
-func (p *CodePlugin) getConfigBool(settings map[string]interface{}, key string, defaultValue bool) bool {
-	keys := strings.Split(key, ".")
-	current := settings
-
-	for i, k := range keys {
-		if i == len(keys)-1 {
-			if value, ok := current[k].(bool); ok {
-				return value
-			}
-			return defaultValue
-		} else {
-			if next, ok := current[k].(map[string]interface{}); ok {
-				current = next
-			} else {
-				return defaultValue
-			}
-		}
-	}
-
-	return defaultValue
-}
-
-func (p *CodePlugin) RenderText(ctx context.Context) (string, error) {
-	if p.githubData == nil && p.wakatimeData == nil {
-		return "Code: No data available", nil
-	}
-
-	var parts []string
-
-	if p.githubData != nil {
-		parts = append(parts, fmt.Sprintf("%d repos, %d stars", p.githubData.PublicRepos, p.githubData.TotalStars))
-	}
-
-	if p.wakatimeData != nil {
-		parts = append(parts, fmt.Sprintf("%s this week", p.wakatimeData.LastWeek.Text))
-	}
-
-	if len(parts) == 0 {
-		return "Code: No stats available", nil
-	}
-
-	return fmt.Sprintf("Code: %s", strings.Join(parts, ", ")), nil
-}
-
-func (p *CodePlugin) fetchRepoLanguages(client *http.Client, languagesURL string) []RepoLanguageBreakdown {
-	req, err := http.NewRequest("GET", languagesURL, nil)
-	if err != nil {
-		return nil
-	}
-
-	config := p.storage.GetPluginConfig(p.Name())
-	if token := p.getConfigValue(config.Settings, "github.token", ""); token != "" {
-		req.Header.Set("Authorization", "token "+token)
-	}
-
-	req.Header.Set("User-Agent", "AboutPage/1.0")
-	req.Header.Set("Accept", "application/vnd.github.v3+json")
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != 200 {
-		return nil
-	}
-
-	var languages map[string]int
-	if err := json.NewDecoder(resp.Body).Decode(&languages); err != nil {
-		return nil
-	}
-
-	total := 0
-	for _, bytes := range languages {
-		total += bytes
-	}
-
-	if total == 0 {
-		return nil
-	}
-
-	var breakdown []RepoLanguageBreakdown
-	for lang, bytes := range languages {
-		percentage := float64(bytes) / float64(total) * 100
-		if percentage >= 0.5 {
-			breakdown = append(breakdown, RepoLanguageBreakdown{
-				Name:       lang,
-				Percentage: percentage,
-				Color:      GetLanguageColor(lang),
-			})
-		}
-	}
-
-	for i := 0; i < len(breakdown); i++ {
-		for j := i + 1; j < len(breakdown); j++ {
-			if breakdown[i].Percentage < breakdown[j].Percentage {
-				breakdown[i], breakdown[j] = breakdown[j], breakdown[i]
-			}
-		}
-	}
-
-	return breakdown
-}
-
-func (p *CodePlugin) fetchCommitStats(client *http.Client, username string, repos []GitHubRepo) GitHubCommitStats {
-	stats := GitHubCommitStats{
-		WeeklyCommits: make([]int, 7),
-	}
-
-	oneWeekAgo := time.Now().AddDate(0, 0, -7)
-
-	maxRepos := len(repos)
-	if maxRepos > 20 {
-		maxRepos = 20
-	}
-
-	config := p.storage.GetPluginConfig(p.Name())
-	token := p.getConfigValue(config.Settings, "github.token", "")
-
-	for _, repo := range repos[:maxRepos] {
-		commitsURL := fmt.Sprintf("https://api.github.com/repos/%s/%s/commits?since=%s&author=%s",
-			username, repo.Name, oneWeekAgo.Format(time.RFC3339), username)
-
-		req, err := http.NewRequest("GET", commitsURL, nil)
-		if err != nil {
-			continue
-		}
-
-		if token != "" {
-			req.Header.Set("Authorization", "token "+token)
-		}
-
-		req.Header.Set("User-Agent", "AboutPage/1.0")
-		req.Header.Set("Accept", "application/vnd.github.v3+json")
-
-		resp, err := client.Do(req)
-		if err != nil {
-			continue
-		}
-
-		if resp.StatusCode != 200 {
-			resp.Body.Close()
-			continue
-		}
-
-		var commits []struct {
-			Commit struct {
-				Author struct {
-					Date time.Time `json:"date"`
-				} `json:"author"`
-			} `json:"commit"`
-		}
-
-		if err := json.NewDecoder(resp.Body).Decode(&commits); err != nil {
-			resp.Body.Close()
-			continue
-		}
-		resp.Body.Close()
-
-		for _, commit := range commits {
-			daysSince := int(time.Since(commit.Commit.Author.Date).Hours() / 24)
-			if daysSince >= 0 && daysSince < 7 {
-				stats.WeeklyCommits[6-daysSince]++
-			}
-		}
-
-		time.Sleep(100 * time.Millisecond)
-	}
-
-	for _, count := range stats.WeeklyCommits {
-		stats.TotalCommits += count
-	}
-
-	if stats.TotalCommits == 0 {
-		stats.TotalCommits = p.estimateTotalCommits(client, username, repos[:maxRepos])
-	}
-
-	return stats
-}
-
-func (p *CodePlugin) estimateTotalCommits(client *http.Client, username string, repos []GitHubRepo) int {
-	totalCommits := 0
-
-	for _, repo := range repos {
-		statsURL := fmt.Sprintf("https://api.github.com/repos/%s/%s/stats/contributors", username, repo.Name)
-
-		req, err := http.NewRequest("GET", statsURL, nil)
-		if err != nil {
-			continue
-		}
-		req.Header.Set("User-Agent", "AboutPage/1.0")
-		req.Header.Set("Accept", "application/vnd.github.v3+json")
-
-		resp, err := client.Do(req)
-		if err != nil {
-			continue
-		}
-
-		if resp.StatusCode == 202 {
-			resp.Body.Close()
-			continue
-		}
-
-		var contributors []struct {
-			Author struct {
-				Login string `json:"login"`
-			} `json:"author"`
-			Total int `json:"total"`
-		}
-
-		if err := json.NewDecoder(resp.Body).Decode(&contributors); err != nil {
-			resp.Body.Close()
-			continue
-		}
-		resp.Body.Close()
-
-		for _, contrib := range contributors {
-			if contrib.Author.Login == username {
-				totalCommits += contrib.Total
-				break
-			}
-		}
-
-		time.Sleep(100 * time.Millisecond)
-	}
-
-	return totalCommits
-}
-
-func (p *CodePlugin) fetchTotalCommits(client *http.Client, username string) int {
-	config := p.storage.GetPluginConfig(p.Name())
-	token := p.getConfigValue(config.Settings, "github.token", "")
-
-	if token == "" {
-		return 0
-	}
-
-	totalCommits := 0
-	now := time.Now()
-
-	for year := 0; year < 10; year++ {
-		yearStart := now.AddDate(-year-1, 0, 0)
-		yearEnd := now.AddDate(-year, 0, 0)
-
-		query := fmt.Sprintf(`{
-			user(login: "%s") {
-				contributionsCollection(from: "%s", to: "%s") {
-					contributionCalendar {
-						totalContributions
-					}
-				}
-			}
-		}`, username, yearStart.Format(time.RFC3339), yearEnd.Format(time.RFC3339))
-
-		requestBody := map[string]string{
-			"query": query,
-		}
-
-		jsonData, err := json.Marshal(requestBody)
-		if err != nil {
-			break
-		}
-
-		req, err := http.NewRequest("POST", "https://api.github.com/graphql", bytes.NewBuffer(jsonData))
-		if err != nil {
-			break
-		}
-
-		req.Header.Set("Authorization", "bearer "+token)
-		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("User-Agent", "AboutPage/1.0")
-
-		resp, err := client.Do(req)
-		if err != nil {
-			break
-		}
-
-		if resp.StatusCode != 200 {
-			resp.Body.Close()
-			break
-		}
-
-		var result struct {
-			Data struct {
-				User struct {
-					ContributionsCollection struct {
-						ContributionCalendar struct {
-							TotalContributions int `json:"totalContributions"`
-						} `json:"contributionCalendar"`
-					} `json:"contributionsCollection"`
-				} `json:"user"`
-			} `json:"data"`
-		}
-
-		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-			resp.Body.Close()
-			break
-		}
-		resp.Body.Close()
-
-		yearContributions := result.Data.User.ContributionsCollection.ContributionCalendar.TotalContributions
-		totalCommits += yearContributions
-
-		if yearContributions == 0 {
-			break
-		}
-
-		time.Sleep(100 * time.Millisecond)
-	}
-
-	return totalCommits
-}
-
 func (p *CodePlugin) GetMetrics() map[string]interface{} {
+	p.mu.RLock()
+	gh := p.github
+	wk := p.wakatime
+	p.mu.RUnlock()
 	metrics := map[string]interface{}{
 		"github_repos":         0,
 		"github_stars":         0,
-		"github_commits":       0,
 		"github_followers":     0,
-		"github_following":     0,
-		"github_languages":     0,
+		"github_commits":       int64(0),
 		"wakatime_hours_7d":    0.0,
 		"wakatime_hours_total": 0.0,
-		"wakatime_languages":   0,
-		"wakatime_editors":     0,
-		"recent_repos_count":   0,
-		"top_languages_count":  0,
 	}
-
-	if p.githubData != nil {
-		metrics["github_repos"] = p.githubData.PublicRepos
-		metrics["github_stars"] = p.githubData.TotalStars
-		metrics["github_commits"] = p.githubData.TotalCommits
-		metrics["github_followers"] = p.githubData.Followers
-		metrics["github_following"] = p.githubData.Following
-		metrics["github_languages"] = len(p.githubData.TopLanguages)
-		metrics["recent_repos_count"] = len(p.githubData.RecentRepos)
-		metrics["top_languages_count"] = len(p.githubData.TopLanguages)
+	if gh != nil {
+		metrics["github_repos"] = gh.PublicRepos
+		metrics["github_stars"] = gh.TotalStars
+		metrics["github_followers"] = gh.Followers
 	}
-
-	if p.wakatimeData != nil {
-		metrics["wakatime_hours_7d"] = p.wakatimeData.LastWeek.Seconds / 3600.0
-		metrics["wakatime_hours_total"] = p.wakatimeData.TotalTime.Seconds / 3600.0
-		metrics["wakatime_languages"] = len(p.wakatimeData.Languages)
-		metrics["wakatime_editors"] = len(p.wakatimeData.Editors)
+	if wk != nil {
+		metrics["wakatime_hours_7d"] = wk.Hours7d
+		metrics["wakatime_hours_total"] = wk.HoursTotal
 	}
-
-	p.mutex.RLock()
-	if len(p.allRepoLanguages) > 0 {
-		metrics["github_languages"] = len(p.allRepoLanguages)
+	for k, v := range p.git.GetMetrics() {
+		metrics[k] = v
 	}
-	p.mutex.RUnlock()
-
+	if c, ok := metrics["git_commits_total"].(int64); ok {
+		metrics["github_commits"] = c
+	}
 	return metrics
+}
+
+func (p *CodePlugin) getStr(settings map[string]interface{}, key, def string) string {
+	keys := strings.Split(key, ".")
+	current := settings
+	for i, k := range keys {
+		if current == nil {
+			return def
+		}
+		if i == len(keys)-1 {
+			if v, ok := current[k].(string); ok {
+				return v
+			}
+			return def
+		}
+		next, ok := current[k].(map[string]interface{})
+		if !ok {
+			return def
+		}
+		current = next
+	}
+	return def
+}
+
+func (p *CodePlugin) getBool(settings map[string]interface{}, key string, def bool) bool {
+	keys := strings.Split(key, ".")
+	current := settings
+	for i, k := range keys {
+		if current == nil {
+			return def
+		}
+		if i == len(keys)-1 {
+			if v, ok := current[k].(bool); ok {
+				return v
+			}
+			return def
+		}
+		next, ok := current[k].(map[string]interface{})
+		if !ok {
+			return def
+		}
+		current = next
+	}
+	return def
 }

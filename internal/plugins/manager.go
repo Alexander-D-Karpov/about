@@ -64,8 +64,13 @@ func (m *Manager) LoadAll() error {
 		m.InvalidatePluginCache("beatleader")
 	})
 
-	lastfmPlugin := NewLastFMPlugin(m.storage, m.hub, m.config.LastFMKey)
-	lastfmPlugin.SetPluginManager(m)
+	musicPlugin := NewMusicPlugin(m.storage, m.hub, m.config)
+	musicPlugin.SetPluginManager(m)
+
+	codePlugin := NewCodePlugin(m.storage, m.hub, m.config)
+	codePlugin.SetCacheInvalidator(func() {
+		m.InvalidatePluginCache("code")
+	})
 
 	plugins := []Plugin{
 		NewProfilePlugin(m.storage, m.hub),
@@ -74,12 +79,12 @@ func (m *Manager) LoadAll() error {
 		NewProjectsPlugin(m.storage, m.hub),
 		NewNeofetchPlugin(m.storage, m.hub),
 		NewWebringPlugin(m.storage, m.hub),
-		lastfmPlugin,
+		musicPlugin,
 		beatLeaderPlugin,
 		NewSteamPlugin(m.storage, m.hub, m.config.SteamKey),
 		NewVisitorsPlugin(m.storage, m.hub, m.config.DataPath),
 		NewServicesPlugin(m.storage, m.hub),
-		NewCodePlugin(m.storage, m.hub),
+		codePlugin,
 		NewInfoPlugin(m.storage, m.hub, m.appStartTime),
 		NewPersonalPlugin(m.storage, m.hub),
 		NewMemePlugin(m.storage, m.hub),
@@ -535,13 +540,13 @@ func (m *Manager) RefreshMeme() {
 }
 
 func (m *Manager) SearchAndPlayTrack(query string) error {
-	if lastfmPlugin, exists := m.GetPlugin("lastfm"); exists {
-		if lastfm, ok := lastfmPlugin.(*LastFMPlugin); ok {
-			_, err := lastfm.SearchAndPlayTrack(query)
+	if musicPlugin, exists := m.GetPlugin("music"); exists {
+		if music, ok := musicPlugin.(*MusicPlugin); ok {
+			_, err := music.SearchAndPlayTrack(query)
 			return err
 		}
 	}
-	return fmt.Errorf("lastfm plugin not found")
+	return fmt.Errorf("music plugin not found")
 }
 
 func (m *Manager) GetSystemStats() map[string]interface{} {

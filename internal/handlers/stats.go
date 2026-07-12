@@ -119,8 +119,10 @@ func (h *StatsHandler) fetchPrometheusData() (map[string]interface{}, error) {
 		"about_steam_is_playing",
 		"about_steam_recent_games_count",
 		"about_steam_total_playtime_hours",
-		"about_lastfm_is_playing",
-		"about_lastfm_total_scrobbles",
+		"about_music_nowplaying",
+		"about_music_scrobbles",
+		"about_music_loved",
+		"about_music_spotifyliked",
 		"about_webring_status_ok",
 		"about_webring_sites_count",
 		"about_neofetch_machines_count",
@@ -176,7 +178,7 @@ func (h *StatsHandler) serveInMemoryData(w http.ResponseWriter) {
 
 	pluginMetrics := []string{
 		"visitors", "health", "services", "code", "steam",
-		"lastfm", "webring", "neofetch", "photos", "places",
+		"music", "webring", "neofetch", "photos", "places",
 		"beatleader", "meme", "social", "techstack", "projects", "personal",
 	}
 

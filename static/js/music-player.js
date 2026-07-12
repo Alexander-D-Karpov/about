@@ -45,28 +45,29 @@
     }
 
     function playCurrentLastFMTrack() {
-        const currentTrackEl = document.querySelector('.current-track');
-        if (!currentTrackEl) {
-            console.error('No current track element found');
-            return;
-        }
-
-        const artist = currentTrackEl.dataset.artist ||
-            document.getElementById('lastfm-track-artist')?.textContent?.replace(/^by\s+/, '') || '';
-        const track = currentTrackEl.dataset.track ||
-            document.getElementById('lastfm-track-title')?.textContent || '';
-
+        const artist = document.getElementById('lastfm-track-artist')?.textContent?.trim() || '';
+        const track = document.getElementById('lastfm-track-name')?.textContent?.trim() || '';
         if (!artist || !track) {
-            console.error('Could not get current track info');
+            console.error('No current track info');
             return;
         }
 
-        const searchQuery = `${artist} ${track}`;
-        console.log('Playing current track:', searchQuery);
-        playTrack(searchQuery);
+        let startAt = 0;
+        const prog = document.querySelector('#music-section [data-music-progress]');
+        if (prog) {
+            const started = parseInt(prog.dataset.started || '0', 10);
+            const duration = parseInt(prog.dataset.duration || '0', 10);
+            if (started > 0) {
+                startAt = Math.floor(Date.now() / 1000) - started;
+                if (startAt < 0) startAt = 0;
+                if (duration > 0 && startAt > duration) startAt = 0;
+            }
+        }
+
+        playTrack(`${artist} ${track}`, startAt);
     }
 
-    async function playTrack(searchInfo) {
+    async function playTrack(searchInfo, startAt) {
         if (isLoadingTrack) return;
         isLoadingTrack = true;
 
@@ -131,7 +132,7 @@
                 authors: track.authors
             };
 
-            loadAndPlayCustomTrack(normalizedTrack);
+            loadAndPlayCustomTrack(normalizedTrack, startAt || 0);
         } catch (error) {
             console.error('Error playing track:', error);
             showNotification('Failed to load track', 'error');
@@ -178,7 +179,7 @@
         } catch {}
     }
 
-    function loadAndPlayCustomTrack(track) {
+    function loadAndPlayCustomTrack(track, startAt) {
         if (!customAudioElement) return;
 
         if (currentLoadedTrack && currentLoadedTrack.file === track.file) {
@@ -223,6 +224,11 @@
         const handleCanPlay = () => {
             customAudioElement.removeEventListener('canplay', handleCanPlay);
             customAudioElement.removeEventListener('error', handleError);
+
+            if (startAt && startAt > 0 && isFinite(customAudioElement.duration) && customAudioElement.duration > 0) {
+                const seekTo = Math.min(startAt, Math.max(0, customAudioElement.duration - 1));
+                try { customAudioElement.currentTime = seekTo; } catch (e) {}
+            }
 
             customAudioElement.play().catch(err => {
                 console.error('Playback failed:', err);
@@ -453,7 +459,7 @@
                     length: message.data.length || 0
                 };
 
-                loadAndPlayCustomTrack(track);
+                loadAndPlayCustomTrack(track, message.data.startAt || 0);
             }
         }
     };

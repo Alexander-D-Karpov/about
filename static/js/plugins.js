@@ -3,7 +3,6 @@
 
     const $ = (q, c = document) => c.querySelector(q);
     const $$ = (q, c = document) => Array.from(c.querySelectorAll(q));
-    const on = (el, ev, fn, opts) => el && el.addEventListener(ev, fn, opts);
 
     function initSteamGameInteractions() {
         const steamSection = $('.steam-section');
@@ -11,8 +10,6 @@
 
         $$('.game-item', steamSection).forEach(gameItem => {
             gameItem.style.cursor = 'default';
-
-            gameItem.removeEventListener('click', gameItem._clickHandler);
 
             gameItem.addEventListener('mouseenter', () => {
                 gameItem.style.transform = 'translateY(-2px)';
@@ -34,61 +31,6 @@
             statItem.style.cursor = 'pointer';
         });
     }
-
-    function initLastFMTrackActions() {
-        const lastFMSection = $('.lastfm-section');
-        if (!lastFMSection) return;
-
-        let isUpdating = false;
-
-        const observer = new MutationObserver(() => {
-            if (isUpdating) return;
-            isUpdating = true;
-            setupRecentTracksHandlers(lastFMSection);
-            setTimeout(() => {
-                isUpdating = false;
-            }, 100);
-        });
-
-        const recentTracksList = lastFMSection.querySelector('.recent-tracks-list');
-        if (recentTracksList) {
-            observer.observe(recentTracksList, {
-                childList: true,
-                subtree: false
-            });
-        }
-
-        setupRecentTracksHandlers(lastFMSection);
-    }
-
-    function setupRecentTracksHandlers(section) {
-        if (!section) return;
-
-        section.querySelectorAll('.recent-track-item').forEach(item => {
-            if (item.dataset.lastfmBound === '1') return;
-            item.dataset.lastfmBound = '1';
-
-            if (item.classList.contains('now-playing')) {
-                item.style.cursor = 'default';
-                return;
-            }
-
-            const trackName = item.querySelector('.recent-track-name')?.textContent?.replace(' 🎵', '').trim() || '';
-            const trackArtist = item.querySelector('.recent-track-artist')?.textContent?.trim() || '';
-
-            if (!trackName || !trackArtist || !window.playTrack) {
-                item.style.cursor = 'default';
-                return;
-            }
-
-            item.style.cursor = 'pointer';
-
-            item.addEventListener('click', function () {
-                window.playTrack(`${trackArtist} ${trackName}`);
-            });
-        });
-    }
-
 
     function initVisitorsInteractions() {
         const visitorsSection = $('.visitors-section');
@@ -167,68 +109,6 @@
         });
     }
 
-    function initAnimatedCounters() {
-        return;
-    }
-
-    function animateCounter(element) {
-        if (element.dataset.animated === 'true' || element.dataset.animating === 'true') {
-            return;
-        }
-
-        element.dataset.animating = 'true';
-
-        const text = element.textContent;
-        const rawValue = element.dataset.rawValue;
-
-        let number;
-        if (rawValue) {
-            number = parseFloat(rawValue);
-        } else {
-            number = parseFloat(text.replace(/[^\d.]/g, ''));
-        }
-
-        if (isNaN(number) || number === 0) {
-            element.dataset.animating = '';
-            return;
-        }
-
-        const suffix = text.replace(/[\d.,]/g, '');
-        const duration = 800;
-        const steps = 20;
-        const increment = number / steps;
-        let current = 0;
-        let step = 0;
-
-        const timer = setInterval(() => {
-            current += increment;
-            step++;
-
-            if (step >= steps) {
-                current = number;
-                clearInterval(timer);
-                element.dataset.animating = '';
-            }
-
-            if (suffix.includes('K') || suffix.includes('M')) {
-                element.textContent = formatNumber(Math.floor(current));
-            } else {
-                const formatted = Math.floor(current).toLocaleString();
-                element.textContent = formatted + suffix;
-            }
-        }, duration / steps);
-    }
-
-    function formatNumber(n) {
-        if (n < 1000) {
-            return n.toString();
-        } else if (n < 1000000) {
-            return (n / 1000).toFixed(1) + 'K';
-        } else {
-            return (n / 1000000).toFixed(1) + 'M';
-        }
-    }
-
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', init);
     } else {
@@ -239,13 +119,10 @@
         setTimeout(() => {
             initSteamGameInteractions();
             initBeatLeaderInteractions();
-            initLastFMTrackActions();
             initVisitorsInteractions();
             initServicesInteractions();
             initWebringInteractions();
             initKeyboardShortcuts();
-            initAnimatedCounters();
         }, 100);
     }
-
 })();

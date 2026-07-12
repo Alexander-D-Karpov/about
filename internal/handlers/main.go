@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"html/template"
 	"log"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -366,7 +367,10 @@ func getClientIP(r *http.Request) string {
 		return strings.TrimSpace(parts[0])
 	}
 	if realIP := r.Header.Get("X-Real-IP"); realIP != "" {
-		return realIP
+		return strings.TrimSpace(realIP)
+	}
+	if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
+		return host
 	}
 	return r.RemoteAddr
 }

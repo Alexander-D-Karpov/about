@@ -468,6 +468,8 @@
 
         if (!section) return;
 
+        if (section.classList.contains('plugin--expanded')) return;
+
         const temp = document.createElement('div');
         temp.innerHTML = data.rendered.trim();
 
@@ -487,7 +489,25 @@
         // Preserve current grid position before replacing the DOM node.
         copyMosaicState(oldEl, newSection);
 
+        let musicDetails = null;
+        if (data.plugin === 'music') {
+            musicDetails = {};
+            oldEl.querySelectorAll('details').forEach((d) => {
+                const key = d.classList.contains('music-stats') ? 'stats'
+                    : (d.querySelector('summary')?.textContent?.trim() || '');
+                if (key) musicDetails[key] = d.open;
+            });
+        }
+
         oldEl.replaceWith(newSection);
+
+        if (data.plugin === 'music' && musicDetails) {
+            newSection.querySelectorAll('details').forEach((d) => {
+                const key = d.classList.contains('music-stats') ? 'stats'
+                    : (d.querySelector('summary')?.textContent?.trim() || '');
+                if (key in musicDetails) d.open = musicDetails[key];
+            });
+        }
 
         if (data.plugin === 'projects') {
             newSection.dataset.fixedTail = '1';
@@ -499,6 +519,8 @@
             window.initTechFiltering();
         } else if (typeof window.initCodeToggles === 'function' && data.plugin === 'code') {
             window.initCodeToggles();
+        } else if (data.plugin === 'music' && typeof window.initMusicInteractions === 'function') {
+            window.initMusicInteractions();
         }
 
         requestAnimationFrame(() => {
@@ -511,12 +533,12 @@
     }
 
     function updateLastFMFromRendered(renderedHTML) {
-        const section = document.querySelector('.lastfm-section');
+        const section = document.querySelector('.music-section');
         if (!section) return;
 
         const temp = document.createElement('div');
         temp.innerHTML = renderedHTML;
-        const newSection = temp.querySelector('.lastfm-section');
+        const newSection = temp.querySelector('.music-section');
         if (!newSection) return;
 
         const trackTitle = newSection.querySelector('.track-title, .track-name');
@@ -786,7 +808,7 @@
     }
 
     function updateLastFM(data) {
-        const section = document.querySelector('.lastfm-section');
+        const section = document.querySelector('.music-section');
         if (!section) return;
 
         const currentTrackEl = section.querySelector('.current-track');
@@ -1202,6 +1224,15 @@
                 if (container) {
                     container.setAttribute('data-tooltip', `Exact: ${newValue.toLocaleString()}`);
                 }
+                updated = true;
+            });
+        }
+
+        if (data.unique !== undefined) {
+            const uniqueElements = document.querySelectorAll('[data-stat="unique"]');
+            uniqueElements.forEach(el => {
+                el.dataset.rawValue = String(data.unique);
+                el.textContent = formatNumber(data.unique);
                 updated = true;
             });
         }

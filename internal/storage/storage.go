@@ -71,7 +71,13 @@ func (s *Storage) Load() error {
 		return s.saveToFileAtomic()
 	}
 
+	migrated := s.migratePluginKeys()
 	s.applyEnvOverrides()
+	if migrated {
+		if err := s.saveToFileAtomic(); err != nil {
+			fmt.Printf("[Storage] WARNING: failed to persist plugin migration: %v\n", err)
+		}
+	}
 	return nil
 }
 
@@ -503,16 +509,15 @@ func (s *Storage) getDefaultConfig() map[string]interface{} {
 					},
 				},
 			},
-			"lastfm": map[string]interface{}{
+			"music": map[string]interface{}{
 				"enabled": true,
 				"order":   7,
 				"settings": map[string]interface{}{
 					"username": "sanspie",
 					"ui": map[string]interface{}{
 						"sectionTitle":     "Music",
-						"showScrobbles":    true,
-						"showPlayButton":   true,
 						"showRecentTracks": true,
+						"showStats":        true,
 					},
 				},
 			},
@@ -565,6 +570,14 @@ func (s *Storage) getDefaultConfig() map[string]interface{} {
 					},
 					"wakatime": map[string]interface{}{
 						"api_key": "",
+					},
+					"git": map[string]interface{}{
+						"ui": map[string]interface{}{
+							"showHeatmap":   true,
+							"showActivity":  true,
+							"activityLimit": 6,
+						},
+						"sources": []interface{}{},
 					},
 				},
 			},
@@ -714,7 +727,14 @@ func (s *Storage) applyEnvOverrides() {
 	s.setPluginNestedString("code", []string{"github", "token"}, os.Getenv("GITHUB_TOKEN"))
 	s.setPluginNestedString("code", []string{"wakatime", "api_key"}, os.Getenv("WAKATIME_API_KEY"))
 
-	s.setPluginString("lastfm", "username", os.Getenv("LASTFM_USERNAME"))
+	if j := os.Getenv("GIT_SOURCES_JSON"); j != "" {
+		var arr []map[string]interface{}
+		if json.Unmarshal([]byte(j), &arr) == nil {
+			s.setPluginNestedValue("code", []string{"git", "sources"}, toInterfaceSliceMap(arr))
+		}
+	}
+
+	s.setPluginString("music", "username", os.Getenv("LASTFM_USERNAME"))
 
 	s.setPluginNestedString("steam", []string{"steamid"}, os.Getenv("STEAM_ID"))
 
@@ -723,6 +743,29 @@ func (s *Storage) applyEnvOverrides() {
 	}
 	if u := os.Getenv("WEBRING_USER"); u != "" {
 		s.setPluginString("webring", "username", u)
+	}
+}
+
+func (s *Storage) setPluginNestedValue(plugin string, path []string, v interface{}) {
+	if v == nil {
+		return
+	}
+	s.ensurePlugin(plugin)
+	plugins := s.data["plugins"].(map[string]interface{})
+	settings := plugins[plugin].(map[string]interface{})["settings"].(map[string]interface{})
+	cur := settings
+	for i, k := range path {
+		if i == len(path)-1 {
+			cur[k] = v
+			return
+		}
+		if next, ok := cur[k].(map[string]interface{}); ok {
+			cur = next
+		} else {
+			n := map[string]interface{}{}
+			cur[k] = n
+			cur = n
+		}
 	}
 }
 
@@ -790,4 +833,41 @@ func toInterfaceSliceMap(in []map[string]interface{}) []interface{} {
 		out = append(out, v)
 	}
 	return out
+}
+
+func (s *Storage) migratePluginKeys() bool {
+	plugins, ok := s.data["plugins"].(map[string]interface{})
+	if !ok {
+		return false
+	}
+	if _, hasMusic := plugins["music"]; hasMusic {
+		return false
+	}
+	old, hasOld := plugins["lastfm"]
+	if !hasOld {
+		return false
+	}
+	plugins["music"] = old
+	delete(plugins, "lastfm")
+
+	if m, ok := old.(map[string]interface{}); ok {
+		settings, _ := m["settings"].(map[string]interface{})
+		if settings == nil {
+			settings = map[string]interface{}{}
+			m["settings"] = settings
+		}
+		ui, _ := settings["ui"].(map[string]interface{})
+		if ui == nil {
+			ui = map[string]interface{}{}
+			settings["ui"] = ui
+		}
+		if _, ok := ui["showStats"]; !ok {
+			ui["showStats"] = true
+		}
+		if _, ok := ui["showRecentTracks"]; !ok {
+			ui["showRecentTracks"] = true
+		}
+	}
+	fmt.Printf("[Storage] Migrated plugin config: lastfm -> music\n")
+	return true
 }

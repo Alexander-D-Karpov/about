@@ -586,6 +586,10 @@
         lockBodyScroll();
 
         el.style.height = '';
+        el.style.minHeight = '';
+        el.style.gridColumn = '';
+        el.style.gridRowStart = '';
+        el.style.gridRowEnd = '';
         el.classList.add('plugin--expanded');
         overlay.appendChild(el);
         expanded = el;

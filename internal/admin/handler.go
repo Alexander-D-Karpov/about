@@ -122,7 +122,7 @@ func (h *Handler) dashboard(w http.ResponseWriter, r *http.Request) {
 		"social":     "Social media links and contact information",
 		"techstack":  "Technical skills and technologies used",
 		"projects":   "Portfolio projects with descriptions and links",
-		"lastfm":     "Last.fm music integration showing current/recent tracks",
+		"music":      "Last.fm music integration showing current/recent tracks",
 		"beatleader": "BeatSaber stats from BeatLeader API",
 		"steam":      "Steam gaming activity and recent games",
 		"neofetch":   "System information display for multiple machines",
@@ -152,7 +152,7 @@ func (h *Handler) dashboard(w http.ResponseWriter, r *http.Request) {
 		}
 
 		settings = h.normalizeSettings(settings)
-		settings = h.filterInternalSettings(settings)
+		settings = h.filterInternalSettings(name, settings)
 
 		pluginList = append(pluginList, PluginData{
 			Name:        name,
@@ -520,38 +520,66 @@ func (h *Handler) saveProjectsAPI(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "count": len(projects)})
 }
 
-func (h *Handler) filterInternalSettings(settings map[string]interface{}) map[string]interface{} {
-	internalKeys := []string{
-		"imageCache",
-		"current_data",
-		"daily_averages",
-		"sleep_records",
-		"last_persist",
-		"last_reset_date",
-		"last_workout",
-		"cachedCubes",
-		"lastCubesCalculated",
-	}
+var hiddenSettingKeys = map[string][]string{
+	"beatleader": {"cachedCubes", "lastCubesCalculated"},
+	"health": {
+		"current_data", "daily_averages", "sleep_records",
+		"last_persist", "last_reset_date", "last_workout",
+	},
+	"code": {"gitStatsCache"},
+}
 
+func isHiddenSettingKey(pluginName, key string) bool {
+	lk := strings.ToLower(key)
+	if strings.Contains(lk, "cache") {
+		return true
+	}
+	if pluginName == "music" {
+		if strings.HasPrefix(lk, "loved") || strings.HasPrefix(lk, "spotifysaved") || lk == "runtimecache" {
+			return true
+		}
+	}
+	for _, k := range hiddenSettingKeys[pluginName] {
+		if key == k {
+			return true
+		}
+	}
+	return false
+}
+
+func (h *Handler) filterInternalSettings(pluginName string, settings map[string]interface{}) map[string]interface{} {
 	result := make(map[string]interface{})
 	for key, value := range settings {
-		isInternal := false
-		for _, internal := range internalKeys {
-			if key == internal {
-				isInternal = true
-				break
-			}
+		if isHiddenSettingKey(pluginName, key) {
+			continue
 		}
-		if !isInternal {
-			switch v := value.(type) {
-			case map[string]interface{}:
-				result[key] = h.filterInternalSettings(v)
-			default:
-				result[key] = value
-			}
+		switch v := value.(type) {
+		case map[string]interface{}:
+			result[key] = h.filterInternalSettings(pluginName, v)
+		default:
+			result[key] = value
 		}
 	}
 	return result
+}
+
+func (h *Handler) preserveHiddenSettings(pluginName string, settings map[string]interface{}) map[string]interface{} {
+	existing := h.storage.GetPluginConfig(pluginName)
+	if existing.Settings == nil {
+		return settings
+	}
+	if settings == nil {
+		settings = make(map[string]interface{})
+	}
+	for key, val := range existing.Settings {
+		if !isHiddenSettingKey(pluginName, key) {
+			continue
+		}
+		if _, present := settings[key]; !present {
+			settings[key] = val
+		}
+	}
+	return settings
 }
 
 func (h *Handler) normalizeSettings(settings map[string]interface{}) map[string]interface{} {
@@ -626,7 +654,7 @@ func (h *Handler) getPluginsAPI(w http.ResponseWriter, r *http.Request) {
 		}
 
 		settings = h.normalizeSettings(settings)
-		settings = h.filterInternalSettings(settings)
+		settings = h.filterInternalSettings(name, settings)
 
 		pluginList = append(pluginList, PluginData{
 			Name:     name,
@@ -659,7 +687,7 @@ func (h *Handler) reloadPluginAPI(w http.ResponseWriter, r *http.Request) {
 	}
 
 	settings = h.normalizeSettings(settings)
-	settings = h.filterInternalSettings(settings)
+	settings = h.filterInternalSettings(pluginName, settings)
 
 	response := map[string]interface{}{
 		"success":  true,
@@ -697,6 +725,7 @@ func (h *Handler) updatePluginsAPI(w http.ResponseWriter, r *http.Request) {
 	updatedPlugins := make([]string, 0, len(plugins))
 
 	for _, pluginData := range plugins {
+		pluginData.Settings = h.preserveHiddenSettings(pluginData.Name, pluginData.Settings)
 		if pluginData.Name == "bike" {
 			existingCfg := h.storage.GetPluginConfig(pluginData.Name)
 			if existingCfg.Settings != nil {
@@ -779,6 +808,7 @@ func (h *Handler) updatePluginAPI(w http.ResponseWriter, r *http.Request) {
 	}
 
 	existingCfg := h.storage.GetPluginConfig(pluginName)
+	settings = h.preserveHiddenSettings(pluginName, settings)
 	if pluginName == "bike" && existingCfg.Settings != nil {
 		settings = h.mergeBikeMetadata(settings, existingCfg.Settings)
 	}

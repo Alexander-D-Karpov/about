@@ -2,6 +2,18 @@ window.currentPluginData = window.currentPluginData || {};
 let currentPluginData = window.currentPluginData;
 let fileUploadQueue = new Map();
 
+const managedArraySchemas = {};
+
+const GIT_SOURCE_SCHEMA = {
+    type: 'select',
+    name: 'string',
+    base_url: 'string',
+    username: 'string',
+    token: 'string',
+    color: 'color',
+    private: 'boolean'
+};
+
 window.initSettingsEditor = function initSettingsEditor(pluginName, settings) {
     console.log(`Initializing settings editor for ${pluginName}:`, settings);
 
@@ -39,6 +51,12 @@ function renderPluginForm(container, pluginName, settings) {
         return;
     }
 
+    if (pluginName === 'code') {
+        renderCodeAdmin(formWrapper, settings);
+        container.appendChild(formWrapper);
+        return;
+    }
+
     if (pluginType.type === 'array-based') {
         renderArrayBasedPlugin(formWrapper, pluginName, settings, pluginType);
     } else {
@@ -46,6 +64,84 @@ function renderPluginForm(container, pluginName, settings) {
     }
 
     container.appendChild(formWrapper);
+}
+
+function renderCodeAdmin(container, settings) {
+    settings = settings || {};
+    const ui = settings.ui || {};
+    const github = settings.github || {};
+    const wakatime = settings.wakatime || {};
+    const git = settings.git || {};
+    const gitUI = git.ui || {};
+
+    createField('sectionTitle', ui.sectionTitle !== undefined ? ui.sectionTitle : 'Coding Stats', container, 'ui', 'code');
+    createField('showGitHub', ui.showGitHub !== false, container, 'ui', 'code');
+    createField('showWakatime', ui.showWakatime !== false, container, 'ui', 'code');
+    createField('showLanguages', ui.showLanguages !== false, container, 'ui', 'code');
+
+    createField('username', github.username || '', container, 'github', 'code');
+    createField('token', github.token || '', container, 'github', 'code');
+    createColorField('color', github.color || '#7aa2ff', container, 'github');
+    createField('api_key', wakatime.api_key || '', container, 'wakatime', 'code');
+
+    const gitContainer = document.createElement('div');
+    gitContainer.className = 'managed-array-container';
+    gitContainer.innerHTML = `
+        <div class="managed-array-header">
+            <h4>Git Activity</h4>
+            <p style="font-size:12px;color:var(--muted);margin:4px 0 0">
+                GitHub from the username/token above (or GITHUB_USERNAME / GITHUB_TOKEN env) is included automatically.
+                Add sources here for GitLab, Gitea or extra GitHub accounts.
+                "Private" sources count in the heatmap and totals but their activity is shown as "N private contributions".
+            </p>
+        </div>
+    `;
+    container.appendChild(gitContainer);
+
+    createField('showHeatmap', gitUI.showHeatmap !== false, gitContainer, 'git.ui', 'code');
+    createField('showActivity', gitUI.showActivity !== false, gitContainer, 'git.ui', 'code');
+    createField('activityLimit', gitUI.activityLimit != null ? gitUI.activityLimit : 6, gitContainer, 'git.ui', 'code');
+
+    let sources = Array.isArray(git.sources) ? git.sources : [];
+    const ghUser = (github.username || '').trim();
+    if (ghUser) {
+        const hasGithub = sources.some(s =>
+            s && String(s.type).toLowerCase() === 'github' &&
+            String(s.username || '').toLowerCase() === ghUser.toLowerCase()
+        );
+        if (!hasGithub) {
+            sources = [{
+                type: 'github',
+                name: 'GitHub',
+                base_url: '',
+                username: ghUser,
+                token: github.token || '',
+                color: github.color || '#7aa2ff',
+                private: false
+            }, ...sources];
+        }
+    }
+    renderManagedArray(gitContainer, 'code', 'git.sources', sources, GIT_SOURCE_SCHEMA);
+}
+
+function createColorField(fieldName, value, container, parentKey) {
+    const field = document.createElement('div');
+    field.className = 'settings-field';
+
+    const label = document.createElement('label');
+    label.className = 'field-label';
+    label.textContent = formatFieldName(fieldName);
+
+    const picker = document.createElement('input');
+    picker.type = 'color';
+    picker.className = 'field-input';
+    picker.name = parentKey ? `${parentKey}.${fieldName}` : fieldName;
+    picker.value = /^#[0-9a-fA-F]{6}$/.test(value) ? value : '#7aa2ff';
+    picker.style.cssText = 'width:44px;height:30px;padding:2px;cursor:pointer;border:1px solid var(--border);border-radius:6px;background:var(--bg)';
+
+    field.appendChild(label);
+    field.appendChild(picker);
+    container.appendChild(field);
 }
 
 function renderPhotosAdmin(container, settings) {
@@ -547,13 +643,17 @@ function createImageField(field, currentPath, currentValue, key, pluginName) {
 }
 
 function renderManagedArray(container, pluginName, fieldName, items, itemSchema) {
+    managedArraySchemas[fieldName] = itemSchema;
+
+    const displayName = fieldName.split('.').pop();
+
     const arrayContainer = document.createElement('div');
     arrayContainer.className = 'managed-array-container';
 
     const header = document.createElement('div');
     header.className = 'managed-array-header';
     header.innerHTML = `
-        <h4>${formatFieldName(fieldName)} (<span class="item-count">${items.length}</span> items)</h4>
+        <h4>${formatFieldName(displayName)} (<span class="item-count">${items.length}</span> items)</h4>
     `;
     arrayContainer.appendChild(header);
 
@@ -573,7 +673,7 @@ function renderManagedArray(container, pluginName, fieldName, items, itemSchema)
     const addBtn = document.createElement('button');
     addBtn.type = 'button';
     addBtn.className = 'btn btn-secondary add-array-item';
-    addBtn.textContent = `Add ${fieldName.slice(0, -1)}`;
+    addBtn.textContent = `Add ${displayName.slice(0, -1)}`;
     addBtn.onclick = () => addManagedArrayItem(pluginName, fieldName);
 
     footer.appendChild(addBtn);
@@ -703,6 +803,13 @@ function renderSchemaField(container, fieldPath, fieldName, value, fieldType, pl
             input.name = fieldPath;
             break;
 
+        case 'music_update':
+            if (window.updateMusicNow) window.updateMusicNow(message.data);
+            break;
+        case 'music_stats':
+            if (window.updateMusicStats) window.updateMusicStats(message.data);
+            break;
+
         case 'date':
             input = document.createElement('input');
             input.className = 'field-input';
@@ -719,7 +826,15 @@ function renderSchemaField(container, fieldPath, fieldName, value, fieldType, pl
         case 'select':
             input = document.createElement('select');
             input.className = 'field-input';
-            if (fieldName === 'type') {
+            if (fieldName === 'type' && pluginName === 'code') {
+                ['github', 'gitlab', 'gitea'].forEach(option => {
+                    const opt = document.createElement('option');
+                    opt.value = option;
+                    opt.textContent = option;
+                    opt.selected = value === option;
+                    input.appendChild(opt);
+                });
+            } else if (fieldName === 'type') {
                 ['image', 'gif', 'text'].forEach(option => {
                     const opt = document.createElement('option');
                     opt.value = option;
@@ -756,6 +871,44 @@ function renderSchemaField(container, fieldPath, fieldName, value, fieldType, pl
             input.value = typeof value === 'object' ? JSON.stringify(value, null, 2) : (value || '{}');
             input.name = fieldPath;
             break;
+
+        case 'boolean': {
+            const wrap = document.createElement('div');
+            wrap.className = 'field-checkbox';
+            const cb = document.createElement('input');
+            cb.type = 'checkbox';
+            cb.className = 'field-input';
+            cb.checked = value === true || value === 'true';
+            cb.name = fieldPath;
+            cb.id = fieldPath.replace(/[\.\[\]]/g, '_');
+            const lbl = document.createElement('label');
+            lbl.htmlFor = cb.id;
+            lbl.textContent = formatFieldName(fieldName);
+            wrap.appendChild(cb);
+            wrap.appendChild(lbl);
+            field.appendChild(wrap);
+            container.appendChild(field);
+            return;
+        }
+
+        case 'color': {
+            const wrap = document.createElement('div');
+            wrap.style.cssText = 'display:flex;gap:8px;align-items:center;padding:4px 0';
+            const lbl = document.createElement('span');
+            lbl.textContent = formatFieldName(fieldName);
+            lbl.style.cssText = 'font-size:12px;color:var(--muted)';
+            const picker = document.createElement('input');
+            picker.type = 'color';
+            picker.className = 'field-input';
+            picker.name = fieldPath;
+            picker.value = /^#[0-9a-fA-F]{6}$/.test(value) ? value : '#7aa2ff';
+            picker.style.cssText = 'width:44px;height:30px;padding:2px;cursor:pointer;border:1px solid var(--border);border-radius:6px;background:var(--bg)';
+            wrap.appendChild(picker);
+            wrap.appendChild(lbl);
+            field.appendChild(wrap);
+            container.appendChild(field);
+            return;
+        }
 
         case 'gpx': {
             const coordData = Array.isArray(value) ? value : [];
@@ -920,16 +1073,14 @@ function createArrayItem(container, item, path, index, pluginName) {
 }
 
 function addManagedArrayItem(pluginName, fieldName) {
-    let container = document.getElementById(`managed-array-${fieldName}`);
-
+    const container = document.getElementById(`managed-array-${fieldName}`);
     if (!container) {
         console.error(`Container not found for field ${fieldName}`);
         return;
     }
 
     const index = container.querySelectorAll('.managed-array-item').length;
-    const pluginType = getPluginType(pluginName);
-    const itemSchema = pluginType.itemSchema;
+    const itemSchema = managedArraySchemas[fieldName] || (getPluginType(pluginName).itemSchema || {});
 
     const emptyItem = {};
     Object.keys(itemSchema).forEach(key => {
@@ -1063,9 +1214,7 @@ function collectSettings(form) {
         const arrayName = arrayContainer.id.replace('managed-array-', '');
         const items = arrayContainer.querySelectorAll('.managed-array-item');
 
-        if (!settings[arrayName]) {
-            settings[arrayName] = [];
-        }
+        setNestedValue(settings, arrayName, []);
 
         items.forEach((item, index) => {
             const itemData = {};
@@ -1073,13 +1222,18 @@ function collectSettings(form) {
 
             itemInputs.forEach(input => {
                 const fieldName = input.name.split('.').pop();
-                let value = input.value;
+                let value;
 
-                if (input.type === 'number') {
+                if (input.type === 'checkbox') {
+                    value = input.checked;
+                } else if (input.type === 'number') {
                     value = input.value === '' ? 0 : parseFloat(input.value);
                     if (isNaN(value)) value = 0;
-                } else if (input.tagName === 'TEXTAREA' && fieldName === 'technologies') {
-                    value = value.split(',').map(tech => tech.trim()).filter(tech => tech !== '');
+                } else {
+                    value = input.value;
+                    if (input.tagName === 'TEXTAREA' && fieldName === 'technologies') {
+                        value = value.split(',').map(tech => tech.trim()).filter(tech => tech !== '');
+                    }
                 }
 
                 if (typeof value === 'string' && (value.startsWith('[') || value.startsWith('{'))) {
@@ -1090,7 +1244,7 @@ function collectSettings(form) {
             });
 
             if (Object.keys(itemData).length > 0) {
-                settings[arrayName][index] = itemData;
+                setNestedValue(settings, `${arrayName}[${index}]`, itemData);
             }
         });
     });
@@ -1166,6 +1320,8 @@ function getDefaultValueForType(fieldType) {
         case 'image': return '';
         case 'date': return '';
         case 'gpx': return [];
+        case 'color': return '#7aa2ff';
+        case 'select': return '';
         default: return '';
     }
 }
@@ -1536,33 +1692,52 @@ function initPlacesAdminMap(pluginName) {
     const container = document.getElementById(`places-admin-map-${pluginName}`);
     if (!container) return;
 
+    selectedPlaceIndex = null;
+
     if (placesAdminMap) {
         placesAdminMap.remove();
         placesAdminMap = null;
     }
-
     placesMarkers.clear();
 
     placesAdminMap = L.map(container, {
         center: [25, 0],
         zoom: 2,
-        zoomControl: true
+        zoomControl: true,
+        worldCopyJump: true
     });
 
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '&copy; OpenStreetMap',
-        maxZoom: 18,
-        errorTileUrl: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png'
-    }).on('tileerror', function () {
-        this.setUrl('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png');
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+        attribution: '&copy; OpenStreetMap &copy; CARTO',
+        subdomains: 'abcd',
+        maxZoom: 19
     }).addTo(placesAdminMap);
 
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '&copy; OSM &copy; CARTO',
-        maxZoom: 18
-    }).addTo(placesAdminMap);
+    const fixSize = () => {
+        if (!placesAdminMap) return;
+        placesAdminMap.invalidateSize();
+        if (placesData.length > 0) {
+            const bounds = L.latLngBounds(placesData.map(p => [p.lat, p.lng]));
+            placesAdminMap.fitBounds(bounds, { padding: [50, 50], maxZoom: 10 });
+        }
+    };
 
     loadPlacesFromSettings(pluginName);
+    setTimeout(fixSize, 150);
+
+    const pluginEl = container.closest('.plugin');
+    if (pluginEl) {
+        new MutationObserver(() => {
+            if (!pluginEl.classList.contains('collapsed')) {
+                setTimeout(fixSize, 80);
+            }
+        }).observe(pluginEl, { attributes: true, attributeFilter: ['class'] });
+    }
+    if (window.ResizeObserver) {
+        new ResizeObserver(() => {
+            if (placesAdminMap) placesAdminMap.invalidateSize();
+        }).observe(container);
+    }
 
     placesAdminMap.on('click', function (e) {
         addNewPlace(e.latlng, pluginName);
@@ -2181,8 +2356,12 @@ function loadLeafletAndInit(pluginName) {
     script.src = '/static/libs/leaflet/leaflet.js';
     script.onload = () => initPlacesAdminMap(pluginName);
     script.onerror = () => {
-        script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
         cssLink.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+        const fallback = document.createElement('script');
+        fallback.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+        fallback.onload = () => initPlacesAdminMap(pluginName);
+        fallback.onerror = () => showNotification('Failed to load map library', 'error');
+        document.head.appendChild(fallback);
     };
     document.head.appendChild(script);
 }

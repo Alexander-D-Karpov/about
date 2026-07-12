@@ -21,7 +21,9 @@ func NewHTTPClient() *http.Client {
 		IdleConnTimeout:       90 * time.Second,
 		TLSHandshakeTimeout:   10 * time.Second,
 		ExpectContinueTimeout: 1 * time.Second,
-		ResponseHeaderTimeout: 15 * time.Second,
+		ResponseHeaderTimeout: 30 * time.Second,
+		DisableKeepAlives:     false,
+		ForceAttemptHTTP2:     false,
 	}
 
 	if proxyURL := os.Getenv("HTTP_PROXY"); proxyURL != "" {

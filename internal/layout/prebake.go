@@ -48,8 +48,6 @@ func normalizePluginName(name string) string {
 	switch strings.ToLower(name) {
 	case "techstack":
 		return "tech"
-	case "music":
-		return "lastfm"
 	case "links":
 		return "social"
 	default:
@@ -297,10 +295,13 @@ func estimateHeightFromHTML(name string, span, pluginWidth int, html string) int
 		h = mapH + 80
 
 	case "health":
-		cards := countToken(lower, "health-card")
-		cols := itemsPerRowByPixelWidth(usableWidth, 140, 4)
+		cards := countToken(lower, `data-metric=`)
+		if cards == 0 {
+			cards = countToken(lower, `class="health-card"`)
+		}
+		cols := itemsPerRowByPixelWidth(usableWidth, 110, 4)
 		rows := ceilDiv(max(cards, 1), cols)
-		h = 96 + rows*72
+		h = 88 + rows*84
 
 	case "info":
 		items := countToken(lower, "info-item")
@@ -316,8 +317,14 @@ func estimateHeightFromHTML(name string, span, pluginWidth int, html string) int
 
 	case "visitors":
 		stats := countToken(lower, "visitor-stat")
-		rows := ceilDiv(max(stats, 1), itemsPerRowByPixelWidth(usableWidth, 110, 4))
-		h = 100 + rows*82
+		rows := ceilDiv(max(stats, 1), 3)
+		h = 90 + rows*70
+		if strings.Contains(lower, "visitors-chart") {
+			h += 60
+		}
+		if strings.Contains(lower, "visitors-map") {
+			h += 296
+		}
 
 	case "services":
 		items := countToken(lower, "service-item")
@@ -352,14 +359,15 @@ func estimateHeightFromHTML(name string, span, pluginWidth int, html string) int
 			h = 200 + lines*28
 		}
 
-	case "lastfm":
-		recent := countToken(lower, "recent-track-item")
-		mainBlock := 240
-		if strings.Contains(lower, "custom-music-player") {
-			mainBlock += 80
-		}
+	case "music":
+		recent := countToken(lower, "music-recent__item")
+		nowBlock := 176
 		visibleRecent := min(recent, 5)
-		h = 130 + mainBlock + visibleRecent*78
+		statsH := 0
+		if strings.Contains(lower, "music-stats") {
+			statsH = 48
+		}
+		h = 120 + nowBlock + visibleRecent*62 + statsH
 
 	case "steam":
 		games := countToken(lower, "game-item")
@@ -391,10 +399,10 @@ func estimateHeightFromHTML(name string, span, pluginWidth int, html string) int
 		wakaItems := countToken(lower, "waka-item")
 		summaryH := 90
 		statsH := 116
-		timeH := 96
-		togglesH := 4 * 52
-		openH := min(wakaItems, 12)*40 + 32
-		h = 110 + summaryH + statsH + timeH + togglesH + openH
+		heatmapH := 180
+		togglesH := 5 * 44
+		openH := min(wakaItems, 12) * 40
+		h = 110 + summaryH + statsH + heatmapH + togglesH + openH
 
 	case "neofetch":
 		h = 440

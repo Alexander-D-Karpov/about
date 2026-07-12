@@ -85,11 +85,11 @@ func main() {
 	r.PathPrefix("/static/css/stats.css").Handler(http.FileServer(http.FS(staticFiles)))
 	r.PathPrefix("/static/js/stats.js").Handler(http.FileServer(http.FS(staticFiles)))
 
-	staticHandler := http.FileServer(http.FS(staticFiles))
-	r.PathPrefix("/static/").Handler(disableDirectoryListing(addCacheHeaders(staticHandler)))
-
 	libsHandler := http.StripPrefix("/static/libs/", http.FileServer(http.Dir("static/libs")))
 	r.PathPrefix("/static/libs/").Handler(addCacheHeaders(libsHandler))
+
+	staticHandler := http.FileServer(http.FS(staticFiles))
+	r.PathPrefix("/static/").Handler(disableDirectoryListing(addCacheHeaders(staticHandler)))
 
 	if err := os.MkdirAll(cfg.MediaPath, 0755); err != nil {
 		log.Fatal("Failed to create media directory:", err)
@@ -141,6 +141,19 @@ func main() {
 			"meme":    currentMeme,
 		})
 	}).Methods("POST")
+
+	if mp, ok := pluginManager.GetPlugin("music"); ok {
+		if music, ok := mp.(*plugins.MusicPlugin); ok {
+			r.HandleFunc("/api/music/stats", music.HandleStatsAPI).Methods("GET")
+			r.HandleFunc("/api/music/now", music.HandleNowAPI).Methods("GET")
+		}
+	}
+
+	if cp, ok := pluginManager.GetPlugin("code"); ok {
+		if code, ok := cp.(*plugins.CodePlugin); ok {
+			r.HandleFunc("/api/git/day", code.Git().HandleDayAPI).Methods("GET")
+		}
+	}
 
 	r.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -367,7 +380,7 @@ func startBackgroundTasks(store *storage.Storage, pm *plugins.Manager) {
 					_, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 					defer cancel()
 
-					if err := pm.UpdatePlugin("lastfm"); err != nil {
+					if err := pm.UpdatePlugin("music"); err != nil {
 						log.Printf("LastFM update failed (non-fatal): %v", err)
 					}
 				}()
