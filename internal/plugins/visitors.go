@@ -155,8 +155,41 @@ func (p *VisitorsPlugin) geoWorker() {
 		p.countryStats[cc]++
 		p.mutex.Unlock()
 
+		p.broadcastRegionsUpdate()
+
 		time.Sleep(1500 * time.Millisecond)
 	}
+}
+
+func (p *VisitorsPlugin) broadcastRegionsUpdate() {
+	p.mutex.RLock()
+	countries := make(map[string]int64, len(p.countryStats))
+	for k, v := range p.countryStats {
+		if v > 0 {
+			countries[k] = v
+		}
+	}
+	p.mutex.RUnlock()
+
+	p.hub.Broadcast("visitors_regions_update", map[string]interface{}{
+		"countries": countries,
+		"timestamp": time.Now().Unix(),
+	})
+}
+
+func (p *VisitorsPlugin) HandleRegionsAPI(w http.ResponseWriter, r *http.Request) {
+	p.mutex.RLock()
+	countries := make(map[string]int64, len(p.countryStats))
+	for k, v := range p.countryStats {
+		if v > 0 {
+			countries[k] = v
+		}
+	}
+	p.mutex.RUnlock()
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-cache")
+	json.NewEncoder(w).Encode(countries)
 }
 
 func (p *VisitorsPlugin) resolveCountry(ip string) string {
@@ -449,7 +482,7 @@ func (p *VisitorsPlugin) Render(ctx context.Context) (string, error) {
 	}
 	p.mutex.RUnlock()
 
-	countriesJSON := ""
+	countriesJSON := "{}"
 	if len(countryCopy) > 0 {
 		if b, err := json.Marshal(countryCopy); err == nil {
 			countriesJSON = string(b)
@@ -491,7 +524,7 @@ func (p *VisitorsPlugin) Render(ctx context.Context) (string, error) {
 			<div class="visitors-heat-scale">Less<span class="visitors-day" data-level="1"></span><span class="visitors-day" data-level="2"></span><span class="visitors-day" data-level="3"></span><span class="visitors-day" data-level="4"></span>More</div>
 		</div>
 		{{end}}
-		{{if .CountriesJSON}}
+		{{if .ShowRegions}}
 		<div class="visitors-regions visitors-regions--map">
 			<span class="visitors-block-label">Regions · heatmap</span>
 			<div class="visitors-map" data-countries="{{.CountriesJSON}}"></div>
@@ -506,6 +539,7 @@ func (p *VisitorsPlugin) Render(ctx context.Context) (string, error) {
 		ShowTotal       bool
 		ShowToday       bool
 		ShowUnique      bool
+		ShowRegions     bool
 		TotalFormatted  string
 		TotalExact      string
 		TodayFormatted  string
@@ -519,6 +553,7 @@ func (p *VisitorsPlugin) Render(ctx context.Context) (string, error) {
 		ShowTotal:       showTotal,
 		ShowToday:       showToday,
 		ShowUnique:      showUnique,
+		ShowRegions:     showRegions,
 		TotalFormatted:  formatNumber(totalVisits),
 		TotalExact:      formatNumberWithCommas(totalVisits),
 		TodayFormatted:  formatNumber(todayVisits),

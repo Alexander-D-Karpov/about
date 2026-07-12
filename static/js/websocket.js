@@ -389,6 +389,11 @@
                 case 'plugin_rendered':
                     handlePluginRendered(message.data);
                     break;
+                case 'visitors_regions_update':
+                    if (window.applyVisitorsRegionsUpdate) {
+                        window.applyVisitorsRegionsUpdate(message.data && message.data.countries);
+                    }
+                    break;
                 case 'health_update':
                     updateHealthDisplay(message.data);
                     break;

@@ -384,18 +384,7 @@
         const gap = parseFloat(style.columnGap || style.gap || '12px') || 12;
 
         setSpansForCols(items, cols);
-        const { heights, maxH: maxNaturalPx } = batchMeasureHeights(items);
-
-        const cssCap = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--mosaic-fill-cap'));
-        const HARD_CAP_PX = 900;
-        const VIEWPORT_CAP_PX = Math.floor(window.innerHeight * 0.92);
-        const fillCapPx = Math.min(
-            maxNaturalPx || HARD_CAP_PX,
-            HARD_CAP_PX,
-            VIEWPORT_CAP_PX,
-            Number.isFinite(cssCap) && cssCap > 0 ? cssCap : Infinity
-        );
-        const fillCapRows = Math.ceil((fillCapPx + gap) / ROW_HEIGHT);
+        const { heights } = batchMeasureHeights(items);
 
         const colHeights = new Array(cols).fill(0);
         const placements = [];
@@ -423,10 +412,6 @@
 
         const spansOut = {};
         placements.forEach((p) => {
-            const minRows = Math.ceil((p.height + gap) / ROW_HEIGHT);
-            const maxRowsForThis = Math.max(minRows, fillCapRows);
-            if (p.rowSpan > maxRowsForThis) p.rowSpan = maxRowsForThis;
-
             const newCol = `${p.col + 1} / span ${p.colSpan}`;
             const newRowStart = String(p.row + 1);
             const newRowEnd = `span ${p.rowSpan}`;
@@ -561,7 +546,7 @@
         if (overlay) return overlay;
         overlay = document.createElement('div');
         overlay.className = 'plugin-overlay';
-        overlay.style.zIndex = '99999';
+        overlay.style.zIndex = '1000000';
         overlay.addEventListener('click', (e) => { if (e.target === overlay) collapseExpanded(); });
         document.addEventListener('keydown', (e) => { if (e.key === 'Escape') collapseExpanded(); });
         document.body.appendChild(overlay);
@@ -946,23 +931,13 @@
     function applyHeightUpdates(changes) {
         if (!changes.length) return;
 
-        const style = getComputedStyle(mosaic);
-        const gap = parseFloat(style.columnGap || style.gap || '12px') || 12;
-
         let needsRepack = false;
 
         changes.forEach(({ el, newHeight }) => {
             el.dataset.mosaicDirty = '1';
             const currentH = parseFloat(el.style.height) || 0;
-            const delta = newHeight - currentH;
-
-            if (delta > 16) {
+            if (Math.abs(newHeight - currentH) > 8) {
                 needsRepack = true;
-            } else if (delta < -16) {
-                const newH = Math.ceil(newHeight);
-                const newRowSpan = Math.ceil((newH + gap) / ROW_HEIGHT);
-                el.style.height = `${newH}px`;
-                el.style.gridRowEnd = `span ${newRowSpan}`;
             }
         });
 
@@ -987,7 +962,7 @@
                 lastObservedHeights.set(el, newHeight);
                 continue;
             }
-            if (Math.abs(newHeight - lastHeight) > 32) {
+            if (Math.abs(newHeight - lastHeight) > 8) {
                 changes.push({ el, newHeight });
                 lastObservedHeights.set(el, newHeight);
             }
@@ -1118,7 +1093,7 @@
 
     (function initialLayout() {
         const layoutVersionKey = 'mosaic.layout.version';
-        const layoutVersion = '2026-06-29-burmalda-2';
+        const layoutVersion = '2026-07-12-overlay-fix-1';
 
         if (storageGet(layoutVersionKey) !== layoutVersion) {
             try {

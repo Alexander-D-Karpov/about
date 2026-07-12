@@ -38,7 +38,7 @@ const (
 	Gap                = 12
 	minSampleViewport  = 320
 	maxPrebakeViewport = 3840
-	maxPluginHeightCap = 1200
+	maxPluginHeightCap = 2600
 	minPluginHeightCap = 120
 )
 
@@ -281,14 +281,14 @@ func estimateHeightFromHTML(name string, span, pluginWidth int, html string) int
 	case "photos":
 		items := countToken(lower, "photos-card")
 		rows := ceilDiv(max(items, 1), itemsPerRowByPixelWidth(usableWidth, 210, 4))
-		h = 96 + rows*230
+		h = 110 + rows*260
 
 	case "bike":
 		rides := countToken(lower, "bike-ride-item")
-		mapH := 320
-		statsH := 96
+		mapH := 340
+		statsH := 120
 		listRows := min(max(rides, 1), 6)
-		h = mapH + statsH + listRows*60 + 40
+		h = mapH + statsH + listRows*88 + 48
 
 	case "places":
 		mapH := 320
@@ -372,7 +372,7 @@ func estimateHeightFromHTML(name string, span, pluginWidth int, html string) int
 	case "steam":
 		games := countToken(lower, "game-item")
 		rows := ceilDiv(max(games, 1), itemsPerRowByPixelWidth(usableWidth, 220, 3))
-		extra := 96
+		extra := 120
 		if strings.Contains(lower, "current-game") {
 			coverH := pluginWidth / 2
 			if coverH < 120 {
@@ -385,7 +385,7 @@ func estimateHeightFromHTML(name string, span, pluginWidth int, html string) int
 		} else if strings.Contains(lower, "player-status") {
 			extra += 80
 		}
-		h = 110 + extra + rows*84
+		h = 130 + extra + rows*96
 
 	case "beatleader":
 		maps := countToken(lower, "map-item")
@@ -397,12 +397,13 @@ func estimateHeightFromHTML(name string, span, pluginWidth int, html string) int
 
 	case "code":
 		wakaItems := countToken(lower, "waka-item")
-		summaryH := 90
-		statsH := 116
-		heatmapH := 180
-		togglesH := 5 * 44
-		openH := min(wakaItems, 12) * 40
-		h = 110 + summaryH + statsH + heatmapH + togglesH + openH
+		summaryH := 120
+		statsH := 140
+		heatmapH := 220
+		togglesH := 6 * 48
+		langsH := 320
+		openH := min(wakaItems, 14) * 40
+		h = 140 + summaryH + statsH + heatmapH + togglesH + langsH + openH
 
 	case "neofetch":
 		h = 440

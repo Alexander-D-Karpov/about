@@ -219,6 +219,12 @@ func main() {
 		}
 	}
 
+	if vp, ok := pluginManager.GetPlugin("visitors"); ok {
+		if visitors, ok := vp.(*plugins.VisitorsPlugin); ok {
+			r.HandleFunc("/api/visitors/regions", visitors.HandleRegionsAPI).Methods("GET")
+		}
+	}
+
 	if pgURL := os.Getenv("POSTGRES_URL"); pgURL != "" {
 		rankingStore, err := ranking.NewStore(pgURL, cfg.MediaPath)
 		if err != nil {

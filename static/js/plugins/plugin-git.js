@@ -376,20 +376,18 @@
 
             block.style.setProperty('--cell', cell + 'px');
             block.style.setProperty('--cgap', gap + 'px');
+        });
+    }
 
-            const scroll = block.querySelector('.git-heatmap-scroll');
-            if (scroll) {
-                requestAnimationFrame(() => {
-                    scroll.scrollLeft = scroll.scrollWidth > scroll.clientWidth ? scroll.scrollWidth : 0;
-                });
-            }
+    function scrollHeatmapToEnd(el) {
+        if (!el) return;
+        requestAnimationFrame(() => {
+            el.scrollLeft = el.scrollWidth > el.clientWidth ? el.scrollWidth : 0;
         });
     }
 
     function scrollHeatmapsToEnd() {
-        document.querySelectorAll('.git-heatmap-scroll').forEach(el => {
-            el.scrollLeft = el.scrollWidth;
-        });
+        document.querySelectorAll('.git-heatmap-scroll').forEach(scrollHeatmapToEnd);
     }
 
     function init() {
@@ -473,6 +471,7 @@
             if (activeCell) position(activeCell);
         }, { passive: true });
 
+        sizeHeatmaps();
         scrollHeatmapsToEnd();
         applyStates();
         restoreFeedState();
@@ -480,9 +479,16 @@
         const mo = new MutationObserver(muts => {
             let heatmapAdded = false;
             let classChanged = false;
+            let justExpanded = null;
             for (const m of muts) {
                 if (m.type === 'attributes') {
                     classChanged = true;
+                    const t = m.target;
+                    if (t.nodeType === 1 &&
+                        t.classList.contains('plugin--expanded') &&
+                        !(m.oldValue || '').split(/\s+/).includes('plugin--expanded')) {
+                        (justExpanded || (justExpanded = [])).push(t);
+                    }
                     continue;
                 }
                 for (const n of m.addedNodes) {
@@ -500,11 +506,17 @@
                 revealExpandedFeeds();
                 sizeHeatmaps();
             }
+            if (justExpanded) {
+                justExpanded.forEach(el =>
+                    el.querySelectorAll('.git-heatmap-scroll').forEach(scrollHeatmapToEnd)
+                );
+            }
         });
         mo.observe(document.body, {
             childList: true,
             subtree: true,
             attributes: true,
+            attributeOldValue: true,
             attributeFilter: ['class']
         });
         let resizeTimer = null;

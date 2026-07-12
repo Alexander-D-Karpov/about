@@ -1549,7 +1549,7 @@ func (p *MusicPlugin) buildTrackPayload(track *MusicTrack, recent []MusicTrack, 
 		if len(recentData) >= 5 {
 			break
 		}
-		img := p.imageForVM(t.Artist.Text, t.Name, p.getTrackImageFromCache(t))
+		img := p.imageForVM(t.Artist.Text, t.Name, p.getTrackImage(t))
 		item := map[string]interface{}{
 			"name":         t.Name,
 			"artist":       t.Artist.Text,

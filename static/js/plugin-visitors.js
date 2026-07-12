@@ -27,7 +27,19 @@
     };
 
     const FILL_OPACITY = [0, 0.18, 0.4, 0.65, 0.9];
+    const EMPTY_RETRY_DELAY = 60000;
+    const MAX_EMPTY_RETRIES = 10;
+    const REFRESH_INTERVAL = 10 * 60 * 1000;
+
     let geoPromise = null;
+    let geoLayer = null;
+    let mapEl = null;
+    let countsByISO3 = {};
+    let maxCount = 0;
+    let emptyRetries = 0;
+    let retryTimer = null;
+    let refreshTimer = null;
+    let fetchInFlight = false;
 
     function cssVar(name, fallback) {
         const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -136,15 +148,82 @@
         }
     }
 
-    function buildMap(el, counts) {
-        const byISO3 = {};
+    function setCounts(raw) {
+        const out = {};
         let max = 0;
-        Object.entries(counts).forEach(([cc, n]) => {
+        Object.entries(raw || {}).forEach(([cc, n]) => {
             const key = ISO3[String(cc).toUpperCase()];
             if (!key || !(n > 0)) return;
-            byISO3[key] = (byISO3[key] || 0) + n;
-            if (byISO3[key] > max) max = byISO3[key];
+            out[key] = (out[key] || 0) + n;
+            if (out[key] > max) max = out[key];
         });
+        countsByISO3 = out;
+        maxCount = max;
+    }
+
+    function restyleGeoLayer() {
+        if (!geoLayer) return;
+        geoLayer.eachLayer(layer => {
+            const f = layer.feature;
+            if (!f) return;
+            const n = countsByISO3[f.id] || 0;
+            layer.setStyle({ fillOpacity: FILL_OPACITY[levelFor(n, maxCount)] });
+            const name = (f.properties && f.properties.name) || f.id;
+            const text = n > 0 ? `${name} · ${n} visitor${n === 1 ? '' : 's'}` : name;
+            if (layer.getTooltip()) {
+                layer.setTooltipContent(text);
+            } else {
+                layer.bindTooltip(text, { sticky: true, direction: 'top', className: 'visitors-map-tooltip' });
+            }
+        });
+    }
+
+    function scheduleEmptyRetry() {
+        if (retryTimer || emptyRetries >= MAX_EMPTY_RETRIES) return;
+        emptyRetries++;
+        retryTimer = setTimeout(() => {
+            retryTimer = null;
+            refreshCounts();
+        }, EMPTY_RETRY_DELAY);
+    }
+
+    function refreshCounts() {
+        if (fetchInFlight || !mapEl || !document.body.contains(mapEl)) return;
+        fetchInFlight = true;
+
+        fetch('/api/visitors/regions')
+            .then(r => {
+                if (!r.ok) throw new Error('regions fetch failed: ' + r.status);
+                return r.json();
+            })
+            .then(raw => {
+                setCounts(raw);
+                restyleGeoLayer();
+                if (!Object.keys(countsByISO3).length) {
+                    scheduleEmptyRetry();
+                } else {
+                    emptyRetries = 0;
+                }
+            })
+            .catch(err => {
+                console.debug('[Visitors] regions refresh failed:', err);
+                scheduleEmptyRetry();
+            })
+            .finally(() => {
+                fetchInFlight = false;
+            });
+    }
+
+    function applyRegionsUpdate(countries) {
+        if (!countries || !geoLayer) return;
+        setCounts(countries);
+        restyleGeoLayer();
+    }
+
+    function buildMap(el, initialCounts) {
+        mapEl = el;
+        geoLayer = null;
+        setCounts(initialCounts);
 
         const accent = cssVar('--accent', '#4d9fff');
         const edge = 'rgba(255,255,255,0.07)';
@@ -167,27 +246,23 @@
 
         loadGeo()
             .then(geo => {
-                L.geoJSON(geo, {
+                geoLayer = L.geoJSON(geo, {
                     style: f => {
-                        const n = byISO3[f.id] || 0;
+                        const n = countsByISO3[f.id] || 0;
                         return {
                             color: edge,
                             weight: 0.5,
                             fillColor: accent,
-                            fillOpacity: FILL_OPACITY[levelFor(n, max)]
+                            fillOpacity: FILL_OPACITY[levelFor(n, maxCount)]
                         };
                     },
                     onEachFeature: (f, layer) => {
-                        const n = byISO3[f.id] || 0;
-                        const name = (f.properties && f.properties.name) || f.id;
-                        layer.bindTooltip(
-                            n > 0 ? `${name} · ${n} visitor${n === 1 ? '' : 's'}` : name,
-                            { sticky: true, direction: 'top', className: 'visitors-map-tooltip' }
-                        );
                         layer.on('mouseover', () => layer.setStyle({ weight: 1.2, color: accent }));
                         layer.on('mouseout', () => layer.setStyle({ weight: 0.5, color: edge }));
                     }
                 }).addTo(map);
+
+                restyleGeoLayer();
 
                 setTimeout(() => {
                     map.invalidateSize();
@@ -195,6 +270,11 @@
                 }, 100);
             })
             .catch(err => console.warn('[Visitors] countries geojson failed:', err));
+
+        refreshCounts();
+
+        if (refreshTimer) clearInterval(refreshTimer);
+        refreshTimer = setInterval(refreshCounts, REFRESH_INTERVAL);
 
         if (window.ResizeObserver) {
             new ResizeObserver(() => map.invalidateSize()).observe(el);
@@ -211,9 +291,14 @@
         } catch {
             counts = {};
         }
-        if (!Object.keys(counts).length) return;
 
         el.dataset.mapInit = '1';
+        emptyRetries = 0;
+        if (retryTimer) {
+            clearTimeout(retryTimer);
+            retryTimer = null;
+        }
+
         loadLeaflet(() => buildMap(el, counts));
     }
 
@@ -231,7 +316,13 @@
             }
         });
         mo.observe(document.body, { childList: true, subtree: true });
+
+        document.addEventListener('visibilitychange', () => {
+            if (!document.hidden) refreshCounts();
+        });
     }
+
+    window.applyVisitorsRegionsUpdate = applyRegionsUpdate;
 
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', init);

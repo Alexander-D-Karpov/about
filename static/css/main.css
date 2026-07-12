@@ -37,7 +37,8 @@
     --btn-yellow: #f0a010;
     --btn-green: #10d060;
 
-    --mosaic-fill-cap: 228px;
+    --dock-reserve: 96px;
+    --dock-reserve-player: 180px;
 }
 * {
     scrollbar-width: thin;
@@ -201,6 +202,11 @@ img {
     max-width: 100%;
     margin: 0 auto;
     padding: 24px clamp(12px, 3vw, 28px);
+    padding-bottom: var(--dock-reserve);
+}
+
+body:has(#custom-music-player:not([style*="none"])) .container {
+    padding-bottom: var(--dock-reserve-player);
 }
 
 [class$="-section"]{
@@ -473,7 +479,7 @@ img {
     opacity: 0;
     pointer-events: none;
     transition: opacity .1s ease;
-    z-index: 999999;
+    z-index: 1000000;
     align-items: center;
     justify-content: center;
     padding: 20px;
@@ -610,9 +616,19 @@ img {
     }
 }
 @media (max-width:780px){
+    :root {
+        --dock-reserve: 84px;
+        --dock-reserve-player: 210px;
+    }
+
     .js .container{
         gap: calc(var(--gap) * 1.2);
         padding:16px;
+        padding-bottom: var(--dock-reserve);
+    }
+
+    body:has(#custom-music-player:not([style*="none"])) .js .container {
+        padding-bottom: var(--dock-reserve-player);
     }
 
     .js .profile-section {
@@ -651,7 +667,7 @@ img {
     }
 }
 @media (max-width:520px){
-    .container{padding:12px}
+    .container{padding:12px;padding-bottom:var(--dock-reserve)}
     .plugin-header{padding:8px 10px;margin:0 0 8px}
 
     :root {
@@ -1029,7 +1045,7 @@ body.scroll-locked {
     height: auto !important;
     min-height: 0 !important;
 
-    margin: 0 0 48px;
+    margin: 0 0 24px;
     align-self: stretch;
 
     grid-column: auto !important;
@@ -1046,4 +1062,14 @@ body.scroll-locked {
 
 .js .container > .projects-section .plugin-toolbar {
     display: none !important;
+}
+
+.music-mini-player {
+    position: fixed;
+    left: 50%;
+    transform: translateX(-50%);
+    bottom: 64px;
+    z-index: 999998;
+    width: min(520px, calc(100vw - 24px));
+    box-shadow: 0 8px 28px rgba(0, 0, 0, .45);
 }
