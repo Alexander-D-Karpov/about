@@ -96,6 +96,10 @@
     }
     function invalidatePluginCache() { pluginCache = null; }
 
+    function innerOf(el) {
+        return (el && el.querySelector(':scope > .plugin__inner')) || el;
+    }
+
     function isProjectPlugin(el) { return !!el && el.classList?.contains('projects-section'); }
     function isWebringPlugin(el) { return !!el && el.classList?.contains('webring-section'); }
     function isProfilePlugin(el) { return !!el && el.classList?.contains('profile-section'); }
@@ -928,55 +932,70 @@
     const lastObservedHeights = new WeakMap();
     let pendingHeightUpdate = false;
 
-    function applyHeightUpdates(changes) {
-        if (!changes.length) return;
-
-        let needsRepack = false;
-
-        changes.forEach(({ el, newHeight }) => {
-            el.dataset.mosaicDirty = '1';
-            const currentH = parseFloat(el.style.height) || 0;
-            if (Math.abs(newHeight - currentH) > 8) {
-                needsRepack = true;
-            }
-        });
-
-        if (needsRepack) {
-            if (phase === 'scrolling') pendingPack = pendingPack || { force: false };
-            else debouncedPack();
+    function markDirtyAndPack(plugin) {
+        if (!plugin || plugin.dataset.fixedTail === '1') return;
+        plugin.dataset.mosaicDirty = '1';
+        if (phase === 'booting' || expanded || phase === 'packing') return;
+        if (phase === 'scrolling') {
+            pendingPack = pendingPack || { force: false };
+            return;
         }
+        debouncedPack();
     }
 
     const ro = new ResizeObserver((entries) => {
         if (phase === 'booting' || expanded || phase === 'packing') return;
 
-        const changes = [];
+        const changed = [];
         for (const entry of entries) {
-            const el = entry.target;
-            if (!document.body.contains(el)) { ro.unobserve(el); continue; }
+            const target = entry.target;
+            if (!document.body.contains(target)) { ro.unobserve(target); continue; }
+
+            const plugin = target.closest('.plugin');
+            if (!plugin) { ro.unobserve(target); continue; }
 
             const newHeight = entry.contentRect.height;
-            const lastHeight = lastObservedHeights.get(el);
+            const lastHeight = lastObservedHeights.get(target);
 
             if (lastHeight === undefined) {
-                lastObservedHeights.set(el, newHeight);
+                lastObservedHeights.set(target, newHeight);
                 continue;
             }
             if (Math.abs(newHeight - lastHeight) > 8) {
-                changes.push({ el, newHeight });
-                lastObservedHeights.set(el, newHeight);
+                changed.push(plugin);
+                lastObservedHeights.set(target, newHeight);
             }
         }
 
-        if (!changes.length || pendingHeightUpdate) return;
+        if (!changed.length || pendingHeightUpdate) return;
         pendingHeightUpdate = true;
         requestAnimationFrame(() => {
             pendingHeightUpdate = false;
-            applyHeightUpdates(changes);
+            changed.forEach((p) => markDirtyAndPack(p));
         });
     });
-    function observeElement(el) { if (el) ro.observe(el, { box: 'border-box' }); }
+
+    function observeElement(el) {
+        if (!el) return;
+        ro.observe(innerOf(el), { box: 'border-box' });
+    }
     pluginList().forEach((n) => observeElement(n));
+
+    document.addEventListener('load', (e) => {
+        const t = e.target;
+        if (!(t instanceof HTMLImageElement)) return;
+        const plugin = t.closest ? t.closest('.plugin') : null;
+        if (!plugin) return;
+        markDirtyAndPack(plugin);
+    }, true);
+
+    document.addEventListener('error', (e) => {
+        const t = e.target;
+        if (!(t instanceof HTMLImageElement)) return;
+        const plugin = t.closest ? t.closest('.plugin') : null;
+        if (!plugin) return;
+        markDirtyAndPack(plugin);
+    }, true);
 
     function notifyContentChanged(elOrSelector) {
         let el = elOrSelector;
@@ -990,14 +1009,7 @@
         }
         if (!el) return;
 
-        el.dataset.mosaicDirty = '1';
-
-        if (phase === 'booting' || expanded || phase === 'packing') return;
-        if (phase === 'scrolling') {
-            pendingPack = pendingPack || { force: false };
-            return;
-        }
-        debouncedPack();
+        markDirtyAndPack(el);
     }
 
     function notifyPluginAdded(el) {
@@ -1005,15 +1017,14 @@
         invalidatePluginCache();
         observeElement(el);
         ensureToolbar(el);
-        el.dataset.mosaicDirty = '1';
-        if (phase === 'booting' || expanded || phase === 'packing') return;
-        debouncedPack();
+        markDirtyAndPack(el);
     }
 
     function notifyPluginReplaced(oldEl, newEl) {
         if (oldEl) {
-            ro.unobserve(oldEl);
-            lastObservedHeights.delete(oldEl);
+            const oldInner = innerOf(oldEl);
+            ro.unobserve(oldInner);
+            lastObservedHeights.delete(oldInner);
         }
         notifyPluginAdded(newEl);
     }
@@ -1093,7 +1104,7 @@
 
     (function initialLayout() {
         const layoutVersionKey = 'mosaic.layout.version';
-        const layoutVersion = '2026-07-12-overlay-fix-1';
+        const layoutVersion = '2026-07-12-skebob'
 
         if (storageGet(layoutVersionKey) !== layoutVersion) {
             try {
@@ -1142,8 +1153,6 @@
                     s.el.dataset.currentSpan = String(parseInt(m[1], 10));
                     s.el.dataset.mosaicSpan = String(parseInt(m[1], 10));
                 }
-
-                lastObservedHeights.set(s.el, parseFloat(s.height) || 0);
             });
 
             applySavedOrder();
@@ -1214,17 +1223,6 @@
             }
         });
     }
-
-    document.querySelectorAll('img').forEach((img) => {
-        if (img.complete) return;
-        const onSettle = () => {
-            const plugin = img.closest('.plugin');
-            if (plugin) plugin.dataset.mosaicDirty = '1';
-            if (phase === 'idle') debouncedPack();
-        };
-        img.addEventListener('load', onSettle, { once: true });
-        img.addEventListener('error', onSettle, { once: true });
-    });
 
     window.mosaicUtils = {
         resizeAll: () => packAll(true),

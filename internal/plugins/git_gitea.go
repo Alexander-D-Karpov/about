@@ -19,6 +19,17 @@ type GiteaProvider struct {
 	store  *CodeStatsStore
 }
 
+type giteaRepo struct {
+	Name       string    `json:"name"`
+	FullName   string    `json:"full_name"`
+	HTMLURL    string    `json:"html_url"`
+	Private    bool      `json:"private"`
+	Fork       bool      `json:"fork"`
+	StarsCount int       `json:"stars_count"`
+	Language   string    `json:"language"`
+	UpdatedAt  time.Time `json:"updated_at"`
+}
+
 func NewGiteaProvider(cfg gitSourceConfig, client *http.Client) *GiteaProvider {
 	base := cfg.BaseURL
 	if base == "" {
@@ -48,7 +59,7 @@ func (p *GiteaProvider) FetchCalendar(ctx context.Context, from, to time.Time) (
 		Contributions int   `json:"contributions"`
 	}
 	endpoint := fmt.Sprintf("%s/api/v1/users/%s/heatmap", p.base, url.PathEscape(p.cfg.Username))
-	if err := gitDoJSON(ctx, p.client, "GET", endpoint, p.headers(), nil, &hm); err != nil {
+	if err := gitFetchJSON(ctx, p.client, "GET", endpoint, p.headers(), nil, &hm); err != nil {
 		return nil, err
 	}
 
@@ -79,7 +90,7 @@ func (p *GiteaProvider) FetchActivities(ctx context.Context, since time.Time, li
 	var feeds []giteaFeed
 	endpoint := fmt.Sprintf("%s/api/v1/users/%s/activities/feeds?only-performed-by=true&limit=%d",
 		p.base, url.PathEscape(p.cfg.Username), min(limit, 100))
-	if err := gitDoJSON(ctx, p.client, "GET", endpoint, p.headers(), nil, &feeds); err != nil {
+	if err := gitFetchJSON(ctx, p.client, "GET", endpoint, p.headers(), nil, &feeds); err != nil {
 		return nil, err
 	}
 
@@ -210,21 +221,16 @@ func (p *GiteaProvider) FetchActivities(ctx context.Context, since time.Time, li
 	return items, nil
 }
 
-func (p *GiteaProvider) FetchStats(ctx context.Context) (*GitSourceStats, error) {
-	type giteaRepo struct {
-		FullName string `json:"full_name"`
-		Fork     bool   `json:"fork"`
-	}
-
+func (p *GiteaProvider) listRepos(ctx context.Context) ([]giteaRepo, bool) {
 	var repos []giteaRepo
-	for page := 1; ; page++ {
+	partial := false
+
+	for page := 1; page <= 40; page++ {
 		var chunk []giteaRepo
 		endpoint := fmt.Sprintf("%s/api/v1/users/%s/repos?limit=50&page=%d", p.base, url.PathEscape(p.cfg.Username), page)
-		if err := gitDoJSON(ctx, p.client, "GET", endpoint, p.headers(), nil, &chunk); err != nil {
-			if page == 1 {
-				return nil, err
-			}
-			return &GitSourceStats{Repos: len(repos), Partial: true}, nil
+		if err := gitFetchJSON(ctx, p.client, "GET", endpoint, p.headers(), nil, &chunk); err != nil {
+			partial = true
+			break
 		}
 		if len(chunk) == 0 {
 			break
@@ -235,115 +241,142 @@ func (p *GiteaProvider) FetchStats(ctx context.Context) (*GitSourceStats, error)
 		}
 	}
 
-	stats := &GitSourceStats{Repos: len(repos)}
-	login := strings.ToLower(p.cfg.Username)
+	return repos, partial
+}
 
-	addRepo := func(c RepoStats) {
-		stats.Commits += c.Commits
-		stats.Additions += c.Additions
-		stats.Deletions += c.Deletions
+func (p *GiteaProvider) fetchRepoStats(ctx context.Context, fullName string) (RepoStats, error) {
+	login := strings.ToLower(p.cfg.Username)
+	var st RepoStats
+
+	for page := 1; page <= 200; page++ {
+		if ctx.Err() != nil {
+			return RepoStats{}, ctx.Err()
+		}
+
+		var commits []struct {
+			Author *struct {
+				Login string `json:"login"`
+			} `json:"author"`
+			Commit struct {
+				Author struct {
+					Name string `json:"name"`
+				} `json:"author"`
+			} `json:"commit"`
+			Stats struct {
+				Additions int `json:"additions"`
+				Deletions int `json:"deletions"`
+			} `json:"stats"`
+		}
+
+		endpoint := fmt.Sprintf("%s/api/v1/repos/%s/commits?stat=true&limit=50&page=%d", p.base, fullName, page)
+		if err := gitFetchJSON(ctx, p.client, "GET", endpoint, p.headers(), nil, &commits); err != nil {
+			return RepoStats{}, err
+		}
+		if len(commits) == 0 {
+			break
+		}
+
+		for _, c := range commits {
+			mine := false
+			if c.Author != nil && strings.ToLower(c.Author.Login) == login {
+				mine = true
+			} else if c.Author == nil && strings.EqualFold(c.Commit.Author.Name, p.cfg.Username) {
+				mine = true
+			}
+			if !mine {
+				continue
+			}
+			st.Commits++
+			st.Additions += int64(c.Stats.Additions)
+			st.Deletions += int64(c.Stats.Deletions)
+		}
+
+		if len(commits) < 50 {
+			break
+		}
 	}
 
-	fromCache := 0
-	fetched := 0
-	failed := 0
+	return st, nil
+}
+
+func (p *GiteaProvider) FetchStats(ctx context.Context) (*GitSourceStats, error) {
+	repos, listPartial := p.listRepos(ctx)
+	if len(repos) == 0 {
+		if listPartial {
+			return nil, fmt.Errorf("gitea repo listing failed for %s", p.cfg.Username)
+		}
+		return &GitSourceStats{}, nil
+	}
+
+	col := newRepoStatsCollector(p.store, p.Key())
+
+	names := make([]string, 0, len(repos))
+	refs := make([]gitRepoRef, 0, len(repos))
+	keep := make(map[string]bool, len(repos))
 
 	for _, r := range repos {
+		keep[r.FullName] = true
 		if r.Fork {
 			continue
 		}
+		names = append(names, r.FullName)
+		refs = append(refs, gitRepoRef{Name: r.FullName, PushedAt: r.UpdatedAt.Unix()})
+	}
 
-		if c, ok := gitCachedRepoStats(p.store, p.Key(), r.FullName, gitStatsInterval); ok {
-			addRepo(c)
-			fromCache++
-			continue
+	pending := gitPendingRepos(col, refs)
+	log.Printf("[Git] %s: %d repos, %d need stats, %d reused from cache",
+		p.Key(), len(repos), len(pending), len(names)-len(pending))
+
+	fetched, failed := 0, 0
+	limited := false
+
+	for _, r := range pending {
+		if fetched >= gitRepoStatsBudget {
+			log.Printf("[Git] %s: per-run budget of %d repos reached, resuming next cycle", p.Key(), gitRepoStatsBudget)
+			break
+		}
+		if ctx.Err() != nil {
+			break
 		}
 
-		expired := false
-		select {
-		case <-ctx.Done():
-			expired = true
-		default:
-		}
-		if expired {
-			stats.Partial = true
-			if c, ok := gitCachedRepoStats(p.store, p.Key(), r.FullName, 0); ok {
-				addRepo(c)
-			}
-			continue
-		}
-
-		var repoStats RepoStats
-		repoFailed := false
-
-		for page := 1; ; page++ {
-			select {
-			case <-ctx.Done():
-				repoFailed = true
-			default:
-			}
-			if repoFailed {
+		st, err := p.fetchRepoStats(ctx, r.Name)
+		if err != nil {
+			if gitIsRateLimited(err) {
+				limited = true
+				log.Printf("[Git] %s: %v, stopping stats run", p.Key(), err)
 				break
 			}
-
-			var commits []struct {
-				Author *struct {
-					Login string `json:"login"`
-				} `json:"author"`
-				Commit struct {
-					Author struct {
-						Name string `json:"name"`
-					} `json:"author"`
-				} `json:"commit"`
-				Stats struct {
-					Additions int `json:"additions"`
-					Deletions int `json:"deletions"`
-				} `json:"stats"`
-			}
-			endpoint := fmt.Sprintf("%s/api/v1/repos/%s/commits?stat=true&limit=50&page=%d", p.base, r.FullName, page)
-			if err := gitDoJSON(ctx, p.client, "GET", endpoint, p.headers(), nil, &commits); err != nil {
-				repoFailed = true
-				break
-			}
-			if len(commits) == 0 {
-				break
-			}
-			for _, c := range commits {
-				mine := false
-				if c.Author != nil && strings.ToLower(c.Author.Login) == login {
-					mine = true
-				} else if c.Author == nil && strings.EqualFold(c.Commit.Author.Name, p.cfg.Username) {
-					mine = true
-				}
-				if !mine {
-					continue
-				}
-				repoStats.Commits++
-				repoStats.Additions += int64(c.Stats.Additions)
-				repoStats.Deletions += int64(c.Stats.Deletions)
-			}
-			if len(commits) < 50 {
-				break
-			}
-		}
-
-		if repoFailed {
 			failed++
-			stats.Partial = true
-			if c, ok := gitCachedRepoStats(p.store, p.Key(), r.FullName, 0); ok {
-				addRepo(c)
-			}
 			continue
 		}
 
-		repoStats.UpdatedAt = time.Now().Unix()
-		addRepo(repoStats)
+		st.PushedAt = r.PushedAt
+		col.Put(r.Name, st)
 		fetched++
-		if p.store != nil {
-			p.store.SetRepoStats(p.Key(), r.FullName, repoStats)
+
+		if fetched%20 == 0 {
+			col.Flush()
 		}
 	}
-	log.Printf("[Git] %s: repo stats resolved: %d from cache, %d fetched, %d failed", p.Key(), fromCache, fetched, failed)
+
+	col.Flush()
+	if !listPartial && !limited {
+		p.store.PruneRepoStats(p.Key(), keep)
+	}
+
+	sum, unmeasured := col.Sum(names)
+
+	stats := &GitSourceStats{
+		Repos:     len(repos),
+		Commits:   sum.Commits,
+		Additions: sum.Additions,
+		Deletions: sum.Deletions,
+		Partial:   unmeasured > 0 || listPartial,
+	}
+
+	log.Printf("[Git] %s: stats run done: fetched=%d failed=%d unmeasured=%d limited=%t partial=%t",
+		p.Key(), fetched, failed, unmeasured, limited, stats.Partial)
+
 	return stats, nil
 }
 
@@ -352,35 +385,7 @@ func (p *GiteaProvider) FetchRecentRepos(ctx context.Context, since time.Time) (
 		return nil, nil
 	}
 
-	type giteaRepo struct {
-		Name       string    `json:"name"`
-		FullName   string    `json:"full_name"`
-		HTMLURL    string    `json:"html_url"`
-		Private    bool      `json:"private"`
-		Fork       bool      `json:"fork"`
-		StarsCount int       `json:"stars_count"`
-		Language   string    `json:"language"`
-		UpdatedAt  time.Time `json:"updated_at"`
-	}
-
-	var repos []giteaRepo
-	for page := 1; page <= 3; page++ {
-		var chunk []giteaRepo
-		endpoint := fmt.Sprintf("%s/api/v1/users/%s/repos?limit=50&page=%d", p.base, url.PathEscape(p.cfg.Username), page)
-		if err := gitDoJSON(ctx, p.client, "GET", endpoint, p.headers(), nil, &chunk); err != nil {
-			if page == 1 {
-				return nil, err
-			}
-			break
-		}
-		if len(chunk) == 0 {
-			break
-		}
-		repos = append(repos, chunk...)
-		if len(chunk) < 50 {
-			break
-		}
-	}
+	repos, _ := p.listRepos(ctx)
 
 	candidates := make([]giteaRepo, 0, len(repos))
 	for _, r := range repos {
@@ -422,7 +427,7 @@ func (p *GiteaProvider) FetchRecentRepos(ctx context.Context, since time.Time) (
 			} `json:"commit"`
 		}
 		endpoint := fmt.Sprintf("%s/api/v1/repos/%s/commits?limit=50&since=%s", p.base, r.FullName, url.QueryEscape(sinceStr))
-		if err := gitDoJSON(ctx, p.client, "GET", endpoint, p.headers(), nil, &commits); err == nil {
+		if err := gitFetchJSON(ctx, p.client, "GET", endpoint, p.headers(), nil, &commits); err == nil {
 			for _, c := range commits {
 				mine := false
 				if c.Author != nil && strings.EqualFold(c.Author.Login, p.cfg.Username) {
@@ -445,7 +450,7 @@ func (p *GiteaProvider) FetchRecentRepos(ctx context.Context, since time.Time) (
 
 		var langBytes map[string]int64
 		langEndpoint := fmt.Sprintf("%s/api/v1/repos/%s/languages", p.base, r.FullName)
-		if err := gitDoJSON(ctx, p.client, "GET", langEndpoint, p.headers(), nil, &langBytes); err == nil && len(langBytes) > 0 {
+		if err := gitFetchJSON(ctx, p.client, "GET", langEndpoint, p.headers(), nil, &langBytes); err == nil && len(langBytes) > 0 {
 			var total int64
 			for _, b := range langBytes {
 				total += b

@@ -229,14 +229,16 @@
         const edge = 'rgba(255,255,255,0.07)';
 
         const map = L.map(el, {
-            center: [28, 10],
+            center: [20, 0],
             zoom: 1,
             minZoom: 1,
             maxZoom: 5,
             zoomControl: false,
             attributionControl: false,
             scrollWheelZoom: false,
-            worldCopyJump: true
+            worldCopyJump: true,
+            maxBounds: [[-56, -180], [78, 180]],
+            maxBoundsViscosity: 1.0,
         });
 
         L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
@@ -266,6 +268,9 @@
 
                 setTimeout(() => {
                     map.invalidateSize();
+                    try {
+                        map.fitBounds([[-56, -168], [72, 190]], { padding: [0, 0] });
+                    } catch (e) {}
                     notifyResize(el);
                 }, 100);
             })

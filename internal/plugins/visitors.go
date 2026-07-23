@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"html/template"
 	"log"
+	"math"
 	"net"
 	"net/http"
 	"os"
@@ -21,10 +22,10 @@ import (
 )
 
 const (
-	visitorsHistoryDays  = 90
+	visitorsHistoryDays  = 365
 	visitorsGeoQueueSize = 256
 	visitorsGeoCacheCap  = 10000
-	visitorsHeatmapWeeks = 12
+	visitorsHeatmapWeeks = 16
 )
 
 type VisitorsPlugin struct {
@@ -204,29 +205,35 @@ func (p *VisitorsPlugin) resolveCountry(ip string) string {
 	defer cancel()
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
-		"http://ip-api.com/json/"+ip+"?fields=status,countryCode", nil)
+		"http://ip-api.com/json/"+ip+"?fields=status,countryCode,message", nil)
 	if err != nil {
+		log.Printf("[Visitors] geo request build failed for %s: %v", ip, err)
 		return ""
 	}
 
 	resp, err := p.geoClient.Do(req)
 	if err != nil {
+		log.Printf("[Visitors] geo lookup failed for %s: %v", ip, err)
 		return ""
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
+		log.Printf("[Visitors] geo lookup for %s returned status %d", ip, resp.StatusCode)
 		return ""
 	}
 
 	var body struct {
 		Status      string `json:"status"`
 		CountryCode string `json:"countryCode"`
+		Message     string `json:"message"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		log.Printf("[Visitors] geo decode failed for %s: %v", ip, err)
 		return ""
 	}
 	if body.Status != "success" || len(body.CountryCode) != 2 {
+		log.Printf("[Visitors] geo lookup for %s unsuccessful: status=%s msg=%s", ip, body.Status, body.Message)
 		return ""
 	}
 
@@ -245,11 +252,13 @@ func (p *VisitorsPlugin) resolveCountry(ip string) string {
 func (p *VisitorsPlugin) enqueueGeo(ip string) {
 	ip = normalizeVisitorIP(ip)
 	if !isPublicIP(ip) {
+		log.Printf("[Visitors] skipping geo for non-public IP: %s", ip)
 		return
 	}
 	select {
 	case p.geoQueue <- ip:
 	default:
+		log.Printf("[Visitors] geo queue full, dropping IP: %s", ip)
 	}
 }
 
@@ -390,7 +399,6 @@ func (p *VisitorsPlugin) buildHeatmapLocked(weeks int) []visitorsHeatDay {
 
 	var out []visitorsHeatDay
 	var maxV int64
-	var minV int64 = -1
 
 	for w := weeks - 1; w >= 0; w-- {
 		end := today.AddDate(0, 0, -w*7)
@@ -408,13 +416,8 @@ func (p *VisitorsPlugin) buildHeatmapLocked(weeks int) []visitorsHeatDay {
 			}
 		}
 
-		if count > 0 {
-			if count > maxV {
-				maxV = count
-			}
-			if minV < 0 || count < minV {
-				minV = count
-			}
+		if count > maxV {
+			maxV = count
 		}
 
 		out = append(out, visitorsHeatDay{
@@ -424,17 +427,13 @@ func (p *VisitorsPlugin) buildHeatmapLocked(weeks int) []visitorsHeatDay {
 		})
 	}
 
-	spread := maxV - minV
 	for i := range out {
 		c := out[i].Count
-		if c <= 0 {
+		if c <= 0 || maxV <= 0 {
 			continue
 		}
-		if spread <= 0 {
-			out[i].Level = 2
-			continue
-		}
-		level := 1 + int(float64(c-minV)/float64(spread)*3+0.5)
+		t := math.Log(float64(c)+1) / math.Log(float64(maxV)+1)
+		level := int(math.Ceil(t * 4))
 		if level < 1 {
 			level = 1
 		}

@@ -344,13 +344,11 @@ func estimateHeightFromHTML(name string, span, pluginWidth int, html string) int
 
 	case "meme":
 		if strings.Contains(lower, "<img") {
-			h = pluginWidth + 60
-			if h < 320 {
-				h = 320
+			imgH := min(int(float64(pluginWidth)*1.25), 760)
+			if imgH < 260 {
+				imgH = 260
 			}
-			if h > 640 {
-				h = 640
-			}
+			h = imgH + 120
 		} else {
 			lines := countToken(lower, "<p")
 			if lines < 1 {

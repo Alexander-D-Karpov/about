@@ -128,12 +128,14 @@
 
 .visitors-heatmap {
     display: flex;
+    flex-wrap: wrap;
     gap: 3px;
+    max-width: 100%;
 }
 
 .visitors-day {
-    width: 13px;
-    height: 13px;
+    width: 11px;
+    height: 11px;
     border-radius: 3px;
     background: rgba(255, 255, 255, .05);
     flex: 0 0 auto;
@@ -210,7 +212,8 @@
 }
 
 .visitors-map {
-    height: 230px;
+    aspect-ratio: 2.2 / 1;
+    min-height: 150px;
     border-radius: 8px;
     overflow: hidden;
     background: #0a0e14;
@@ -242,7 +245,8 @@
 }
 
 .plugin--expanded .visitors-map {
-    height: 420px;
+    aspect-ratio: 2 / 1;
+    min-height: 300px;
 }
 
 @media (prefers-color-scheme: light) {

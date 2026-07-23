@@ -21,14 +21,18 @@ import (
 )
 
 const (
-	gitCalendarInterval = 30 * time.Minute
-	gitFeedInterval     = 10 * time.Minute
-	gitStatsInterval    = 24 * time.Hour
-	gitFeedWindow       = 365 * 24 * time.Hour
-	gitFeedFetchLimit   = 200
-	gitFeedKeep         = 600
-	gitFeedRenderMax    = 60
-	gitCalendarWeeks    = 79
+	gitCalendarInterval     = 30 * time.Minute
+	gitFeedInterval         = 10 * time.Minute
+	gitStatsInterval        = 24 * time.Hour
+	gitStatsPartialInterval = time.Hour
+	gitStatsRunTimeout      = 20 * time.Minute
+	gitFeedWindow           = 365 * 24 * time.Hour
+	gitFeedFetchLimit       = 200
+	gitFeedKeep             = 600
+	gitFeedRenderMax        = 60
+	gitCalendarWeeks        = 79
+	gitPrefetchDaysPerRun   = 60
+	gitPrefetchDelay        = 4 * time.Second
 )
 
 type GitActivity struct {
@@ -362,7 +366,7 @@ func (g *GitActivity) EnsureStats(force bool) bool {
 		st, at, ok := g.store.GetGitStats(p.Key())
 		interval := gitStatsInterval
 		if ok && st.Partial {
-			interval = time.Hour
+			interval = gitStatsPartialInterval
 		}
 		if force || !ok || time.Since(at) > interval {
 			stale = append(stale, p)
@@ -383,8 +387,8 @@ func (g *GitActivity) EnsureStats(force bool) bool {
 	changed := false
 	for _, p := range stale {
 		key := p.Key()
-		if _, at, ok := g.store.GetGitStats(key); ok {
-			log.Printf("[Git] stats for %s stale (age %s), recollecting...", key, time.Since(at).Round(time.Minute))
+		if prev, at, ok := g.store.GetGitStats(key); ok {
+			log.Printf("[Git] recollecting stats for %s (age %s, partial=%t)", key, time.Since(at).Round(time.Minute), prev.Partial)
 		} else {
 			log.Printf("[Git] stats for %s missing, collecting...", key)
 		}
@@ -396,7 +400,7 @@ func (g *GitActivity) EnsureStats(force bool) bool {
 				}
 			}()
 
-			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+			ctx, cancel := context.WithTimeout(context.Background(), gitStatsRunTimeout)
 			defer cancel()
 
 			start := time.Now()
@@ -406,15 +410,16 @@ func (g *GitActivity) EnsureStats(force bool) bool {
 				return
 			}
 
-			g.store.SetGitStats(key, *s)
+			merged := g.store.MergeGitStats(key, *s)
 			changed = true
 
-			partial := ""
-			if s.Partial {
-				partial = " (partial)"
+			suffix := ""
+			if merged.Partial {
+				suffix = " (partial, will retry next hour)"
 			}
-			log.Printf("[Git] stats collected for %s in %s: %d commits, +%d/-%d lines, %d repos%s",
-				key, time.Since(start).Round(time.Second), s.Commits, s.Additions, s.Deletions, s.Repos, partial)
+			log.Printf("[Git] stats stored for %s in %s: %d commits, +%d/-%d lines, %d repos%s",
+				key, time.Since(start).Round(time.Second),
+				merged.Commits, merged.Additions, merged.Deletions, merged.Repos, suffix)
 		}()
 	}
 	return changed
@@ -959,10 +964,14 @@ func (g *GitActivity) feedExtrasForDate(date string) []GitActivityItem {
 }
 
 func (g *GitActivity) PrefetchDayDetails(maxDays int) {
+	if maxDays <= 0 {
+		maxDays = gitPrefetchDaysPerRun
+	}
 	if !g.prefetchMu.TryLock() {
 		return
 	}
 	defer g.prefetchMu.Unlock()
+
 	g.mu.RLock()
 	dates := make([]string, 0, len(g.calendar))
 	for date, day := range g.calendar {
@@ -996,11 +1005,12 @@ func (g *GitActivity) PrefetchDayDetails(maxDays int) {
 
 	start := time.Now()
 	log.Printf("[Git] prefetching day details for %d day(s)...", len(pending))
+
 	for i, date := range pending {
-		fmt.Fprintf(os.Stderr, "\r[Git] Prefetching day details: %d/%d days processed", i, len(pending))
 		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 		items := g.fetchDayFromProviders(ctx, date, providers)
 		cancel()
+
 		private := 0
 		public := make([]GitActivityItem, 0, len(items))
 		for _, it := range items {
@@ -1011,9 +1021,13 @@ func (g *GitActivity) PrefetchDayDetails(maxDays int) {
 			public = append(public, it)
 		}
 		g.dayStore.Set(date, public, private)
-		time.Sleep(3 * time.Second)
+
+		if i%20 == 0 && i > 0 {
+			g.dayStore.Flush()
+		}
+		time.Sleep(gitPrefetchDelay)
 	}
-	fmt.Fprintf(os.Stderr, "\r[Git] Prefetching day details: %d/%d days processed\n", len(pending), len(pending))
+
 	g.dayStore.Flush()
 	log.Printf("[Git] day details prefetched for %d days in %v", len(pending), time.Since(start).Round(time.Second))
 }

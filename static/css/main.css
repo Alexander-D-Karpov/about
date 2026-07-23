@@ -360,6 +360,17 @@ body:has(#custom-music-player:not([style*="none"])) .container {
     overflow: visible;
 }
 
+.meme-section .plugin__inner img {
+    display: block;
+    width: auto;
+    max-width: 100%;
+    height: auto;
+    max-height: 440px;
+    margin: 0 auto;
+    object-fit: contain;
+    border-radius: 8px;
+}
+
 .plugin.is-collapsed .plugin__inner > *:not(.plugin-header) {
     display: none;
 }

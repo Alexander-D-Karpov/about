@@ -1,14 +1,13 @@
 package plugins
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
 	"net/url"
-	"os"
 	"sort"
 	"strings"
 	"time"
@@ -21,6 +20,12 @@ type GitHubProvider struct {
 	gql      string
 	htmlBase string
 	store    *CodeStatsStore
+}
+
+type ghRepo struct {
+	FullName string    `json:"full_name"`
+	Fork     bool      `json:"fork"`
+	PushedAt time.Time `json:"pushed_at"`
 }
 
 func NewGitHubProvider(cfg gitSourceConfig, client *http.Client) *GitHubProvider {
@@ -91,7 +96,7 @@ type ghEvent struct {
 
 func (p *GitHubProvider) fetchEventsPage(ctx context.Context, endpoint string) ([]ghEvent, error) {
 	var events []ghEvent
-	err := gitDoJSON(ctx, p.client, "GET", endpoint, p.headers(), nil, &events)
+	err := gitFetchJSON(ctx, p.client, "GET", endpoint, p.headers(), nil, &events)
 	return events, err
 }
 
@@ -101,6 +106,9 @@ func (p *GitHubProvider) FetchActivities(ctx context.Context, since time.Time, l
 		endpoint := fmt.Sprintf("%s/users/%s/events?per_page=100&page=%d", p.api, p.cfg.Username, page)
 		chunk, err := p.fetchEventsPage(ctx, endpoint)
 		if err != nil {
+			if gitIsRateLimited(err) {
+				break
+			}
 			if page == 1 {
 				endpoint = fmt.Sprintf("%s/users/%s/events/public?per_page=100&page=%d", p.api, p.cfg.Username, page)
 				chunk, err = p.fetchEventsPage(ctx, endpoint)
@@ -307,7 +315,7 @@ func (p *GitHubProvider) pushesFromCommitSearch(ctx context.Context, since time.
 	}
 	endpoint := fmt.Sprintf("%s/search/commits?q=%s&sort=committer-date&order=desc&per_page=100",
 		p.api, url.QueryEscape(q))
-	if err := gitDoJSON(ctx, p.client, "GET", endpoint, p.headers(), nil, &res); err != nil {
+	if err := gitFetchJSON(ctx, p.client, "GET", endpoint, p.headers(), nil, &res); err != nil {
 		log.Printf("[Git] github commit search for feed failed: %v", err)
 		return nil
 	}
@@ -381,26 +389,22 @@ func (p *GitHubProvider) pushesFromCommitSearch(ctx context.Context, since time.
 	return out
 }
 
-func (p *GitHubProvider) FetchStats(ctx context.Context) (*GitSourceStats, error) {
-	stats := &GitSourceStats{}
-
-	type ghRepo struct {
-		FullName string `json:"full_name"`
-		Fork     bool   `json:"fork"`
-	}
-
+func (p *GitHubProvider) listRepos(ctx context.Context) ([]ghRepo, bool, error) {
 	var repos []ghRepo
-	for page := 1; ; page++ {
-		endpoint := fmt.Sprintf("%s/users/%s/repos?per_page=100&page=%d&type=owner", p.api, p.cfg.Username, page)
+	partial := false
+
+	for page := 1; page <= 20; page++ {
+		endpoint := fmt.Sprintf("%s/users/%s/repos?per_page=100&page=%d&type=owner&sort=pushed", p.api, p.cfg.Username, page)
 		if p.cfg.Token != "" {
-			endpoint = fmt.Sprintf("%s/user/repos?per_page=100&page=%d&affiliation=owner,collaborator,organization_member", p.api, page)
+			endpoint = fmt.Sprintf("%s/user/repos?per_page=100&page=%d&affiliation=owner,collaborator,organization_member&sort=pushed", p.api, page)
 		}
+
 		var chunk []ghRepo
-		if err := gitDoJSON(ctx, p.client, "GET", endpoint, p.headers(), nil, &chunk); err != nil {
+		if err := gitFetchJSON(ctx, p.client, "GET", endpoint, p.headers(), nil, &chunk); err != nil {
 			if page == 1 {
-				return nil, err
+				return nil, true, err
 			}
-			stats.Partial = true
+			partial = true
 			break
 		}
 		if len(chunk) == 0 {
@@ -411,121 +415,131 @@ func (p *GitHubProvider) FetchStats(ctx context.Context) (*GitSourceStats, error
 			break
 		}
 	}
-	stats.Repos = len(repos)
-	log.Printf("[Git] %s: %d repos to process", p.Key(), len(repos))
 
-	gqlCommits, gqlOK := p.fetchTotalCommitsGraphQL(ctx)
-	if gqlOK {
-		stats.Commits = gqlCommits
-		log.Printf("[Git] %s: total commits via graphql (full history): %d", p.Key(), gqlCommits)
+	return repos, partial, nil
+}
+
+func (p *GitHubProvider) fetchRepoStats(ctx context.Context, fullName string) (RepoStats, error) {
+	var contribs []struct {
+		Total int `json:"total"`
+		Weeks []struct {
+			A int `json:"a"`
+			D int `json:"d"`
+		} `json:"weeks"`
+		Author struct {
+			Login string `json:"login"`
+		} `json:"author"`
+	}
+
+	endpoint := fmt.Sprintf("%s/repos/%s/stats/contributors", p.api, fullName)
+	err := gitFetchStatsJSON(ctx, p.client, "GET", endpoint, p.headers(), nil, &contribs)
+	if errors.Is(err, errGitEmptyRepo) {
+		return RepoStats{}, nil
+	}
+	if err != nil {
+		return RepoStats{}, err
 	}
 
 	login := strings.ToLower(p.cfg.Username)
-	var restCommits int64
-	failed := 0
-	timedOut := false
-	fromCache := 0
-	fetched := 0
+	var st RepoStats
+	for _, c := range contribs {
+		if strings.ToLower(c.Author.Login) != login {
+			continue
+		}
+		st.Commits += int64(c.Total)
+		for _, w := range c.Weeks {
+			st.Additions += int64(w.A)
+			st.Deletions += int64(w.D)
+		}
+	}
+	return st, nil
+}
 
-	addRepo := func(c RepoStats) {
-		restCommits += c.Commits
-		stats.Additions += c.Additions
-		stats.Deletions += c.Deletions
+func (p *GitHubProvider) FetchStats(ctx context.Context) (*GitSourceStats, error) {
+	repos, listPartial, err := p.listRepos(ctx)
+	if err != nil && len(repos) == 0 {
+		return nil, err
 	}
 
-	for i, r := range repos {
-		fmt.Fprintf(os.Stderr, "\r[Git] %s stats: %d/%d repos processed", p.Key(), i, len(repos))
+	owned := make([]gitRepoRef, 0, len(repos))
+	names := make([]string, 0, len(repos))
+	keep := make(map[string]bool, len(repos))
 
+	for _, r := range repos {
+		keep[r.FullName] = true
 		if r.Fork {
 			continue
 		}
+		names = append(names, r.FullName)
+		owned = append(owned, gitRepoRef{Name: r.FullName, PushedAt: r.PushedAt.Unix()})
+	}
 
-		if c, ok := gitCachedRepoStats(p.store, p.Key(), r.FullName, gitStatsInterval); ok {
-			addRepo(c)
-			fromCache++
-			continue
-		}
+	col := newRepoStatsCollector(p.store, p.Key())
 
-		expired := false
-		select {
-		case <-ctx.Done():
-			expired = true
-		default:
-		}
-		if expired {
-			timedOut = true
-			stats.Partial = true
-			if c, ok := gitCachedRepoStats(p.store, p.Key(), r.FullName, 0); ok {
-				addRepo(c)
-			}
-			continue
-		}
+	gqlCommits, gqlOK := p.fetchTotalCommitsGraphQL(ctx)
 
-		var contribs []struct {
-			Total int `json:"total"`
-			Weeks []struct {
-				A int `json:"a"`
-				D int `json:"d"`
-			} `json:"weeks"`
-			Author struct {
-				Login string `json:"login"`
-			} `json:"author"`
-		}
-		endpoint := fmt.Sprintf("%s/repos/%s/stats/contributors", p.api, r.FullName)
-		var err error
-		for attempt := 0; attempt < 12; attempt++ {
-			err = gitDoJSON(ctx, p.client, "GET", endpoint, p.headers(), nil, &contribs)
-			if err != errGitStatsPending {
-				break
-			}
-			select {
-			case <-ctx.Done():
-				err = ctx.Err()
-			case <-time.After(5 * time.Second):
-				continue
-			}
+	pending := gitPendingRepos(col, owned)
+	log.Printf("[Git] %s: %d repos (%d own), %d need line stats, %d reused from cache",
+		p.Key(), len(repos), len(owned), len(pending), len(owned)-len(pending))
+
+	fetched, failed, computing := 0, 0, 0
+	limited := false
+
+	for _, r := range pending {
+		if fetched >= gitRepoStatsBudget {
+			log.Printf("[Git] %s: per-run budget of %d repos reached, resuming next cycle", p.Key(), gitRepoStatsBudget)
 			break
 		}
-		if err != nil {
-			failed++
-			stats.Partial = true
-			if c, ok := gitCachedRepoStats(p.store, p.Key(), r.FullName, 0); ok {
-				addRepo(c)
+		if ctx.Err() != nil {
+			break
+		}
+
+		st, ferr := p.fetchRepoStats(ctx, r.Name)
+		if ferr != nil {
+			if gitIsRateLimited(ferr) {
+				limited = true
+				log.Printf("[Git] %s: %v, stopping stats run", p.Key(), ferr)
+				break
 			}
+			if errors.Is(ferr, errGitStatsPending) {
+				computing++
+				continue
+			}
+			failed++
 			continue
 		}
 
-		var repoStats RepoStats
-		for _, c := range contribs {
-			if strings.ToLower(c.Author.Login) != login {
-				continue
-			}
-			repoStats.Commits += int64(c.Total)
-			for _, w := range c.Weeks {
-				repoStats.Additions += int64(w.A)
-				repoStats.Deletions += int64(w.D)
-			}
-		}
-		repoStats.UpdatedAt = time.Now().Unix()
-		addRepo(repoStats)
+		st.PushedAt = r.PushedAt
+		col.Put(r.Name, st)
 		fetched++
-		if p.store != nil {
-			p.store.SetRepoStats(p.Key(), r.FullName, repoStats)
+
+		if fetched%20 == 0 {
+			col.Flush()
+			log.Printf("[Git] %s: line stats %d/%d fetched", p.Key(), fetched, len(pending))
 		}
 	}
-	fmt.Fprintf(os.Stderr, "\r[Git] %s stats: %d/%d repos processed\n", p.Key(), len(repos), len(repos))
-	log.Printf("[Git] %s: repo stats resolved: %d from cache, %d fetched, %d failed, timedOut=%t",
-		p.Key(), fromCache, fetched, failed, timedOut)
 
-	if !gqlOK {
-		stats.Commits = restCommits
+	col.Flush()
+	if !listPartial && err == nil && !limited {
+		p.store.PruneRepoStats(p.Key(), keep)
 	}
-	if failed > 0 {
-		log.Printf("[Git] %s: %d repo(s) failed contributor stats, lines changed is partial", p.Key(), failed)
+
+	sum, unmeasured := col.Sum(names)
+
+	stats := &GitSourceStats{
+		Repos:     len(repos),
+		Commits:   sum.Commits,
+		Additions: sum.Additions,
+		Deletions: sum.Deletions,
 	}
-	if gqlOK && failed == 0 && !timedOut {
-		stats.Partial = false
+	if gqlOK {
+		stats.Commits = gqlCommits
 	}
+	stats.Partial = unmeasured > 0 || listPartial
+
+	log.Printf("[Git] %s: stats run done: fetched=%d failed=%d computing=%d unmeasured=%d limited=%t partial=%t",
+		p.Key(), fetched, failed, computing, unmeasured, limited, stats.Partial)
+
 	return stats, nil
 }
 
@@ -540,6 +554,7 @@ func (p *GitHubProvider) FetchDayDetails(ctx context.Context, date string) ([]Gi
 	q := fmt.Sprintf("author:%s committer-date:%s..%s", p.cfg.Username, fromStr, toStr)
 	endpoint := fmt.Sprintf("%s/search/commits?q=%s&sort=committer-date&order=desc&per_page=100",
 		p.api, url.QueryEscape(q))
+
 	var res struct {
 		Items []struct {
 			SHA       string `json:"sha"`
@@ -560,11 +575,17 @@ func (p *GitHubProvider) FetchDayDetails(ctx context.Context, date string) ([]Gi
 			} `json:"repository"`
 		} `json:"items"`
 	}
-	if err := gitDoJSON(ctx, p.client, "GET", endpoint, p.headers(), nil, &res); err != nil {
+	if err := gitFetchJSON(ctx, p.client, "GET", endpoint, p.headers(), nil, &res); err != nil {
 		return nil, err
 	}
+
 	items := make([]GitActivityItem, 0, len(res.Items))
 	detailed := 0
+	detailBudget := 5
+	if len(res.Items) > 30 {
+		detailBudget = 0
+	}
+
 	for _, it := range res.Items {
 		committerLogin := ""
 		if it.Committer != nil {
@@ -576,10 +597,10 @@ func (p *GitHubProvider) FetchDayDetails(ctx context.Context, date string) ([]Gi
 		if it.Commit.Committer.Date.Local().Format("2006-01-02") != date {
 			continue
 		}
-		title := gitFirstLine(it.Commit.Message)
+
 		item := GitActivityItem{
 			Type:    "push",
-			Title:   title,
+			Title:   gitFirstLine(it.Commit.Message),
 			Repo:    gitShortRepo(it.Repository.FullName),
 			URL:     it.HTMLURL,
 			Time:    it.Commit.Committer.Date,
@@ -588,7 +609,8 @@ func (p *GitHubProvider) FetchDayDetails(ctx context.Context, date string) ([]Gi
 			Color:   p.Color(),
 			Private: p.cfg.Private || it.Repository.Private,
 		}
-		if detailed < 12 && !item.Private {
+
+		if detailed < detailBudget && !item.Private {
 			var detail struct {
 				Stats struct {
 					Additions int `json:"additions"`
@@ -596,12 +618,15 @@ func (p *GitHubProvider) FetchDayDetails(ctx context.Context, date string) ([]Gi
 				} `json:"stats"`
 			}
 			commitEndpoint := fmt.Sprintf("%s/repos/%s/commits/%s", p.api, it.Repository.FullName, it.SHA)
-			if err := gitDoJSON(ctx, p.client, "GET", commitEndpoint, p.headers(), nil, &detail); err == nil {
+			if err := gitFetchJSON(ctx, p.client, "GET", commitEndpoint, p.headers(), nil, &detail); err == nil {
 				item.Additions = detail.Stats.Additions
 				item.Deletions = detail.Stats.Deletions
+			} else if gitIsRateLimited(err) {
+				detailBudget = 0
 			}
 			detailed++
 		}
+
 		items = append(items, item)
 	}
 	return items, nil
@@ -641,7 +666,7 @@ func (p *GitHubProvider) FetchRecentRepos(ctx context.Context, since time.Time) 
 		}
 		endpoint := fmt.Sprintf("%s/search/commits?q=%s&sort=committer-date&order=desc&per_page=100&page=%d",
 			p.api, url.QueryEscape(q), page)
-		if err := gitDoJSON(ctx, p.client, "GET", endpoint, p.headers(), nil, &res); err != nil {
+		if err := gitFetchJSON(ctx, p.client, "GET", endpoint, p.headers(), nil, &res); err != nil {
 			if page == 1 {
 				return nil, err
 			}
@@ -697,7 +722,7 @@ func (p *GitHubProvider) FetchRecentRepos(ctx context.Context, since time.Time) 
 			StargazersCount int    `json:"stargazers_count"`
 			Language        string `json:"language"`
 		}
-		if err := gitDoJSON(ctx, p.client, "GET",
+		if err := gitFetchJSON(ctx, p.client, "GET",
 			fmt.Sprintf("%s/repos/%s", p.api, a.full), p.headers(), nil, &meta); err == nil {
 			repo.Stars = meta.StargazersCount
 			if repo.MainLang == "" {
@@ -706,7 +731,7 @@ func (p *GitHubProvider) FetchRecentRepos(ctx context.Context, since time.Time) 
 		}
 
 		var langBytes map[string]int64
-		if err := gitDoJSON(ctx, p.client, "GET",
+		if err := gitFetchJSON(ctx, p.client, "GET",
 			fmt.Sprintf("%s/repos/%s/languages", p.api, a.full), p.headers(), nil, &langBytes); err == nil && len(langBytes) > 0 {
 			var total int64
 			for _, b := range langBytes {
@@ -769,7 +794,7 @@ func (p *GitHubProvider) fetchCalendarChunk(ctx context.Context, from, to time.T
 		} `json:"errors"`
 	}
 
-	if err := gitDoJSON(ctx, p.client, "POST", p.gql, p.headers(), bytes.NewReader(payload), &resp); err != nil {
+	if err := gitFetchJSON(ctx, p.client, "POST", p.gql, p.headers(), payload, &resp); err != nil {
 		return nil, err
 	}
 	if len(resp.Errors) > 0 {
@@ -809,7 +834,7 @@ func (p *GitHubProvider) fetchTotalCommitsGraphQL(ctx context.Context) (int64, b
 			Message string `json:"message"`
 		} `json:"errors"`
 	}
-	if err := gitDoJSON(ctx, p.client, "POST", p.gql, p.headers(), bytes.NewReader(payload), &yearsResp); err != nil {
+	if err := gitFetchJSON(ctx, p.client, "POST", p.gql, p.headers(), payload, &yearsResp); err != nil {
 		log.Printf("[Git] %s: graphql contribution years failed: %v", p.Key(), err)
 		return 0, false
 	}
@@ -823,20 +848,17 @@ func (p *GitHubProvider) fetchTotalCommitsGraphQL(ctx context.Context) (int64, b
 		return 0, false
 	}
 	sort.Ints(years)
-	log.Printf("[Git] %s: contribution years on record: %v", p.Key(), years)
 
 	commitsQuery := `query($login:String!,$from:DateTime!,$to:DateTime!){user(login:$login){contributionsCollection(from:$from,to:$to){totalCommitContributions restrictedContributionsCount}}}`
 	var total int64
 	for _, year := range years {
-		select {
-		case <-ctx.Done():
+		if ctx.Err() != nil {
 			return 0, false
-		default:
 		}
 
 		from := time.Date(year, 1, 1, 0, 0, 0, 0, time.UTC)
 		to := time.Date(year, 12, 31, 23, 59, 59, 0, time.UTC)
-		payload, _ := json.Marshal(map[string]interface{}{
+		body, _ := json.Marshal(map[string]interface{}{
 			"query": commitsQuery,
 			"variables": map[string]interface{}{
 				"login": p.cfg.Username,
@@ -857,7 +879,7 @@ func (p *GitHubProvider) fetchTotalCommitsGraphQL(ctx context.Context) (int64, b
 				Message string `json:"message"`
 			} `json:"errors"`
 		}
-		if err := gitDoJSON(ctx, p.client, "POST", p.gql, p.headers(), bytes.NewReader(payload), &resp); err != nil {
+		if err := gitFetchJSON(ctx, p.client, "POST", p.gql, p.headers(), body, &resp); err != nil {
 			log.Printf("[Git] %s: graphql commits for %d failed: %v", p.Key(), year, err)
 			return 0, false
 		}
@@ -867,8 +889,8 @@ func (p *GitHubProvider) fetchTotalCommitsGraphQL(ctx context.Context) (int64, b
 		}
 		cc := resp.Data.User.ContributionsCollection
 		total += cc.TotalCommitContributions + cc.RestrictedContributionsCount
-		log.Printf("[Git] %s: %d: commits=%d restricted=%d (running total %d)",
-			p.Key(), year, cc.TotalCommitContributions, cc.RestrictedContributionsCount, total)
 	}
+
+	log.Printf("[Git] %s: total commits via graphql across %d years: %d", p.Key(), len(years), total)
 	return total, true
 }

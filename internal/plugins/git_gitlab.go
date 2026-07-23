@@ -6,7 +6,6 @@ import (
 	"log"
 	"net/http"
 	"net/url"
-	"os"
 	"sort"
 	"sync"
 	"time"
@@ -69,7 +68,7 @@ func (p *GitLabProvider) resolveUserID(ctx context.Context) (int, error) {
 		ID int `json:"id"`
 	}
 	endpoint := fmt.Sprintf("%s/api/v4/users?username=%s", p.base, url.QueryEscape(p.cfg.Username))
-	if err := gitDoJSON(ctx, p.client, "GET", endpoint, p.headers(), nil, &users); err != nil {
+	if err := gitFetchJSON(ctx, p.client, "GET", endpoint, p.headers(), nil, &users); err != nil {
 		return 0, err
 	}
 	if len(users) == 0 {
@@ -101,7 +100,7 @@ type glEvent struct {
 func (p *GitLabProvider) FetchCalendar(ctx context.Context, from, to time.Time) (map[string]int, error) {
 	var cal map[string]int
 	endpoint := fmt.Sprintf("%s/users/%s/calendar.json", p.base, url.PathEscape(p.cfg.Username))
-	if err := gitDoJSON(ctx, p.client, "GET", endpoint, p.headers(), nil, &cal); err == nil && len(cal) > 0 {
+	if err := gitFetchJSON(ctx, p.client, "GET", endpoint, p.headers(), nil, &cal); err == nil && len(cal) > 0 {
 		out := make(map[string]int, len(cal))
 		fromStr := from.Format("2006-01-02")
 		toStr := to.Format("2006-01-02")
@@ -123,7 +122,7 @@ func (p *GitLabProvider) FetchCalendar(ctx context.Context, from, to time.Time) 
 	for page := 1; page <= 10; page++ {
 		var events []glEvent
 		endpoint := fmt.Sprintf("%s/api/v4/users/%d/events?per_page=100&page=%d&after=%s", p.base, id, page, after)
-		if err := gitDoJSON(ctx, p.client, "GET", endpoint, p.headers(), nil, &events); err != nil {
+		if err := gitFetchJSON(ctx, p.client, "GET", endpoint, p.headers(), nil, &events); err != nil {
 			if page == 1 {
 				return nil, err
 			}
@@ -159,7 +158,7 @@ func (p *GitLabProvider) projectInfo(ctx context.Context, id int) (string, strin
 		Visibility        string `json:"visibility"`
 	}
 	endpoint := fmt.Sprintf("%s/api/v4/projects/%d", p.base, id)
-	if err := gitDoJSON(ctx, p.client, "GET", endpoint, p.headers(), nil, &proj); err != nil {
+	if err := gitFetchJSON(ctx, p.client, "GET", endpoint, p.headers(), nil, &proj); err != nil {
 		return fmt.Sprintf("project-%d", id), "", true
 	}
 
@@ -179,7 +178,7 @@ func (p *GitLabProvider) FetchActivities(ctx context.Context, since time.Time, l
 	var events []glEvent
 	after := since.AddDate(0, 0, -1).Format("2006-01-02")
 	endpoint := fmt.Sprintf("%s/api/v4/users/%d/events?per_page=100&after=%s", p.base, id, after)
-	if err := gitDoJSON(ctx, p.client, "GET", endpoint, p.headers(), nil, &events); err != nil {
+	if err := gitFetchJSON(ctx, p.client, "GET", endpoint, p.headers(), nil, &events); err != nil {
 		return nil, err
 	}
 
@@ -256,103 +255,123 @@ func (p *GitLabProvider) FetchActivities(ctx context.Context, since time.Time, l
 	return items, nil
 }
 
-func (p *GitLabProvider) FetchStats(ctx context.Context) (*GitSourceStats, error) {
-	projects, partial := p.allProjects(ctx)
-	stats := &GitSourceStats{Repos: len(projects), Partial: partial}
-	log.Printf("[Git] %s: %d projects to process (incl. membership)", p.Key(), len(projects))
+func (p *GitLabProvider) fetchProjectStats(ctx context.Context, id int) (RepoStats, error) {
 	author := url.QueryEscape(p.cfg.Username)
+	var st RepoStats
 
-	addRepo := func(c RepoStats) {
-		stats.Commits += c.Commits
-		stats.Additions += c.Additions
-		stats.Deletions += c.Deletions
+	for page := 1; page <= 100; page++ {
+		if ctx.Err() != nil {
+			return RepoStats{}, ctx.Err()
+		}
+
+		var commits []struct {
+			Stats struct {
+				Additions int `json:"additions"`
+				Deletions int `json:"deletions"`
+			} `json:"stats"`
+		}
+		endpoint := fmt.Sprintf("%s/api/v4/projects/%d/repository/commits?with_stats=true&per_page=100&page=%d&author=%s",
+			p.base, id, page, author)
+		if err := gitFetchJSON(ctx, p.client, "GET", endpoint, p.headers(), nil, &commits); err != nil {
+			return RepoStats{}, err
+		}
+		if len(commits) == 0 {
+			break
+		}
+		st.Commits += int64(len(commits))
+		for _, c := range commits {
+			st.Additions += int64(c.Stats.Additions)
+			st.Deletions += int64(c.Stats.Deletions)
+		}
+		if len(commits) < 100 {
+			break
+		}
 	}
 
-	fromCache := 0
-	fetched := 0
-	failed := 0
+	return st, nil
+}
 
-	for i, proj := range projects {
-		fmt.Fprintf(os.Stderr, "\r[Git] %s stats: %d/%d projects processed", p.Key(), i, len(projects))
+func (p *GitLabProvider) FetchStats(ctx context.Context) (*GitSourceStats, error) {
+	projects, listPartial := p.allProjects(ctx)
+	if len(projects) == 0 {
+		if listPartial {
+			return nil, fmt.Errorf("gitlab project listing failed for %s", p.cfg.Username)
+		}
+		return &GitSourceStats{}, nil
+	}
 
-		key := proj.PathWithNamespace
+	col := newRepoStatsCollector(p.store, p.Key())
 
-		if c, ok := gitCachedRepoStats(p.store, p.Key(), key, gitStatsInterval); ok {
-			addRepo(c)
-			fromCache++
-			continue
+	names := make([]string, 0, len(projects))
+	refs := make([]gitRepoRef, 0, len(projects))
+	keep := make(map[string]bool, len(projects))
+	idByName := make(map[string]int, len(projects))
+
+	for _, proj := range projects {
+		names = append(names, proj.PathWithNamespace)
+		keep[proj.PathWithNamespace] = true
+		idByName[proj.PathWithNamespace] = proj.ID
+		refs = append(refs, gitRepoRef{
+			Name:     proj.PathWithNamespace,
+			PushedAt: proj.LastActivityAt.Unix(),
+		})
+	}
+
+	pending := gitPendingRepos(col, refs)
+	log.Printf("[Git] %s: %d projects, %d need stats, %d reused from cache",
+		p.Key(), len(projects), len(pending), len(projects)-len(pending))
+
+	fetched, failed := 0, 0
+	limited := false
+
+	for _, r := range pending {
+		if fetched >= gitRepoStatsBudget {
+			log.Printf("[Git] %s: per-run budget of %d projects reached, resuming next cycle", p.Key(), gitRepoStatsBudget)
+			break
+		}
+		if ctx.Err() != nil {
+			break
 		}
 
-		expired := false
-		select {
-		case <-ctx.Done():
-			expired = true
-		default:
-		}
-		if expired {
-			stats.Partial = true
-			if c, ok := gitCachedRepoStats(p.store, p.Key(), key, 0); ok {
-				addRepo(c)
-			}
-			continue
-		}
-
-		var repoStats RepoStats
-		repoFailed := false
-
-		for page := 1; ; page++ {
-			select {
-			case <-ctx.Done():
-				repoFailed = true
-			default:
-			}
-			if repoFailed {
+		st, err := p.fetchProjectStats(ctx, idByName[r.Name])
+		if err != nil {
+			if gitIsRateLimited(err) {
+				limited = true
+				log.Printf("[Git] %s: %v, stopping stats run", p.Key(), err)
 				break
 			}
-
-			var commits []struct {
-				Stats struct {
-					Additions int `json:"additions"`
-					Deletions int `json:"deletions"`
-				} `json:"stats"`
-			}
-			endpoint := fmt.Sprintf("%s/api/v4/projects/%d/repository/commits?with_stats=true&per_page=100&page=%d&author=%s",
-				p.base, proj.ID, page, author)
-			if err := gitDoJSON(ctx, p.client, "GET", endpoint, p.headers(), nil, &commits); err != nil {
-				repoFailed = true
-				break
-			}
-			if len(commits) == 0 {
-				break
-			}
-			repoStats.Commits += int64(len(commits))
-			for _, c := range commits {
-				repoStats.Additions += int64(c.Stats.Additions)
-				repoStats.Deletions += int64(c.Stats.Deletions)
-			}
-			if len(commits) < 100 {
-				break
-			}
-		}
-
-		if repoFailed {
 			failed++
-			stats.Partial = true
-			if c, ok := gitCachedRepoStats(p.store, p.Key(), key, 0); ok {
-				addRepo(c)
-			}
 			continue
 		}
 
-		repoStats.UpdatedAt = time.Now().Unix()
-		addRepo(repoStats)
+		st.PushedAt = r.PushedAt
+		col.Put(r.Name, st)
 		fetched++
-		if p.store != nil {
-			p.store.SetRepoStats(p.Key(), key, repoStats)
+
+		if fetched%20 == 0 {
+			col.Flush()
+			log.Printf("[Git] %s: project stats %d/%d fetched", p.Key(), fetched, len(pending))
 		}
 	}
-	fmt.Fprintf(os.Stderr, "\r[Git] %s stats: %d/%d projects processed\n", p.Key(), len(projects), len(projects))
-	log.Printf("[Git] %s: project stats resolved: %d from cache, %d fetched, %d failed", p.Key(), fromCache, fetched, failed)
+
+	col.Flush()
+	if !listPartial && !limited {
+		p.store.PruneRepoStats(p.Key(), keep)
+	}
+
+	sum, unmeasured := col.Sum(names)
+
+	stats := &GitSourceStats{
+		Repos:     len(projects),
+		Commits:   sum.Commits,
+		Additions: sum.Additions,
+		Deletions: sum.Deletions,
+		Partial:   unmeasured > 0 || listPartial,
+	}
+
+	log.Printf("[Git] %s: stats run done: fetched=%d failed=%d unmeasured=%d limited=%t partial=%t",
+		p.Key(), fetched, failed, unmeasured, limited, stats.Partial)
+
 	return stats, nil
 }
 
@@ -376,7 +395,7 @@ func (p *GitLabProvider) FetchRecentRepos(ctx context.Context, since time.Time) 
 		PathWithNamespace string    `json:"path_with_namespace"`
 	}
 	endpoint := fmt.Sprintf("%s/api/v4/users/%d/projects?order_by=last_activity_at&sort=desc&per_page=30", p.base, id)
-	if err := gitDoJSON(ctx, p.client, "GET", endpoint, p.headers(), nil, &projects); err != nil {
+	if err := gitFetchJSON(ctx, p.client, "GET", endpoint, p.headers(), nil, &projects); err != nil {
 		return nil, err
 	}
 
@@ -403,7 +422,7 @@ func (p *GitLabProvider) FetchRecentRepos(ctx context.Context, since time.Time) 
 		}
 		commitsEndpoint := fmt.Sprintf("%s/api/v4/projects/%d/repository/commits?since=%s&author=%s&per_page=100",
 			p.base, proj.ID, url.QueryEscape(sinceStr), author)
-		if err := gitDoJSON(ctx, p.client, "GET", commitsEndpoint, p.headers(), nil, &commits); err == nil {
+		if err := gitFetchJSON(ctx, p.client, "GET", commitsEndpoint, p.headers(), nil, &commits); err == nil {
 			repo.Commits = len(commits)
 			for _, c := range commits {
 				if c.CommittedDate.After(repo.LastActive) {
@@ -417,7 +436,7 @@ func (p *GitLabProvider) FetchRecentRepos(ctx context.Context, since time.Time) 
 
 		var langs map[string]float64
 		langEndpoint := fmt.Sprintf("%s/api/v4/projects/%d/languages", p.base, proj.ID)
-		if err := gitDoJSON(ctx, p.client, "GET", langEndpoint, p.headers(), nil, &langs); err == nil && len(langs) > 0 {
+		if err := gitFetchJSON(ctx, p.client, "GET", langEndpoint, p.headers(), nil, &langs); err == nil && len(langs) > 0 {
 			for name, pct := range langs {
 				repo.Languages = append(repo.Languages, CodeLangStat{
 					Name:    name,
@@ -443,8 +462,9 @@ func (p *GitLabProvider) FetchRecentRepos(ctx context.Context, since time.Time) 
 }
 
 type glProj struct {
-	ID                int    `json:"id"`
-	PathWithNamespace string `json:"path_with_namespace"`
+	ID                int       `json:"id"`
+	PathWithNamespace string    `json:"path_with_namespace"`
+	LastActivityAt    time.Time `json:"last_activity_at"`
 }
 
 func (p *GitLabProvider) allProjects(ctx context.Context) ([]glProj, bool) {
@@ -465,10 +485,11 @@ func (p *GitLabProvider) allProjects(ctx context.Context) ([]glProj, bool) {
 	if err != nil {
 		return nil, true
 	}
-	for page := 1; ; page++ {
+
+	for page := 1; page <= 20; page++ {
 		var chunk []glProj
 		endpoint := fmt.Sprintf("%s/api/v4/users/%d/projects?per_page=100&page=%d", p.base, id, page)
-		if err := gitDoJSON(ctx, p.client, "GET", endpoint, p.headers(), nil, &chunk); err != nil {
+		if err := gitFetchJSON(ctx, p.client, "GET", endpoint, p.headers(), nil, &chunk); err != nil {
 			partial = true
 			break
 		}
@@ -480,11 +501,12 @@ func (p *GitLabProvider) allProjects(ctx context.Context) ([]glProj, bool) {
 			break
 		}
 	}
+
 	if p.cfg.Token != "" {
-		for page := 1; ; page++ {
+		for page := 1; page <= 20; page++ {
 			var chunk []glProj
 			endpoint := fmt.Sprintf("%s/api/v4/projects?membership=true&simple=true&per_page=100&page=%d", p.base, page)
-			if err := gitDoJSON(ctx, p.client, "GET", endpoint, p.headers(), nil, &chunk); err != nil {
+			if err := gitFetchJSON(ctx, p.client, "GET", endpoint, p.headers(), nil, &chunk); err != nil {
 				partial = true
 				break
 			}
@@ -497,5 +519,6 @@ func (p *GitLabProvider) allProjects(ctx context.Context) ([]glProj, bool) {
 			}
 		}
 	}
+
 	return out, partial
 }

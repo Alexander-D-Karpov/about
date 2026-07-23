@@ -106,14 +106,17 @@ func (p *CodePlugin) backgroundLoop() {
 
 func (p *CodePlugin) hourlyCycle() {
 	start := time.Now()
+
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	if _, err := p.git.Update(ctx); err != nil {
 		log.Printf("[Code] hourly git refresh failed: %v", err)
 	}
 	cancel()
+
 	p.git.RefreshToday()
 	p.collectHeavyStats()
-	go p.git.PrefetchDayDetails(400)
+	p.git.PrefetchDayDetails(gitPrefetchDaysPerRun)
+
 	log.Printf("[Code] hourly cycle done in %v", time.Since(start).Round(time.Second))
 }
 

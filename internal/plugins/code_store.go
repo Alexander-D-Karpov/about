@@ -9,17 +9,31 @@ import (
 	"time"
 )
 
-const codeStatsVersion = 2
+const (
+	codeStatsVersion    = 2
+	codeStatsHistoryMax = 500
+	codeStatsHistoryGap = 6 * time.Hour
+)
 
 type gitStatsCacheEntry struct {
 	Stats     GitSourceStats `json:"stats"`
 	UpdatedAt int64          `json:"updated_at"`
 }
 
+type GitStatsPoint struct {
+	At        int64 `json:"at"`
+	Commits   int64 `json:"commits"`
+	Additions int64 `json:"additions"`
+	Deletions int64 `json:"deletions"`
+	Repos     int   `json:"repos"`
+	Partial   bool  `json:"partial"`
+}
+
 type RepoStats struct {
 	Commits   int64 `json:"commits"`
 	Additions int64 `json:"additions"`
 	Deletions int64 `json:"deletions"`
+	PushedAt  int64 `json:"pushed_at,omitempty"`
 	UpdatedAt int64 `json:"updated_at"`
 }
 
@@ -30,6 +44,7 @@ type codeStatsFile struct {
 	Wakatime           *WakatimeStats                  `json:"wakatime,omitempty"`
 	WakatimeUpdated    int64                           `json:"wakatime_updated,omitempty"`
 	Git                map[string]gitStatsCacheEntry   `json:"git"`
+	GitHistory         map[string][]GitStatsPoint      `json:"git_history,omitempty"`
 	RepoStats          map[string]map[string]RepoStats `json:"repo_stats,omitempty"`
 	RecentRepos        []GitRecentRepo                 `json:"recent_repos,omitempty"`
 	RecentReposUpdated int64                           `json:"recent_repos_updated,omitempty"`
@@ -56,6 +71,7 @@ func (s *CodeStatsStore) load() {
 	defer s.mu.Unlock()
 
 	s.data.Git = make(map[string]gitStatsCacheEntry)
+	s.data.GitHistory = make(map[string][]GitStatsPoint)
 	s.data.RepoStats = make(map[string]map[string]RepoStats)
 	s.data.Version = codeStatsVersion
 
@@ -77,14 +93,16 @@ func (s *CodeStatsStore) load() {
 	if parsed.Git == nil {
 		parsed.Git = make(map[string]gitStatsCacheEntry)
 	}
+	if parsed.GitHistory == nil {
+		parsed.GitHistory = make(map[string][]GitStatsPoint)
+	}
 	if parsed.RepoStats == nil {
 		parsed.RepoStats = make(map[string]map[string]RepoStats)
 	}
 	s.data = parsed
+
 	if s.data.Version != codeStatsVersion {
-		log.Printf("[CodeStore] stats version %d -> %d, discarding cached git stats for recollection", s.data.Version, codeStatsVersion)
-		s.data.Git = make(map[string]gitStatsCacheEntry)
-		s.data.RepoStats = make(map[string]map[string]RepoStats)
+		log.Printf("[CodeStore] stats version %d -> %d, keeping per-repo cache", s.data.Version, codeStatsVersion)
 		s.data.Version = codeStatsVersion
 		s.saveLocked()
 	}
@@ -93,8 +111,8 @@ func (s *CodeStatsStore) load() {
 	for _, m := range s.data.RepoStats {
 		repoCached += len(m)
 	}
-	log.Printf("[CodeStore] loaded %s: git sources cached=%d, per-repo stats cached=%d, github=%v, wakatime=%v",
-		s.path, len(s.data.Git), repoCached, s.data.GitHub != nil, s.data.Wakatime != nil)
+	log.Printf("[CodeStore] loaded %s: git sources=%d, per-repo stats=%d, history series=%d, github=%v, wakatime=%v",
+		s.path, len(s.data.Git), repoCached, len(s.data.GitHistory), s.data.GitHub != nil, s.data.Wakatime != nil)
 }
 
 func (s *CodeStatsStore) saveLocked() {
@@ -169,8 +187,79 @@ func (s *CodeStatsStore) GetGitStats(key string) (GitSourceStats, time.Time, boo
 func (s *CodeStatsStore) SetGitStats(key string, st GitSourceStats) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.data.Git[key] = gitStatsCacheEntry{Stats: st, UpdatedAt: time.Now().Unix()}
+	now := time.Now().Unix()
+	s.data.Git[key] = gitStatsCacheEntry{Stats: st, UpdatedAt: now}
+	s.appendHistoryLocked(key, st, now)
 	s.saveLocked()
+}
+
+func (s *CodeStatsStore) MergeGitStats(key string, fresh GitSourceStats) GitSourceStats {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	merged := fresh
+	if prev, ok := s.data.Git[key]; ok && fresh.Partial {
+		if prev.Stats.Commits > merged.Commits {
+			merged.Commits = prev.Stats.Commits
+		}
+		if prev.Stats.Additions > merged.Additions {
+			merged.Additions = prev.Stats.Additions
+		}
+		if prev.Stats.Deletions > merged.Deletions {
+			merged.Deletions = prev.Stats.Deletions
+		}
+		if prev.Stats.Repos > merged.Repos {
+			merged.Repos = prev.Stats.Repos
+		}
+	}
+
+	now := time.Now().Unix()
+	s.data.Git[key] = gitStatsCacheEntry{Stats: merged, UpdatedAt: now}
+	s.appendHistoryLocked(key, merged, now)
+	s.saveLocked()
+	return merged
+}
+
+func (s *CodeStatsStore) appendHistoryLocked(key string, st GitSourceStats, now int64) {
+	if s.data.GitHistory == nil {
+		s.data.GitHistory = make(map[string][]GitStatsPoint)
+	}
+
+	series := s.data.GitHistory[key]
+	point := GitStatsPoint{
+		At:        now,
+		Commits:   st.Commits,
+		Additions: st.Additions,
+		Deletions: st.Deletions,
+		Repos:     st.Repos,
+		Partial:   st.Partial,
+	}
+
+	if n := len(series); n > 0 {
+		last := series[n-1]
+		sameValues := last.Commits == point.Commits &&
+			last.Additions == point.Additions &&
+			last.Deletions == point.Deletions &&
+			last.Repos == point.Repos
+		if sameValues && time.Since(time.Unix(last.At, 0)) < codeStatsHistoryGap {
+			series[n-1].At = now
+			series[n-1].Partial = point.Partial
+			s.data.GitHistory[key] = series
+			return
+		}
+	}
+
+	series = append(series, point)
+	if len(series) > codeStatsHistoryMax {
+		series = series[len(series)-codeStatsHistoryMax:]
+	}
+	s.data.GitHistory[key] = series
+}
+
+func (s *CodeStatsStore) GitHistory(key string) []GitStatsPoint {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]GitStatsPoint(nil), s.data.GitHistory[key]...)
 }
 
 func (s *CodeStatsStore) AllGitStats() map[string]gitStatsCacheEntry {
@@ -193,7 +282,24 @@ func (s *CodeStatsStore) GetRepoStats(source, repo string) (RepoStats, bool) {
 	return e, ok
 }
 
+func (s *CodeStatsStore) RepoStatsFor(source string) map[string]RepoStats {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make(map[string]RepoStats, len(s.data.RepoStats[source]))
+	for k, v := range s.data.RepoStats[source] {
+		out[k] = v
+	}
+	return out
+}
+
 func (s *CodeStatsStore) SetRepoStats(source, repo string, st RepoStats) {
+	s.SetRepoStatsBatch(source, map[string]RepoStats{repo: st})
+}
+
+func (s *CodeStatsStore) SetRepoStatsBatch(source string, batch map[string]RepoStats) {
+	if len(batch) == 0 {
+		return
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.data.RepoStats == nil {
@@ -202,22 +308,35 @@ func (s *CodeStatsStore) SetRepoStats(source, repo string, st RepoStats) {
 	if s.data.RepoStats[source] == nil {
 		s.data.RepoStats[source] = make(map[string]RepoStats)
 	}
-	s.data.RepoStats[source][repo] = st
+	for repo, st := range batch {
+		s.data.RepoStats[source][repo] = st
+	}
 	s.saveLocked()
 }
 
-func gitCachedRepoStats(store *CodeStatsStore, source, repo string, maxAge time.Duration) (RepoStats, bool) {
-	if store == nil {
-		return RepoStats{}, false
+func (s *CodeStatsStore) PruneRepoStats(source string, keep map[string]bool) {
+	if len(keep) == 0 {
+		return
 	}
-	c, ok := store.GetRepoStats(source, repo)
-	if !ok {
-		return RepoStats{}, false
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	cur := s.data.RepoStats[source]
+	if len(cur) == 0 {
+		return
 	}
-	if maxAge > 0 && time.Since(time.Unix(c.UpdatedAt, 0)) > maxAge {
-		return RepoStats{}, false
+
+	removed := 0
+	for repo := range cur {
+		if !keep[repo] {
+			delete(cur, repo)
+			removed++
+		}
 	}
-	return c, true
+	if removed > 0 {
+		log.Printf("[CodeStore] pruned %d stale repo stats for %s", removed, source)
+		s.saveLocked()
+	}
 }
 
 func (s *CodeStatsStore) GetRecentRepos() ([]GitRecentRepo, time.Time) {
