@@ -184,6 +184,15 @@ func (w *Worker) runOnce(ctx context.Context) error {
 	browserCtx, cancelBrowser := chromedp.NewContext(allocCtx)
 	defer cancelBrowser()
 
+	// Launch the browser and bind the tab to browserCtx with a bare Run BEFORE
+	// any child-context Run. chromedp ties a tab's lifetime to the context of
+	// its first Run; if that were a per-navigate timeout child, cancelling the
+	// child would tear down the tab and every later probe would fail with
+	// "context canceled".
+	if err := chromedp.Run(browserCtx); err != nil {
+		return err // browser failed to launch (e.g. Chromium missing)
+	}
+
 	buckets := layout.ViewportBuckets()
 	totalBuckets := len(buckets)
 	if len(buckets) == 0 {
