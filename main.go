@@ -24,6 +24,7 @@ import (
 	"github.com/Alexander-D-Karpov/about/internal/admin"
 	"github.com/Alexander-D-Karpov/about/internal/config"
 	"github.com/Alexander-D-Karpov/about/internal/handlers"
+	"github.com/Alexander-D-Karpov/about/internal/layout/measure"
 	"github.com/Alexander-D-Karpov/about/internal/plugins"
 	"github.com/Alexander-D-Karpov/about/internal/ranking"
 	"github.com/Alexander-D-Karpov/about/internal/storage"
@@ -70,6 +71,14 @@ func main() {
 	}
 	log.Println("Plugin data preloaded successfully")
 
+	heightStore := measure.NewHeightStore(cfg.DataPath)
+	if err := heightStore.Load(); err != nil {
+		log.Printf("height store load failed: %v", err)
+	}
+	measureWorker := measure.NewWorker(heightStore, "http://127.0.0.1:"+cfg.Port)
+	pluginManager.SetLayoutNotifier(measureWorker)
+	go measureWorker.Start(context.Background())
+
 	go startBackgroundTasks(store, pluginManager)
 	go pluginManager.StartPrometheusMetrics(context.Background())
 
@@ -110,7 +119,7 @@ func main() {
 		log.Printf("Warning: Failed to load stats template: %v", err)
 	}
 
-	mainHandler := handlers.NewMainHandler(pluginManager, cfg, templateFiles, bundler, nil)
+	mainHandler := handlers.NewMainHandler(pluginManager, cfg, templateFiles, bundler, heightStore)
 	r.HandleFunc("/", mainHandler.ServeHTTP).Methods("GET")
 
 	wsHandler := handlers.NewWebSocketHandler(hub)
