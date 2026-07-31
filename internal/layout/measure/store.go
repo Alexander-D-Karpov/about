@@ -109,6 +109,23 @@ func (s *HeightStore) Age(plugin string) (time.Duration, bool) {
 	return time.Since(ts), true
 }
 
+// NewestAge returns how long ago the most recently measured plugin was updated.
+// ok is false if nothing has been measured.
+func (s *HeightStore) NewestAge() (time.Duration, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	var newest time.Time
+	for _, ts := range s.updated {
+		if ts.After(newest) {
+			newest = ts
+		}
+	}
+	if newest.IsZero() {
+		return 0, false
+	}
+	return time.Since(newest), true
+}
+
 func (s *HeightStore) Empty() bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()

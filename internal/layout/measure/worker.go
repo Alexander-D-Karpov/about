@@ -45,7 +45,9 @@ func (w *Worker) needsMeasure() bool {
 	if w.store.Empty() {
 		return true
 	}
-	// stale if any known plugin is older than staleAfter
+	if age, ok := w.store.NewestAge(); ok && age > staleAfter {
+		return true
+	}
 	return false
 }
 
@@ -94,6 +96,12 @@ func (w *Worker) runIfNeeded(ctx context.Context) {
 		return
 	}
 	if !w.runMu.TryLock() {
+		// NOTE: a pass is already running and holds dirty=false semantics for
+		// whatever it started measuring; any invalidation that arrives after
+		// that snapshot won't be picked up by this run. We deliberately don't
+		// reschedule here to avoid unbounded run chains under a hot invalidation
+		// stream. Coverage is provided by the backstopEvery ticker in Start()
+		// and by the next Notify() call re-arming the debounce timer.
 		return // a pass is already running
 	}
 	defer w.runMu.Unlock()
@@ -151,7 +159,7 @@ const probeJS = `
     }
     out[name] = perSpan;
   });
-  probe.removeChild(probe);
+  document.body.removeChild(probe);
   return out;
 })()
 `

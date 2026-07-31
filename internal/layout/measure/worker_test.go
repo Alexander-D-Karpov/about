@@ -26,5 +26,15 @@ func TestStaleThresholdRespected(t *testing.T) {
 	if !w2.needsMeasure() {
 		t.Fatal("empty store should need measure")
 	}
-	_ = time.Second
+}
+
+func TestNewestAge(t *testing.T) {
+	s := NewHeightStore(t.TempDir())
+	if _, ok := s.NewestAge(); ok {
+		t.Fatal("empty store should have no NewestAge")
+	}
+	s.SetPlugin("tech", map[string]map[int]int{"bp0": {1: 100}})
+	if age, ok := s.NewestAge(); !ok || age < 0 || age > time.Minute {
+		t.Fatalf("NewestAge after fresh set = %v,%v want small non-negative", age, ok)
+	}
 }
