@@ -19,7 +19,7 @@ const (
 	staleAfter      = 6 * time.Hour
 	debounceDelay   = 45 * time.Second
 	backstopEvery   = 3 * time.Hour
-	perBucketBudget = 12 * time.Second
+	perBucketBudget = 30 * time.Second
 	settleDelay     = 1200 * time.Millisecond
 )
 
@@ -73,6 +73,7 @@ func (w *Worker) Notify(plugin string) {
 func (w *Worker) Start(ctx context.Context) {
 	if w.needsMeasure() {
 		rctx, cancel := context.WithTimeout(ctx, 3*time.Minute)
+		w.dirty.Store(true)
 		w.runIfNeeded(rctx)
 		cancel()
 	}
@@ -177,25 +178,36 @@ func (w *Worker) runOnce(ctx context.Context) error {
 	allocCtx, cancelAlloc := chromedp.NewExecAllocator(ctx, opts...)
 	defer cancelAlloc()
 
+	// One browser for the whole pass. Launch it once; per-bucket navigations
+	// reuse this target, and server-side render caching makes buckets after
+	// the first fast.
+	browserCtx, cancelBrowser := chromedp.NewContext(allocCtx)
+	defer cancelBrowser()
+	if err := chromedp.Run(browserCtx); err != nil {
+		return err // browser failed to launch (e.g. Chromium missing)
+	}
+
 	// aggregate: plugin -> bucket -> span -> height
 	agg := map[string]map[string]map[int]int{}
+	var firstErr error
 
 	for _, bucket := range layout.ViewportBuckets() {
-		bctx, cancel := context.WithTimeout(allocCtx, perBucketBudget)
-		browserCtx, cancelBrowser := chromedp.NewContext(bctx)
-
+		bctx, cancel := context.WithTimeout(browserCtx, perBucketBudget)
 		var result map[string]map[string]int
-		err := chromedp.Run(browserCtx,
+		err := chromedp.Run(bctx,
 			chromedp.EmulateViewport(int64(bucket.SampleWidth), 1200),
 			chromedp.Navigate(w.baseURL+"/?measure=1"),
 			chromedp.WaitVisible(`.mosaic .plugin`, chromedp.ByQuery),
 			chromedp.Sleep(settleDelay),
 			chromedp.Evaluate(probeJS, &result),
 		)
-		cancelBrowser()
 		cancel()
 		if err != nil {
-			return err
+			if firstErr == nil {
+				firstErr = err
+			}
+			log.Printf("[Measure] bucket %s failed: %v", bucket.Name, err)
+			continue
 		}
 		for name, spans := range result {
 			if agg[name] == nil {
@@ -211,10 +223,17 @@ func (w *Worker) runOnce(ctx context.Context) error {
 		}
 	}
 
+	if len(agg) == 0 {
+		if firstErr != nil {
+			return firstErr
+		}
+		return nil
+	}
+
 	for name, buckets := range agg {
 		w.store.SetPlugin(name, buckets)
 	}
 	w.store.Flush()
 	log.Printf("[Measure] measured %d plugins across %d buckets", len(agg), len(layout.ViewportBuckets()))
-	return nil
+	return firstErr // non-nil if some (but not all) buckets failed; store still updated
 }
