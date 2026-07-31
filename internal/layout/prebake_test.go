@@ -103,3 +103,32 @@ func TestExtractLayoutBiasesHeightUp(t *testing.T) {
 		t.Fatalf("ExtractLayout height %d < raw estimate %d (must bias up)", got, raw)
 	}
 }
+
+func placementsOverlap(a, b Placement) bool {
+	colOverlap := a.Col < b.Col+b.ColSpan && b.Col < a.Col+a.ColSpan
+	rowOverlap := a.Row < b.Row+b.RowSpan && b.Row < a.Row+a.RowSpan
+	return colOverlap && rowOverlap
+}
+
+func TestPackForColsNeverOverlaps(t *testing.T) {
+	plugins := []PluginLayout{
+		{Name: "webring", Width: 3, Height: 116, Order: 0},
+		{Name: "profile", Width: 2, Height: 520, Order: 1},
+		{Name: "tech", Width: 1, Height: 640, Order: 2},
+		{Name: "social", Width: 1, Height: 300, Order: 3},
+		{Name: "health", Width: 2, Height: 260, Order: 4},
+		{Name: "bike", Width: 2, Height: 900, Order: 5},
+		{Name: "music", Width: 1, Height: 700, Order: 6},
+	}
+	for _, cols := range []int{1, 2, 3, 4} {
+		got := packForCols(plugins, cols)
+		for i := 0; i < len(got); i++ {
+			for j := i + 1; j < len(got); j++ {
+				if placementsOverlap(got[i], got[j]) {
+					t.Fatalf("cols=%d: %q and %q overlap: %+v vs %+v",
+						cols, got[i].Name, got[j].Name, got[i], got[j])
+				}
+			}
+		}
+	}
+}
