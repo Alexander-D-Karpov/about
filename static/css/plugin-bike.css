@@ -45,7 +45,7 @@
     overflow: hidden;
     background: var(--bg-2);
     border: 1px solid var(--edge-0);
-    margin-bottom: 16px;
+    margin-bottom: 12px;
 }
 
 .bike-map {
@@ -60,23 +60,197 @@
     top: 10px;
     right: 10px;
     z-index: 1000;
-}
-
-.bike-map-container .map-loading {
-    position: absolute;
-    inset: 0;
     display: flex;
     flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 12px;
-    background: var(--bg-2);
-    z-index: 10;
-    transition: opacity .3s ease;
+    gap: 6px;
 }
 
-.bike-map-container .map-loading.hidden {
+.bike-map-container .map-control-btn {
+    width: 32px;
+    height: 32px;
+    display: grid;
+    place-items: center;
+    padding: 0;
+    border: 1px solid rgba(255, 255, 255, .12);
+    border-radius: 8px;
+    background: rgba(10, 10, 12, .92);
+    color: #fff;
+    cursor: pointer;
+    line-height: 1;
+    transition: background .15s ease, color .15s ease, border-color .15s ease;
+}
+
+.bike-map-container .map-control-btn svg { display: block }
+
+.bike-map-container .map-control-btn:hover {
+    background: rgba(24, 24, 28, .98);
+}
+
+.bike-map-container .map-control-btn[aria-pressed="true"] {
+    color: #ff8c42;
+    border-color: rgba(255, 140, 66, .55);
+}
+
+.bike-map-container .map-control-btn.is-unavailable {
+    color: rgba(255, 255, 255, .38);
+}
+
+.bike-map-toast {
+    position: absolute;
+    left: 50%;
+    bottom: 14px;
+    transform: translate(-50%, 8px);
+    z-index: 1100;
+    max-width: calc(100% - 28px);
+    padding: 8px 12px;
+    border-radius: 8px;
+    background: rgba(10, 10, 12, .95);
+    border: 1px solid rgba(255, 255, 255, .12);
+    color: #fff;
+    font-size: 11px;
+    font-weight: 600;
+    text-align: center;
     opacity: 0;
+    pointer-events: none;
+    transition: opacity .18s ease, transform .18s ease;
+}
+
+.bike-map-toast.in {
+    opacity: 1;
+    transform: translate(-50%, 0);
+}
+
+.bike-speed-legend {
+    position: absolute;
+    left: 10px;
+    bottom: 14px;
+    z-index: 1000;
+    width: min(220px, 60%);
+    padding: 8px 10px;
+    border-radius: 8px;
+    background: rgba(10, 10, 12, .88);
+    border: 1px solid rgba(255, 255, 255, .1);
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    pointer-events: none;
+}
+
+.bike-speed-legend[hidden] { display: none }
+
+.bike-speed-legend__label {
+    font: 700 9px/1 var(--mono);
+    color: rgba(255, 255, 255, .75);
+    text-transform: uppercase;
+    letter-spacing: .6px;
+}
+
+.bike-speed-legend__bar {
+    height: 8px;
+    border-radius: 4px;
+    background: #333;
+}
+
+.bike-speed-legend__ticks {
+    display: flex;
+    justify-content: space-between;
+    font: 600 9px/1 var(--mono);
+    color: rgba(255, 255, 255, .65);
+}
+
+.bike-hover-dot {
+    background: none !important;
+    border: none !important;
+    box-shadow: none !important;
+    pointer-events: none !important;
+}
+
+.bike-hover-dot span {
+    display: block;
+    width: 12px;
+    height: 12px;
+    margin: 3px;
+    border-radius: 50%;
+    background: #ff8c42;
+    border: 3px solid #fff;
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, .5), 0 2px 6px rgba(0, 0, 0, .55);
+}
+
+.bike-profile {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-bottom: 12px;
+    padding: 10px 10px 6px;
+    border-radius: 10px;
+    border: 1px solid var(--edge-0);
+    background: rgba(255, 255, 255, .012);
+}
+
+.bike-profile[hidden] { display: none }
+
+.bike-profile-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.bike-profile-title {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--ink);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
+}
+
+.bike-profile-readout {
+    font: 600 11px/1.2 var(--mono);
+    color: #ff8c42;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+}
+
+.bike-profile-chart {
+    width: 100%;
+    height: 150px;
+    cursor: crosshair;
+    touch-action: none;
+}
+
+.bike-profile-svg {
+    display: block;
+    width: 100%;
+    height: 150px;
+    overflow: visible;
+}
+
+.bike-profile-grid {
+    stroke: var(--edge-1);
+    stroke-width: 1;
+    shape-rendering: crispEdges;
+}
+
+.bike-profile-axis {
+    fill: var(--muted);
+    font-family: var(--mono);
+    font-size: 9px;
+    font-weight: 600;
+}
+
+.bike-profile-cursor {
+    stroke: var(--ink-2);
+    stroke-width: 1;
+    stroke-dasharray: 3 3;
+    pointer-events: none;
+}
+
+.bike-profile-dot {
+    stroke: #fff;
+    stroke-width: 2;
     pointer-events: none;
 }
 
@@ -93,6 +267,24 @@
 .bike-arrow svg {
     display: block;
     filter: drop-shadow(0 1px 2px rgba(0, 0, 0, .5));
+}
+
+.bike-map-container .map-loading {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    background: var(--bg-2);
+    z-index: 1200;
+    transition: opacity .3s ease;
+}
+
+.bike-map-container .map-loading.hidden {
+    opacity: 0;
+    pointer-events: none;
 }
 
 .bike-rides-list {
@@ -216,27 +408,6 @@
     display: block;
 }
 
-.bike-fullscreen-control .bike-fullscreen-btn {
-    width: 32px;
-    height: 32px;
-    display: grid;
-    place-items: center;
-    background: rgba(10, 10, 12, 0.92);
-    color: #fff;
-    border: 0;
-    cursor: pointer;
-    padding: 0;
-    line-height: 1;
-}
-
-.bike-fullscreen-control .bike-fullscreen-btn:hover {
-    background: rgba(24, 24, 28, 0.98);
-}
-
-.bike-fullscreen-control .bike-fullscreen-btn[aria-pressed="true"] {
-    color: #ff8c42;
-}
-
 .bike-map-container:fullscreen {
     width: 100vw;
     height: 100vh;
@@ -253,22 +424,21 @@
     height: 100%;
 }
 
-.bike-map-container:fullscreen .map-controls {
-    z-index: 1100;
-}
-
 @media (max-width: 780px) {
     .bike-stats { gap: 6px }
     .bike-stat { padding: 10px 6px; min-width: 60px }
     .bike-stat-value { font-size: 15px }
     .bike-map-container { height: 240px }
     .bike-ride-chips { flex-wrap: wrap }
+    .bike-profile-chart, .bike-profile-svg { height: 120px }
+    .bike-speed-legend { width: min(180px, 70%) }
 }
 
 @media (max-width: 520px) {
     .bike-map-container { height: 200px }
     .bike-ride-item { flex-wrap: wrap; gap: 6px }
     .bike-ride-chips { width: 100% }
+    .bike-profile-readout { font-size: 10px }
 }
 
 @media (prefers-color-scheme: light) {
@@ -276,4 +446,50 @@
     .bike-chip { background: rgba(217, 106, 30, .08); color: #d96a1e }
     .bike-ride-item:hover,
     .bike-ride-item.active { background: rgba(217, 106, 30, .04) }
+    .bike-profile { background: rgba(0, 0, 0, .015) }
+    .bike-profile-readout { color: #d96a1e }
+    .bike-hover-dot span { box-shadow: 0 0 0 1px rgba(0, 0, 0, .25), 0 2px 6px rgba(0, 0, 0, .3) }
+}
+
+.bike-nospeed-chip {
+    display: none;
+    background: rgba(140, 150, 165, .12);
+    color: #97a2b3;
+}
+
+.bike-section.speed-on .bike-ride-item[data-no-speed="1"] .bike-nospeed-chip {
+    display: inline-flex;
+}
+
+.bike-section.speed-on .bike-ride-item[data-no-speed="1"] .bike-ride-color {
+    background: #5b6472 !important;
+}
+
+.bike-map-container .map-control-btn.is-unavailable {
+    color: rgba(255, 255, 255, .38);
+}
+
+.bike-map-toast {
+    position: absolute;
+    left: 50%;
+    bottom: 14px;
+    transform: translate(-50%, 8px);
+    z-index: 1100;
+    max-width: calc(100% - 28px);
+    padding: 8px 12px;
+    border-radius: 8px;
+    background: rgba(10, 10, 12, .95);
+    border: 1px solid rgba(255, 255, 255, .12);
+    color: #fff;
+    font-size: 11px;
+    font-weight: 600;
+    text-align: center;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity .18s ease, transform .18s ease;
+}
+
+.bike-map-toast.in {
+    opacity: 1;
+    transform: translate(-50%, 0);
 }

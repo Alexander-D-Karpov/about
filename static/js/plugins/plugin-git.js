@@ -1,6 +1,9 @@
 (function () {
     'use strict';
 
+    const OVERLAY_Z = 1000000;
+    const TOOLTIP_Z = OVERLAY_Z + 1;
+
     const cache = new Map();
     let tooltip = null;
     let activeCell = null;
@@ -29,6 +32,8 @@
         tooltip = document.createElement('div');
         tooltip.className = 'git-tooltip';
         tooltip.hidden = true;
+        tooltip.style.position = 'fixed';
+        tooltip.style.zIndex = String(TOOLTIP_Z);
         document.body.appendChild(tooltip);
         return tooltip;
     }
@@ -54,8 +59,28 @@
         }
     }
 
+    function cellIsVisible(cell) {
+        const rect = cell.getBoundingClientRect();
+        if (rect.width === 0 || rect.height === 0) return false;
+        if (rect.bottom < 0 || rect.top > window.innerHeight) return false;
+        if (rect.right < 0 || rect.left > window.innerWidth) return false;
+
+        const scroller = cell.closest('.git-heatmap-scroll');
+        if (scroller) {
+            const sr = scroller.getBoundingClientRect();
+            if (rect.right < sr.left - 1 || rect.left > sr.right + 1) return false;
+        }
+        return true;
+    }
+
     function position(cell) {
         if (!tooltip || !cell) return;
+
+        if (!document.body.contains(cell) || !cellIsVisible(cell)) {
+            hide();
+            return;
+        }
+
         const rect = cell.getBoundingClientRect();
         const tw = tooltip.offsetWidth;
         const th = tooltip.offsetHeight;
@@ -213,6 +238,8 @@
     function hide() {
         activeCell = null;
         pinned = false;
+        clearTimeout(showTimer);
+        clearTimeout(hideTimer);
         if (tooltip) {
             tooltip.hidden = true;
             tooltip.classList.remove('git-tooltip--pinned');
@@ -467,8 +494,12 @@
             if (e.key === 'Escape') hide();
         });
 
-        window.addEventListener('scroll', () => {
+        document.addEventListener('scroll', () => {
             if (activeCell) position(activeCell);
+        }, { passive: true, capture: true });
+
+        window.addEventListener('resize', () => {
+            if (activeCell) hide();
         }, { passive: true });
 
         sizeHeatmaps();
@@ -479,15 +510,22 @@
         const mo = new MutationObserver(muts => {
             let heatmapAdded = false;
             let classChanged = false;
+            let expandToggled = false;
             let justExpanded = null;
+
             for (const m of muts) {
                 if (m.type === 'attributes') {
                     classChanged = true;
                     const t = m.target;
-                    if (t.nodeType === 1 &&
-                        t.classList.contains('plugin--expanded') &&
-                        !(m.oldValue || '').split(/\s+/).includes('plugin--expanded')) {
-                        (justExpanded || (justExpanded = [])).push(t);
+                    if (t.nodeType !== 1) continue;
+
+                    const wasExpanded = (m.oldValue || '').split(/\s+/).includes('plugin--expanded');
+                    const isExpanded = t.classList.contains('plugin--expanded');
+                    if (wasExpanded !== isExpanded) {
+                        expandToggled = true;
+                        if (isExpanded) {
+                            (justExpanded || (justExpanded = [])).push(t);
+                        }
                     }
                     continue;
                 }
@@ -496,6 +534,10 @@
                         heatmapAdded = true;
                     }
                 }
+            }
+
+            if (expandToggled) {
+                hide();
             }
             if (heatmapAdded) {
                 sizeHeatmaps();
@@ -519,11 +561,13 @@
             attributeOldValue: true,
             attributeFilter: ['class']
         });
+
         let resizeTimer = null;
         window.addEventListener('resize', () => {
             clearTimeout(resizeTimer);
             resizeTimer = setTimeout(sizeHeatmaps, 100);
         }, { passive: true });
+
         document.addEventListener('toggle', e => {
             const feed = e.target.closest?.('[data-git-feed]') || (e.target.matches?.('[data-git-feed]') ? e.target : null);
             if (!feed) return;

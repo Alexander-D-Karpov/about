@@ -16,6 +16,8 @@ import (
 	"github.com/Alexander-D-Karpov/about/internal/stream"
 )
 
+const maxRideCoords = 600
+
 type BikePlugin struct {
 	storage *storage.Storage
 	hub     *stream.Hub
@@ -90,6 +92,11 @@ func (p *BikePlugin) Render(ctx context.Context) (string, error) {
 	}
 	avgDist := totalKm / float64(len(rides))
 
+	avgSpeed := 0.0
+	if totalDur > 0 {
+		avgSpeed = totalKm / (totalDur / 60)
+	}
+
 	displayRides := make([]BikeRide, len(rides))
 	copy(displayRides, rides)
 	for i := range displayRides {
@@ -118,22 +125,41 @@ func (p *BikePlugin) Render(ctx context.Context) (string, error) {
 			<div class="bike-stat"><div class="bike-stat-value">{{.TotalRides}}</div><div class="bike-stat-label">Rides</div></div>
 			<div class="bike-stat"><div class="bike-stat-value">{{.TotalElevation}}</div><div class="bike-stat-label">Elevation ↑</div></div>
 			<div class="bike-stat"><div class="bike-stat-value">{{.AvgDistance}}</div><div class="bike-stat-label">Avg KM</div></div>
+			<div class="bike-stat"><div class="bike-stat-value">{{.AvgSpeed}}</div><div class="bike-stat-label">Avg KM/H</div></div>
 			<div class="bike-stat"><div class="bike-stat-value">{{.TotalTime}}</div><div class="bike-stat-label">Total Time</div></div>
 		</div>
 
 		<div class="bike-map-container" id="bike-map-container">
 			<div class="bike-map" id="bike-map"></div>
 			<div class="map-controls">
-				<button class="map-control-btn" id="bike-fit-bounds" title="Fit all rides">
+				<button class="map-control-btn" id="bike-fit-bounds" type="button" title="Fit all rides" aria-label="Fit all rides">
 					<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
 						<path d="M15 3l2.3 2.3-2.89 2.87 1.42 1.42L18.7 6.7 21 9V3h-6zM3 9l2.3-2.3 2.87 2.89 1.42-1.42L6.7 5.3 9 3H3v6zm6 12l-2.3-2.3 2.89-2.87-1.42-1.42L5.3 17.3 3 15v6h6zm12-6l-2.3 2.3-2.87-2.89-1.42 1.42 2.89 2.87L15 21h6v-6z"/>
 					</svg>
 				</button>
+				<button class="map-control-btn" id="bike-speed-toggle" type="button" title="Colour routes by speed" aria-label="Colour routes by speed" aria-pressed="false">
+					<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
+						<path d="M12 4a9 9 0 0 0-7.79 13.5h15.58A9 9 0 0 0 12 4zm0 2a7 7 0 0 1 6.32 4H5.68A7 7 0 0 1 12 6zm4.24 3.76l-3.2 3.2a1.75 1.75 0 1 1-1.06-1.06l3.2-3.2a.75.75 0 1 1 1.06 1.06z"/>
+					</svg>
+				</button>
+			</div>
+			<div class="bike-speed-legend" id="bike-speed-legend" hidden>
+				<span class="bike-speed-legend__label">Speed · km/h</span>
+				<div class="bike-speed-legend__bar" id="bike-speed-legend-bar"></div>
+				<div class="bike-speed-legend__ticks"><span>0</span><span>10</span><span>20</span><span>30</span><span>40+</span></div>
 			</div>
 			<div class="map-loading" id="bike-map-loading">
 				<div class="loading"></div>
 				<span>Loading map...</span>
 			</div>
+		</div>
+
+		<div class="bike-profile" id="bike-profile" hidden>
+			<div class="bike-profile-head">
+				<span class="bike-profile-title" id="bike-profile-title"></span>
+				<span class="bike-profile-readout" id="bike-profile-readout"></span>
+			</div>
+			<div class="bike-profile-chart" id="bike-profile-chart"></div>
 		</div>
 
 		<div class="bike-rides-list" id="bike-rides-list">
@@ -176,16 +202,17 @@ func (p *BikePlugin) Render(ctx context.Context) (string, error) {
 	}
 	var buf strings.Builder
 	if err := t.Execute(&buf, struct {
-		SectionTitle, TotalKm, TotalElevation, AvgDistance, TotalTime string
-		TotalRides                                                    int
-		Rides                                                         []BikeRide
-		RidesJSON                                                     template.JS
+		SectionTitle, TotalKm, TotalElevation, AvgDistance, AvgSpeed, TotalTime string
+		TotalRides                                                              int
+		Rides                                                                   []BikeRide
+		RidesJSON                                                               template.JS
 	}{
 		SectionTitle:   sectionTitle,
 		TotalKm:        fmt.Sprintf("%.1f", totalKm),
 		TotalRides:     len(rides),
 		TotalElevation: fmt.Sprintf("%.0fm", totalElev),
 		AvgDistance:    fmt.Sprintf("%.1f", avgDist),
+		AvgSpeed:       fmt.Sprintf("%.1f", avgSpeed),
 		TotalTime:      formatBikeDuration(totalDur),
 		Rides:          displayRides,
 		RidesJSON:      template.JS(ridesJSON),
@@ -230,10 +257,20 @@ func (p *BikePlugin) GetMetrics() map[string]interface{} {
 	cfg := p.storage.GetPluginConfig(p.Name())
 	rides := p.loadRides(cfg.Settings)
 	total := 0.0
+	var dur float64
 	for _, r := range rides {
 		total += r.DistanceKm
+		dur += r.DurationMin
 	}
-	return map[string]interface{}{"total_rides": len(rides), "total_km": total}
+	avg := 0.0
+	if dur > 0 {
+		avg = total / (dur / 60)
+	}
+	return map[string]interface{}{
+		"total_rides":   len(rides),
+		"total_km":      total,
+		"avg_speed_kmh": avg,
+	}
 }
 
 func (p *BikePlugin) loadRides(settings map[string]interface{}) []BikeRide {
@@ -258,17 +295,22 @@ func (p *BikePlugin) loadRides(settings map[string]interface{}) []BikeRide {
 		}
 		if coords, ok := m["coordinates"].([]interface{}); ok {
 			for _, c := range coords {
-				if pair, ok := c.([]interface{}); ok && len(pair) >= 2 {
-					lat, _ := toFloat64(pair[0])
-					lng, _ := toFloat64(pair[1])
-					coord := []float64{lat, lng}
-					if len(pair) >= 3 {
-						if ele, ok := toFloat64(pair[2]); ok {
-							coord = append(coord, ele)
-						}
-					}
-					ride.Coordinates = append(ride.Coordinates, coord)
+				pair, ok := c.([]interface{})
+				if !ok || len(pair) < 2 {
+					continue
 				}
+				lat, _ := toFloat64(pair[0])
+				lng, _ := toFloat64(pair[1])
+				coord := []float64{lat, lng}
+				if len(pair) >= 3 {
+					ele, _ := toFloat64(pair[2])
+					coord = append(coord, ele)
+				}
+				if len(pair) >= 4 {
+					ts, _ := toFloat64(pair[3])
+					coord = append(coord, ts)
+				}
+				ride.Coordinates = append(ride.Coordinates, coord)
 			}
 		}
 		rides = append(rides, ride)
@@ -288,6 +330,20 @@ func trimFirstKm(coords [][]float64, km float64) [][]float64 {
 		}
 	}
 	return coords[len(coords)-1:]
+}
+
+func trimLastKm(coords [][]float64, km float64) [][]float64 {
+	if km <= 0 || len(coords) < 2 {
+		return coords
+	}
+	cum := 0.0
+	for i := len(coords) - 1; i > 0; i-- {
+		cum += haversineKm(coords[i][0], coords[i][1], coords[i-1][0], coords[i-1][1])
+		if cum >= km {
+			return coords[:i]
+		}
+	}
+	return coords[:1]
 }
 
 func (p *BikePlugin) getStr(settings map[string]interface{}, key, def string) string {
@@ -345,26 +401,14 @@ func toFloat64(v interface{}) (float64, bool) {
 	switch n := v.(type) {
 	case float64:
 		return n, true
+	case float32:
+		return float64(n), true
 	case int:
 		return float64(n), true
 	case int64:
 		return float64(n), true
 	}
 	return 0, false
-}
-
-func trimLastKm(coords [][]float64, km float64) [][]float64 {
-	if km <= 0 || len(coords) < 2 {
-		return coords
-	}
-	cum := 0.0
-	for i := len(coords) - 1; i > 0; i-- {
-		cum += haversineKm(coords[i][0], coords[i][1], coords[i-1][0], coords[i-1][1])
-		if cum >= km {
-			return coords[:i]
-		}
-	}
-	return coords[:1]
 }
 
 func haversineKm(lat1, lon1, lat2, lon2 float64) float64 {
@@ -388,6 +432,69 @@ func formatBikeDuration(min float64) string {
 	return fmt.Sprintf("%dh %dm", h, m)
 }
 
+func parseGPXTime(s string) (time.Time, bool) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return time.Time{}, false
+	}
+	layouts := []string{
+		time.RFC3339Nano,
+		time.RFC3339,
+		"2006-01-02T15:04:05.000Z",
+		"2006-01-02T15:04:05Z",
+		"2006-01-02T15:04:05",
+		"2006-01-02 15:04:05",
+	}
+	for _, l := range layouts {
+		if t, err := time.Parse(l, s); err == nil {
+			return t, true
+		}
+	}
+	return time.Time{}, false
+}
+
+func extractGPXTimes(points []GPXPoint) ([]float64, bool, time.Time) {
+	times := make([]float64, len(points))
+	valid := make([]bool, len(points))
+
+	var base time.Time
+	count := 0
+
+	for i, pt := range points {
+		t, ok := parseGPXTime(pt.Time)
+		if !ok {
+			continue
+		}
+		if count == 0 {
+			base = t
+		}
+		times[i] = t.Sub(base).Seconds()
+		valid[i] = true
+		count++
+	}
+
+	if count < 2 {
+		return nil, false, time.Time{}
+	}
+
+	last := 0.0
+	for i := range times {
+		if valid[i] {
+			if times[i] < last {
+				times[i] = last
+			}
+			last = times[i]
+		} else {
+			times[i] = last
+		}
+		if math.IsNaN(times[i]) || math.IsInf(times[i], 0) {
+			times[i] = last
+		}
+	}
+
+	return times, true, base
+}
+
 func ParseGPX(data []byte) (*BikeRide, error) {
 	var gpx GPXFile
 	if err := xml.Unmarshal(data, &gpx); err != nil {
@@ -408,12 +515,19 @@ func ParseGPX(data []byte) (*BikeRide, error) {
 		return nil, fmt.Errorf("GPX has fewer than 2 points")
 	}
 
+	times, hasTimes, startTime := extractGPXTimes(points)
+
 	totalDist := 0.0
 	elevGain := 0.0
-	var coords [][]float64
+	coords := make([][]float64, 0, len(points))
 
 	for i, pt := range points {
-		coords = append(coords, []float64{pt.Lat, pt.Lon, pt.Ele})
+		coord := []float64{pt.Lat, pt.Lon, math.Round(pt.Ele*10) / 10}
+		if hasTimes {
+			coord = append(coord, math.Round(times[i]*10)/10)
+		}
+		coords = append(coords, coord)
+
 		if i > 0 {
 			totalDist += haversineKm(points[i-1].Lat, points[i-1].Lon, pt.Lat, pt.Lon)
 			if diff := pt.Ele - points[i-1].Ele; diff > 0 {
@@ -422,40 +536,18 @@ func ParseGPX(data []byte) (*BikeRide, error) {
 		}
 	}
 
-	var durMin float64
-	layouts := []string{
-		"2006-01-02T15:04:05Z",
-		"2006-01-02T15:04:05.000Z",
-		"2006-01-02T15:04:05+00:00",
-		"2006-01-02T15:04:05-07:00",
-	}
-	var tStart, tEnd time.Time
-	var okStart, okEnd bool
-	for _, l := range layouts {
-		if !okStart {
-			if t, err := time.Parse(l, points[0].Time); err == nil {
-				tStart = t
-				okStart = true
-			}
-		}
-		if !okEnd {
-			if t, err := time.Parse(l, points[len(points)-1].Time); err == nil {
-				tEnd = t
-				okEnd = true
-			}
-		}
-	}
-	if okStart && okEnd {
-		durMin = tEnd.Sub(tStart).Minutes()
+	durMin := 0.0
+	if hasTimes {
+		durMin = times[len(times)-1] / 60
 	}
 
 	date := ""
-	if okStart {
-		date = tStart.Format("2006-01-02")
+	if hasTimes && !startTime.IsZero() {
+		date = startTime.Format("2006-01-02")
 	}
 
-	if len(coords) > 300 {
-		coords = downsampleCoords(coords, 300)
+	if len(coords) > maxRideCoords {
+		coords = downsampleCoords(coords, maxRideCoords)
 	}
 
 	if name == "" {
@@ -472,13 +564,13 @@ func ParseGPX(data []byte) (*BikeRide, error) {
 	}, nil
 }
 
-func downsampleCoords(coords [][]float64, max int) [][]float64 {
-	if len(coords) <= max {
+func downsampleCoords(coords [][]float64, limit int) [][]float64 {
+	if len(coords) <= limit || limit < 2 {
 		return coords
 	}
-	out := make([][]float64, 0, max)
-	step := float64(len(coords)-1) / float64(max-1)
-	for i := 0; i < max-1; i++ {
+	out := make([][]float64, 0, limit)
+	step := float64(len(coords)-1) / float64(limit-1)
+	for i := 0; i < limit-1; i++ {
 		out = append(out, coords[int(math.Round(float64(i)*step))])
 	}
 	out = append(out, coords[len(coords)-1])
