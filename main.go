@@ -77,7 +77,8 @@ func main() {
 	}
 	measureWorker := measure.NewWorker(heightStore, "http://127.0.0.1:"+cfg.Port)
 	pluginManager.SetLayoutNotifier(measureWorker)
-	go measureWorker.Start(context.Background())
+	workerCtx, workerCancel := context.WithCancel(context.Background())
+	go measureWorker.Start(workerCtx)
 
 	go startBackgroundTasks(store, pluginManager)
 	go pluginManager.StartPrometheusMetrics(context.Background())
@@ -270,6 +271,7 @@ func main() {
 
 	<-stop
 	log.Println("Shutting down server...")
+	workerCancel() // cancel any in-flight measurement so Chromium is torn down
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()

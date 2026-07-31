@@ -56,3 +56,16 @@ func TestHeightStoreEmptyAndAge(t *testing.T) {
 		t.Fatalf("Age = %v,%v want non-negative,true", d, ok)
 	}
 }
+
+func TestSetPluginMergesBuckets(t *testing.T) {
+	s := NewHeightStore(t.TempDir())
+	s.SetPlugin("tech", map[string]map[int]int{"bp0": {1: 100}, "bp1": {1: 200}})
+	// second pass only re-measures bp0 (e.g. bp1 failed this pass)
+	s.SetPlugin("tech", map[string]map[int]int{"bp0": {1: 111}})
+	if h, ok := s.Get("tech", "bp0", 1); !ok || h != 111 {
+		t.Fatalf("bp0 should be updated to 111, got %d,%v", h, ok)
+	}
+	if h, ok := s.Get("tech", "bp1", 1); !ok || h != 200 {
+		t.Fatalf("bp1 should be PRESERVED at 200, got %d,%v", h, ok)
+	}
+}

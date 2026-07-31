@@ -36,6 +36,7 @@ type Worker struct {
 
 	debounceMu sync.Mutex
 	debounce   *time.Timer
+	rootCtx    context.Context
 }
 
 func NewWorker(store *HeightStore, baseURL string) *Worker {
@@ -66,7 +67,13 @@ func (w *Worker) Notify(plugin string) {
 		w.debounce.Stop()
 	}
 	w.debounce = time.AfterFunc(debounceDelay, func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+		w.debounceMu.Lock()
+		base := w.rootCtx
+		w.debounceMu.Unlock()
+		if base == nil {
+			base = context.Background()
+		}
+		ctx, cancel := context.WithTimeout(base, 3*time.Minute)
 		defer cancel()
 		w.runIfNeeded(ctx)
 	})
@@ -74,6 +81,9 @@ func (w *Worker) Notify(plugin string) {
 }
 
 func (w *Worker) Start(ctx context.Context) {
+	w.debounceMu.Lock()
+	w.rootCtx = ctx
+	w.debounceMu.Unlock()
 	if w.needsMeasure() {
 		rctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 		w.dirty.Store(true)
@@ -262,5 +272,5 @@ func (w *Worker) runOnce(ctx context.Context) error {
 	}
 	w.store.Flush()
 	log.Printf("[Measure] measured %d plugins across %d buckets", len(agg), totalBuckets)
-	return firstErr // non-nil if some (but not all) buckets failed; store still updated
+	return nil
 }

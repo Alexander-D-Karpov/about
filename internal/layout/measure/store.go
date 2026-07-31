@@ -85,16 +85,22 @@ func (s *HeightStore) Get(plugin, bucket string, span int) (int, bool) {
 func (s *HeightStore) SetPlugin(plugin string, heights map[string]map[int]int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	cp := map[string]map[int]int{}
+	existing := s.data[plugin]
+	if existing == nil {
+		existing = map[string]map[int]int{}
+	}
 	for bucket, spans := range heights {
-		cp[bucket] = map[int]int{}
+		m := map[int]int{}
 		for span, h := range spans {
 			if h > 0 {
-				cp[bucket][span] = h
+				m[span] = h
 			}
 		}
+		if len(m) > 0 {
+			existing[bucket] = m
+		}
 	}
-	s.data[plugin] = cp
+	s.data[plugin] = existing
 	s.updated[plugin] = time.Now()
 	s.dirty = true
 }
