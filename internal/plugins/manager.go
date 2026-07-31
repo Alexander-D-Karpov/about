@@ -25,6 +25,12 @@ type Plugin interface {
 	SetSettings(settings map[string]interface{}) error
 }
 
+// LayoutNotifier is notified when a plugin's rendered content changes, so a
+// layout-measurement pass can be scheduled. Implemented by the measure worker.
+type LayoutNotifier interface {
+	Notify(plugin string)
+}
+
 type Manager struct {
 	plugins          map[string]Plugin
 	storage          *storage.Storage
@@ -36,6 +42,22 @@ type Manager struct {
 	lastUpdate       time.Time
 	appStartTime     time.Time
 	prometheusClient *metrics.PrometheusClient
+	layoutNotifier   LayoutNotifier
+}
+
+func (m *Manager) SetLayoutNotifier(n LayoutNotifier) {
+	m.mutex.Lock()
+	m.layoutNotifier = n
+	m.mutex.Unlock()
+}
+
+func (m *Manager) notifyLayout(plugin string) {
+	m.mutex.RLock()
+	n := m.layoutNotifier
+	m.mutex.RUnlock()
+	if n != nil {
+		n.Notify(plugin)
+	}
 }
 
 func NewManager(storage *storage.Storage, hub *stream.Hub, config *config.Config, appStartTime time.Time) *Manager {
@@ -601,6 +623,7 @@ func (m *Manager) InvalidateCache() {
 
 		m.UpdateExternalData()
 		m.preRenderPlugins(ctx)
+		m.notifyLayout("*")
 
 		m.hub.Broadcast("cache_refreshed", map[string]interface{}{
 			"timestamp": time.Now().Unix(),
@@ -941,6 +964,8 @@ func (m *Manager) InvalidatePluginCache(pluginName string) {
 	m.mutex.Unlock()
 
 	log.Printf("Invalidated cache for plugin: %s", pluginName)
+
+	m.notifyLayout(pluginName)
 }
 
 func (m *Manager) GetClientCount() int {

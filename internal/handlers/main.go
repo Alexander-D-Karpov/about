@@ -107,9 +107,12 @@ func (h *MainHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	userAgent := r.Header.Get("User-Agent")
 	isCurl := strings.Contains(strings.ToLower(userAgent), "curl")
 
-	if visitorsPlugin, exists := h.pluginManager.GetPlugin("visitors"); exists {
-		if visitors, ok := visitorsPlugin.(*plugins.VisitorsPlugin); ok {
-			visitors.RecordVisit(r.UserAgent(), getClientIP(r))
+	isMeasure := r.URL.Query().Get("measure") == "1"
+	if !isMeasure {
+		if visitorsPlugin, exists := h.pluginManager.GetPlugin("visitors"); exists {
+			if visitors, ok := visitorsPlugin.(*plugins.VisitorsPlugin); ok {
+				visitors.RecordVisit(r.UserAgent(), getClientIP(r))
+			}
 		}
 	}
 
