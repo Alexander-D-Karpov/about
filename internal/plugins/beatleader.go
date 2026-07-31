@@ -586,7 +586,6 @@ func (p *BeatLeaderPlugin) updatePlayerData(username string) error {
 	if p.playerData == nil ||
 		p.playerData.Rank != newData.Rank ||
 		p.playerData.PP != newData.PP {
-
 		p.playerData = &newData
 
 		p.hub.Broadcast("beatleader_update", map[string]interface{}{

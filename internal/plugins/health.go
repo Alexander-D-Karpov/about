@@ -280,7 +280,6 @@ func (p *HealthPlugin) processRecords(dataType string, records []map[string]inte
 		isThisWeek := !recordTimeLocal.Before(startOfWeek)
 
 		switch dataType {
-
 		case "steps":
 			count := p.extractStepCount(record)
 			log.Printf("[DEBUG] Steps record: count=%d, raw=%+v", count, record)

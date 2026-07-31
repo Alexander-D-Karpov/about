@@ -2259,7 +2259,7 @@ func barsSpark(vals []int) string {
 		}
 	}
 	const w, h = 100.0, 28.0
-	step := w
+	var step float64
 	if len(vals) > 1 {
 		step = w / float64(len(vals)-1)
 	} else {
