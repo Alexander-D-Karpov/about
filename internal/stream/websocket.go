@@ -357,13 +357,14 @@ func (c *Client) writePump() {
 			}
 
 			n := len(c.send)
+		batch:
 			for i := 0; i < n && i < 10; i++ {
 				select {
 				case msg := <-c.send:
 					w.Write([]byte{'\n'})
 					w.Write(msg)
 				default:
-					break
+					break batch
 				}
 			}
 

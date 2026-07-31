@@ -719,6 +719,7 @@ func (m *Manager) UpdateExternalDataBackground() {
 
 cleanup:
 	drainTimeout := time.After(2 * time.Second)
+drain:
 	for completed < activeUpdates {
 		select {
 		case update := <-updateChan:
@@ -729,7 +730,7 @@ cleanup:
 				successfulPlugins = append(successfulPlugins, update.plugin.Name())
 			}
 		case <-drainTimeout:
-			break
+			break drain
 		}
 	}
 

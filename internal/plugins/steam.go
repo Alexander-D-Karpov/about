@@ -458,7 +458,7 @@ func (p *SteamPlugin) updatePlayerSummary(steamID string) error {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("Steam API returned status %d", resp.StatusCode)
+		return fmt.Errorf("steam API returned status %d", resp.StatusCode)
 	}
 
 	var response SteamPlayerSummaryResponse

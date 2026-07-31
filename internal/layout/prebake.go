@@ -684,11 +684,6 @@ func expandHorizontally(placements []Placement, cols int) {
 	}
 }
 
-type prebakeItem struct {
-	HTML   template.HTML
-	Layout PluginLayout
-}
-
 // fixedEdgePackOrder returns plugin indices in the order the client packs them
 // (enforceFixedEdgeOrder in windowManager.js): webring first, profile second,
 // then everything else in original order. Matching this keeps the prebaked
