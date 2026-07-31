@@ -168,16 +168,16 @@ func (s *HeightStore) Flush() {
 		log.Printf("[Measure] height store marshal failed: %v", err)
 		return
 	}
-	if err := os.MkdirAll(filepath.Dir(s.path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(s.path), 0o750); err != nil {
 		return
 	}
 	tmp := s.path + ".tmp"
-	if err := os.WriteFile(tmp, b, 0o644); err != nil {
+	if err := os.WriteFile(tmp, b, 0o600); err != nil {
 		log.Printf("[Measure] height store write failed: %v", err)
 		return
 	}
 	if err := os.Rename(tmp, s.path); err != nil {
-		os.Remove(tmp)
+		_ = os.Remove(tmp)
 		log.Printf("[Measure] height store rename failed: %v", err)
 	}
 }
