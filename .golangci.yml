@@ -1,24 +1,23 @@
+version: "2"
+
+# golangci-lint v2 config. The go.mod targets go 1.25, so CI must use a v2
+# golangci-lint (v1.64.8 is built with go 1.24 and refuses go-1.25 modules).
+# A focused, passing set; the separate `staticcheck` CI step covers deeper analysis.
 run:
   timeout: 5m
 
-# golangci-lint v1 config (the CI action pins v1.64.8). A focused, passing set;
-# the separate `staticcheck` CI step covers deeper analysis.
 linters:
-  disable-all: true
+  default: none
   enable:
     - govet
     - ineffassign
     - unconvert
     - whitespace
     - misspell
+
+formatters:
+  enable:
     - gofmt
-
-linters-settings:
-  gofmt:
-    simplify: true
-
-issues:
-  exclude-dirs:
-    - vendor
-  exclude-files:
-    - ".*\\.pb\\.go$"
+  settings:
+    gofmt:
+      simplify: true
