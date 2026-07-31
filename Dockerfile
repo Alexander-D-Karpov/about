@@ -1,38 +1,51 @@
-# Build stage
 FROM golang:1.24-alpine AS builder
 
 RUN apk add --no-cache git ca-certificates
 
-WORKDIR /app
+WORKDIR /src
 
 COPY go.mod go.sum ./
 RUN go mod download
 
 COPY . .
 
-RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o app .
+RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/app .
 
-# Final stage
-FROM alpine:latest
+FROM alpine:3.20
 
-RUN apk --no-cache add ca-certificates chromium nss freetype harfbuzz ttf-freefont
-RUN if [ -x /usr/bin/chromium ] && [ ! -e /usr/bin/chromium-browser ]; then ln -s /usr/bin/chromium /usr/bin/chromium-browser; fi
-ENV CHROME_BIN=/usr/bin/chromium-browser
-RUN adduser -D -s /bin/sh appuser
+RUN apk add --no-cache \
+      ca-certificates \
+      tzdata \
+      chromium \
+      nss \
+      freetype \
+      harfbuzz \
+      ttf-freefont \
+      font-noto \
+      font-noto-emoji \
+ && (test -e /usr/bin/chromium-browser || ln -s /usr/bin/chromium /usr/bin/chromium-browser)
 
-WORKDIR /root/
+RUN addgroup -S app && adduser -S -G app -h /app app
 
-COPY --from=builder /app/app .
-COPY --from=builder /app/static ./static
-COPY --from=builder /app/templates ./templates
+WORKDIR /app
 
-RUN mkdir -p /app/data && chown appuser:appuser /app/data
+COPY --from=builder /out/app ./app
+COPY --from=builder /src/static ./static
+COPY --from=builder /src/templates ./templates
 
-USER appuser
+RUN mkdir -p /app/data /app/media /app/.chromium && chown -R app:app /app
+
+USER app
+
+ENV HOME=/app \
+    PORT=8080 \
+    DATA_PATH=/app/data \
+    MEDIA_PATH=/app/media \
+    STATIC_PATH=/app/static \
+    CHROME_BIN=/usr/bin/chromium-browser \
+    XDG_CONFIG_HOME=/app/.chromium \
+    XDG_CACHE_HOME=/app/.chromium
 
 EXPOSE 8080
-
-ENV PORT=8080
-ENV DATA_PATH=/app/data
 
 CMD ["./app"]
