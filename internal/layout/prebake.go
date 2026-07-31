@@ -18,6 +18,7 @@ type PluginLayout struct {
 
 type Placement struct {
 	Name    string
+	Order   int // original plugin index; preserved across expandHorizontally's sort
 	Col     int
 	Row     int
 	ColSpan int
@@ -76,6 +77,61 @@ func extractPluginName(html string) string {
 	}
 
 	return normalizePluginName(lower[start:idx])
+}
+
+// profileBioChars returns the visible character count of the profile bio text
+// (the content of the .profile-bio element), used to reserve enough height for
+// the wrapped bio without relying on measurement.
+func profileBioChars(html string) int {
+	lower := strings.ToLower(html)
+	idx := strings.Index(lower, "profile-bio")
+	if idx < 0 {
+		return 0
+	}
+	gt := strings.IndexByte(html[idx:], '>')
+	if gt < 0 {
+		return 0
+	}
+	start := idx + gt + 1
+	end := strings.Index(lower[start:], "</div>")
+	if end < 0 {
+		end = len(html) - start
+	}
+	text := html[start : start+end]
+
+	// strip any nested tags and collapse entities to a single char each.
+	var b strings.Builder
+	depth := 0
+	for i := 0; i < len(text); i++ {
+		c := text[i]
+		switch {
+		case c == '<':
+			depth++
+		case c == '>':
+			if depth > 0 {
+				depth--
+			}
+		case depth == 0:
+			b.WriteByte(c)
+		}
+	}
+	n := 0
+	inEntity := false
+	for _, r := range strings.TrimSpace(b.String()) {
+		if r == '&' {
+			inEntity = true
+			n++
+			continue
+		}
+		if inEntity {
+			if r == ';' {
+				inEntity = false
+			}
+			continue
+		}
+		n++
+	}
+	return n
 }
 
 func clamp(v, lo, hi int) int {
@@ -259,14 +315,27 @@ func estimateHeightFromHTML(name string, span, pluginWidth int, html string) int
 
 	switch name {
 	case "profile":
-		bio := countToken(lower, "profile-bio")
-		titleRows := 1
-		if span <= 1 {
-			titleRows = 2
-		}
-		h = 130 + titleRows*28
-		if bio > 0 {
-			h += 60
+		// The profile bio wraps taller as the column narrows, the packer can
+		// place the card at span 1 (narrowest) regardless of data-w, and text
+		// height depends on the viewer's fonts — so measurement underestimates
+		// it. Reserve deterministically and conservatively from the bio length
+		// at the given (span-1) width. usableWidth here is the span-1 width
+		// (ExtractLayout passes span 1 for the profile).
+		const (
+			profileHeaderH = 168 // name + role lines + avatar block + paddings
+			profileCharPx  = 11  // deliberately wide: over-counts lines vs word-wrap
+			profileLineH   = 24
+		)
+		bioChars := profileBioChars(html)
+		if bioChars > 0 {
+			cpl := usableWidth / profileCharPx
+			if cpl < 1 {
+				cpl = 1
+			}
+			lines := ceilDiv(bioChars, cpl)
+			h = profileHeaderH + lines*profileLineH
+		} else {
+			h = profileHeaderH
 		}
 
 	case "social":
@@ -483,21 +552,22 @@ func ExtractLayout(html string, order int, bucket ViewportBucket, store HeightLo
 
 	height := 0
 	measured := false
-	// meme is random per request; a persisted measurement is for a different
-	// meme than the one being served, so never trust the store for it. Its
-	// height comes from the served image's real dimensions (see the "meme" case
-	// in estimateHeightFromHTML) instead.
-	if store != nil && name != "meme" {
+	// meme (random per request) and profile (bio height depends on span/width/
+	// fonts, and the packer may down-span it) both underestimate under
+	// measurement, so they never trust the store — their heights are reserved
+	// deterministically from content in estimateHeightFromHTML instead.
+	storeTrusted := name != "meme" && name != "profile"
+	if store != nil && storeTrusted {
 		if h, ok := store.Get(name, bucket.Name, w); ok && h > 0 {
 			height = h
 			measured = true
 		}
 	}
 	if !measured {
-		if v, ok := extractIntAttr(html, fmt.Sprintf("data-pb-h-%d", w)); ok && v > 0 {
+		if v, ok := extractIntAttr(html, fmt.Sprintf("data-pb-h-%d", w)); ok && storeTrusted && v > 0 {
 			height = v
 			measured = true
-		} else if v, ok := extractIntAttr(html, "data-pb-h"); ok && v > 0 {
+		} else if v, ok := extractIntAttr(html, "data-pb-h"); ok && storeTrusted && v > 0 {
 			height = v
 			measured = true
 		} else {
@@ -558,6 +628,7 @@ func packForCols(plugins []PluginLayout, cols int) []Placement {
 
 		placements = append(placements, Placement{
 			Name:    p.Name,
+			Order:   p.Order,
 			Col:     bestCol,
 			Row:     startRow,
 			ColSpan: w,
@@ -618,10 +689,40 @@ type prebakeItem struct {
 	Layout PluginLayout
 }
 
+// fixedEdgePackOrder returns plugin indices in the order the client packs them
+// (enforceFixedEdgeOrder in windowManager.js): webring first, profile second,
+// then everything else in original order. Matching this keeps the prebaked
+// layout aligned with masonry so the profile stays first and nothing jumps.
+func fixedEdgePackOrder(pluginHTMLs []template.HTML) []int {
+	var webring, profile, rest []int
+	for i, h := range pluginHTMLs {
+		s := string(h)
+		switch {
+		case strings.Contains(s, "webring-section"):
+			webring = append(webring, i)
+		case strings.Contains(s, "profile-section"):
+			profile = append(profile, i)
+		default:
+			rest = append(rest, i)
+		}
+	}
+	out := make([]int, 0, len(pluginHTMLs))
+	out = append(out, webring...)
+	out = append(out, profile...)
+	out = append(out, rest...)
+	return out
+}
+
 func Prebake(pluginHTMLs []template.HTML, store HeightLookup) []template.HTML {
 	if len(pluginHTMLs) == 0 {
 		return nil
 	}
+
+	// Pack in the same fixed-edge order the client's enforceFixedEdgeOrder uses
+	// (webring, then profile, then the rest in original order) so the prebaked
+	// positions match what masonry produces — the profile stays first and the
+	// first paint doesn't jump on hydration.
+	packSeq := fixedEdgePackOrder(pluginHTMLs)
 
 	bucketPlacements := make(map[string][]Placement, len(viewportBuckets))
 	for _, bucket := range viewportBuckets {
@@ -629,7 +730,21 @@ func Prebake(pluginHTMLs []template.HTML, store HeightLookup) []template.HTML {
 		for i, h := range pluginHTMLs {
 			layouts[i] = ExtractLayout(string(h), i, bucket, store)
 		}
-		bucketPlacements[bucket.Name] = packForCols(layouts, bucket.Cols)
+		packInput := make([]PluginLayout, len(pluginHTMLs))
+		for pos, idx := range packSeq {
+			packInput[pos] = layouts[idx]
+		}
+		// packForCols runs expandHorizontally, which sorts by (row,col); each
+		// Placement carries its original plugin index in Order, so re-index by
+		// Order to restore plugin-i alignment for the emit loop below.
+		packed := packForCols(packInput, bucket.Cols)
+		ordered := make([]Placement, len(pluginHTMLs))
+		for _, p := range packed {
+			if p.Order >= 0 && p.Order < len(ordered) {
+				ordered[p.Order] = p
+			}
+		}
+		bucketPlacements[bucket.Name] = ordered
 	}
 
 	result := make([]template.HTML, len(pluginHTMLs))

@@ -435,11 +435,10 @@ func (w *Worker) runOnce(ctx context.Context) error {
 		}
 
 		for name, spans := range result {
-			// meme is random per request, so a measured height is only valid for
-			// whatever meme happened to be current at measure time. Never store it;
-			// its height is reserved deterministically from the image's real
-			// dimensions in the prebake instead.
-			if name == "meme" {
+			// meme (random per request) and profile (bio height depends on the
+			// viewer's fonts and the packer may down-span it) are reserved
+			// deterministically in the prebake, not from measurement.
+			if name == "meme" || name == "profile" {
 				continue
 			}
 			if agg[name] == nil {

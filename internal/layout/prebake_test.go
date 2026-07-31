@@ -2,9 +2,12 @@ package layout
 
 import (
 	"html/template"
+	"regexp"
 	"strings"
 	"testing"
 )
+
+func reMustCompile(p string) *regexp.Regexp { return regexp.MustCompile(p) }
 
 func TestViewportBucketsMatchClientGridTransitions(t *testing.T) {
 	want := []struct {
@@ -171,4 +174,57 @@ func TestMemeIgnoresStore(t *testing.T) {
 	if h >= 9000 {
 		t.Fatalf("meme must ignore the stale store height, got %d", h)
 	}
+}
+
+// Regression: expandHorizontally sorts placements in place, so Prebake must
+// re-index by original plugin order — otherwise each plugin gets another
+// plugin's height/position (the profile-overflow scramble bug).
+func TestPrebakePreservesPluginMapping(t *testing.T) {
+	htmls := []template.HTML{
+		`<section class="webring-section plugin" data-w="2"></section>`,
+		`<section class="profile-section plugin" data-w="2"><div class="plugin__inner"><div class="profile-bio">` +
+			`aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa` +
+			`</div></div></section>`,
+		`<section class="health-section plugin" data-w="1"></section>`,
+		`<section class="tech-section plugin" data-w="1"></section>`,
+	}
+	out := Prebake(htmls, nil)
+	if len(out) != len(htmls) {
+		t.Fatalf("Prebake returned %d, want %d", len(out), len(htmls))
+	}
+	// each emitted section must carry a plausible height for ITS OWN content;
+	// the profile (long bio) must be the tallest at bp8.
+	heightOf := func(section string) int {
+		m := regexpFind(section, `--pb-bp8-h:(\d+)px`)
+		if m == "" {
+			return 0
+		}
+		n := 0
+		for _, c := range m {
+			n = n*10 + int(c-'0')
+		}
+		return n
+	}
+	profileH := heightOf(string(out[1]))
+	for i, s := range out {
+		if i == 1 {
+			continue
+		}
+		if heightOf(string(s)) > profileH {
+			t.Fatalf("plugin %d height %d exceeds profile %d — mapping likely scrambled",
+				i, heightOf(string(s)), profileH)
+		}
+	}
+	if profileH < 200 {
+		t.Fatalf("profile height %d too small — bio not reserved", profileH)
+	}
+}
+
+func regexpFind(s, pat string) string {
+	re := reMustCompile(pat)
+	m := re.FindStringSubmatch(s)
+	if len(m) < 2 {
+		return ""
+	}
+	return m[1]
 }
