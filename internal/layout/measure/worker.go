@@ -16,11 +16,14 @@ import (
 )
 
 const (
-	staleAfter      = 6 * time.Hour
-	debounceDelay   = 45 * time.Second
-	backstopEvery   = 3 * time.Hour
-	perBucketBudget = 30 * time.Second
-	settleDelay     = 1200 * time.Millisecond
+	staleAfter    = 6 * time.Hour
+	debounceDelay = 45 * time.Second
+	backstopEvery = 3 * time.Hour
+	settleDelay   = 1200 * time.Millisecond
+
+	navBudget   = 45 * time.Second       // one cold, possibly-under-load initial render
+	probeBudget = 15 * time.Second       // per-bucket viewport-change + probe
+	probeSettle = 500 * time.Millisecond // reflow after an emulated viewport change
 )
 
 type Worker struct {
@@ -72,7 +75,7 @@ func (w *Worker) Notify(plugin string) {
 
 func (w *Worker) Start(ctx context.Context) {
 	if w.needsMeasure() {
-		rctx, cancel := context.WithTimeout(ctx, 3*time.Minute)
+		rctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 		w.dirty.Store(true)
 		w.runIfNeeded(rctx)
 		cancel()
@@ -178,35 +181,50 @@ func (w *Worker) runOnce(ctx context.Context) error {
 	allocCtx, cancelAlloc := chromedp.NewExecAllocator(ctx, opts...)
 	defer cancelAlloc()
 
-	// One browser for the whole pass. Launch it once; per-bucket navigations
-	// reuse this target, and server-side render caching makes buckets after
-	// the first fast.
 	browserCtx, cancelBrowser := chromedp.NewContext(allocCtx)
 	defer cancelBrowser()
-	if err := chromedp.Run(browserCtx); err != nil {
-		return err // browser failed to launch (e.g. Chromium missing)
+
+	buckets := layout.ViewportBuckets()
+	totalBuckets := len(buckets)
+	if len(buckets) == 0 {
+		return nil
+	}
+
+	// Navigate ONCE at the widest bucket so all content/images are present.
+	// Subsequent buckets only re-emulate the viewport; the clone-based probe
+	// derives each bucket's column width from the live (reflowed) mosaic, so
+	// no server re-render is needed per bucket.
+	widest := buckets[len(buckets)-1].SampleWidth
+	navCtx, navCancel := context.WithTimeout(browserCtx, navBudget)
+	err := chromedp.Run(navCtx,
+		chromedp.EmulateViewport(int64(widest), 1200),
+		chromedp.Navigate(w.baseURL+"/?measure=1"),
+		chromedp.WaitVisible(`.mosaic .plugin`, chromedp.ByQuery),
+		chromedp.Sleep(settleDelay),
+	)
+	navCancel()
+	if err != nil {
+		return err // navigation/launch failed (e.g. Chromium missing)
 	}
 
 	// aggregate: plugin -> bucket -> span -> height
 	agg := map[string]map[string]map[int]int{}
 	var firstErr error
 
-	for _, bucket := range layout.ViewportBuckets() {
-		bctx, cancel := context.WithTimeout(browserCtx, perBucketBudget)
+	for _, bucket := range buckets {
+		bctx, cancel := context.WithTimeout(browserCtx, probeBudget)
 		var result map[string]map[string]int
-		err := chromedp.Run(bctx,
+		perr := chromedp.Run(bctx,
 			chromedp.EmulateViewport(int64(bucket.SampleWidth), 1200),
-			chromedp.Navigate(w.baseURL+"/?measure=1"),
-			chromedp.WaitVisible(`.mosaic .plugin`, chromedp.ByQuery),
-			chromedp.Sleep(settleDelay),
+			chromedp.Sleep(probeSettle),
 			chromedp.Evaluate(probeJS, &result),
 		)
 		cancel()
-		if err != nil {
+		if perr != nil {
 			if firstErr == nil {
-				firstErr = err
+				firstErr = perr
 			}
-			log.Printf("[Measure] bucket %s failed: %v", bucket.Name, err)
+			log.Printf("[Measure] bucket %s failed: %v", bucket.Name, perr)
 			continue
 		}
 		for name, spans := range result {
@@ -234,6 +252,6 @@ func (w *Worker) runOnce(ctx context.Context) error {
 		w.store.SetPlugin(name, buckets)
 	}
 	w.store.Flush()
-	log.Printf("[Measure] measured %d plugins across %d buckets", len(agg), len(layout.ViewportBuckets()))
+	log.Printf("[Measure] measured %d plugins across %d buckets", len(agg), totalBuckets)
 	return firstErr // non-nil if some (but not all) buckets failed; store still updated
 }
