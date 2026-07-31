@@ -40,6 +40,9 @@ const (
 	maxPrebakeViewport = 3840
 	maxPluginHeightCap = 2600
 	minPluginHeightCap = 120
+	heuristicBiasFrac  = 0.06
+	measuredBiasFrac   = 0.02
+	biasPad            = 8
 )
 
 var viewportBuckets = buildViewportBuckets()
@@ -126,6 +129,14 @@ func roundInt(v float64) int {
 
 func floorInt(v float64) int {
 	return int(math.Floor(v))
+}
+
+func biasUp(raw int, measured bool) int {
+	frac := heuristicBiasFrac
+	if measured {
+		frac = measuredBiasFrac
+	}
+	return int(math.Ceil(float64(raw)*(1+frac))) + biasPad
 }
 
 func containerPaddingForViewport(viewportWidth int) float64 {
@@ -432,13 +443,18 @@ func ExtractLayout(html string, order int, bucket ViewportBucket) PluginLayout {
 	pluginWidth := bucket.pluginWidth(w)
 
 	height := 0
+	measured := false
 	if v, ok := extractIntAttr(html, fmt.Sprintf("data-pb-h-%d", w)); ok && v > 0 {
 		height = v
+		measured = true
 	} else if v, ok := extractIntAttr(html, "data-pb-h"); ok && v > 0 {
 		height = v
+		measured = true
 	} else {
 		height = estimateHeightFromHTML(name, w, pluginWidth, html)
 	}
+
+	height = biasUp(height, measured)
 
 	if height > maxPluginHeightCap {
 		height = maxPluginHeightCap

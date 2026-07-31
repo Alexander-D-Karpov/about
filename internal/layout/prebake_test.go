@@ -39,13 +39,13 @@ func TestExtractLayoutUsesViewportAwareWidthHint(t *testing.T) {
 	html := `<section class="projects-section plugin" data-w="3" data-pb-h-1="111" data-pb-h-3="333"></section>`
 
 	narrow := ExtractLayout(html, 0, ViewportBucket{Cols: 1, MosaicWidth: 320})
-	if narrow.Width != 1 || narrow.Height != 111 {
-		t.Fatalf("narrow layout = %+v, want width 1 height 111", narrow)
+	if narrow.Width != 1 || narrow.Height != 122 {
+		t.Fatalf("narrow layout = %+v, want width 1 height 122", narrow)
 	}
 
 	wide := ExtractLayout(html, 0, ViewportBucket{Cols: 4, MosaicWidth: 1240})
-	if wide.Width != 3 || wide.Height != 333 {
-		t.Fatalf("wide layout = %+v, want width 3 height 333", wide)
+	if wide.Width != 3 || wide.Height != 348 {
+		t.Fatalf("wide layout = %+v, want width 3 height 348", wide)
 	}
 }
 
@@ -71,5 +71,35 @@ func TestPrebakeAndCSSExposeViewportHeightVars(t *testing.T) {
 	}
 	if !strings.Contains(css, `height:var(--pb-bp0-h);`) || !strings.Contains(css, `min-height:var(--pb-bp0-h);`) {
 		t.Fatalf("responsive css missing prebaked height vars: %s", css)
+	}
+}
+
+func TestBiasUpNeverReducesHeight(t *testing.T) {
+	for _, raw := range []int{120, 200, 333, 1000, 2600} {
+		if got := biasUp(raw, true); got < raw {
+			t.Fatalf("measured biasUp(%d) = %d, want >= %d", raw, got, raw)
+		}
+		if got := biasUp(raw, false); got < raw {
+			t.Fatalf("heuristic biasUp(%d) = %d, want >= %d", raw, got, raw)
+		}
+	}
+}
+
+func TestHeuristicBiasIsLargerThanMeasured(t *testing.T) {
+	raw := 400
+	if biasUp(raw, false) <= biasUp(raw, true) {
+		t.Fatalf("heuristic bias %d should exceed measured bias %d",
+			biasUp(raw, false), biasUp(raw, true))
+	}
+}
+
+func TestExtractLayoutBiasesHeightUp(t *testing.T) {
+	html := `<section class="tech-section plugin" data-w="1"><div class="plugin__inner">` +
+		`<div class="tech-item"></div><div class="tech-item"></div></div></section>`
+	bucket := ViewportBucket{Name: "bp0", Cols: 3, MosaicWidth: 900}
+	raw := estimateHeightFromHTML("tech", 1, bucket.pluginWidth(1), html)
+	got := ExtractLayout(html, 0, bucket).Height
+	if got < raw {
+		t.Fatalf("ExtractLayout height %d < raw estimate %d (must bias up)", got, raw)
 	}
 }
