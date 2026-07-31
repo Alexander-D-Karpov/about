@@ -431,7 +431,23 @@ func estimateHeightFromHTML(name string, span, pluginWidth int, html string) int
 	return h
 }
 
-func ExtractLayout(html string, order int, bucket ViewportBucket) PluginLayout {
+// HeightLookup resolves a previously-measured plugin height by plugin name,
+// viewport bucket, and column span.
+type HeightLookup interface {
+	Get(plugin, bucket string, span int) (int, bool)
+}
+
+// ViewportBuckets returns the precomputed responsive buckets.
+func ViewportBuckets() []ViewportBucket {
+	out := make([]ViewportBucket, len(viewportBuckets))
+	copy(out, viewportBuckets)
+	return out
+}
+
+// PluginWidth is the exported column-pixel width of a span in this bucket.
+func (b ViewportBucket) PluginWidth(span int) int { return b.pluginWidth(span) }
+
+func ExtractLayout(html string, order int, bucket ViewportBucket, store HeightLookup) PluginLayout {
 	name := extractPluginName(html)
 
 	baseWidth := 1
@@ -444,14 +460,22 @@ func ExtractLayout(html string, order int, bucket ViewportBucket) PluginLayout {
 
 	height := 0
 	measured := false
-	if v, ok := extractIntAttr(html, fmt.Sprintf("data-pb-h-%d", w)); ok && v > 0 {
-		height = v
-		measured = true
-	} else if v, ok := extractIntAttr(html, "data-pb-h"); ok && v > 0 {
-		height = v
-		measured = true
-	} else {
-		height = estimateHeightFromHTML(name, w, pluginWidth, html)
+	if store != nil {
+		if h, ok := store.Get(name, bucket.Name, w); ok && h > 0 {
+			height = h
+			measured = true
+		}
+	}
+	if !measured {
+		if v, ok := extractIntAttr(html, fmt.Sprintf("data-pb-h-%d", w)); ok && v > 0 {
+			height = v
+			measured = true
+		} else if v, ok := extractIntAttr(html, "data-pb-h"); ok && v > 0 {
+			height = v
+			measured = true
+		} else {
+			height = estimateHeightFromHTML(name, w, pluginWidth, html)
+		}
 	}
 
 	height = biasUp(height, measured)
@@ -567,7 +591,7 @@ type prebakeItem struct {
 	Layout PluginLayout
 }
 
-func Prebake(pluginHTMLs []template.HTML) []template.HTML {
+func Prebake(pluginHTMLs []template.HTML, store HeightLookup) []template.HTML {
 	if len(pluginHTMLs) == 0 {
 		return nil
 	}
@@ -576,7 +600,7 @@ func Prebake(pluginHTMLs []template.HTML) []template.HTML {
 	for _, bucket := range viewportBuckets {
 		layouts := make([]PluginLayout, len(pluginHTMLs))
 		for i, h := range pluginHTMLs {
-			layouts[i] = ExtractLayout(string(h), i, bucket)
+			layouts[i] = ExtractLayout(string(h), i, bucket, store)
 		}
 		bucketPlacements[bucket.Name] = packForCols(layouts, bucket.Cols)
 	}

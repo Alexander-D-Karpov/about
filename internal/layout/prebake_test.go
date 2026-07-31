@@ -38,12 +38,12 @@ func TestViewportBucketsMatchClientGridTransitions(t *testing.T) {
 func TestExtractLayoutUsesViewportAwareWidthHint(t *testing.T) {
 	html := `<section class="projects-section plugin" data-w="3" data-pb-h-1="111" data-pb-h-3="333"></section>`
 
-	narrow := ExtractLayout(html, 0, ViewportBucket{Cols: 1, MosaicWidth: 320})
+	narrow := ExtractLayout(html, 0, ViewportBucket{Cols: 1, MosaicWidth: 320}, nil)
 	if narrow.Width != 1 || narrow.Height != 122 {
 		t.Fatalf("narrow layout = %+v, want width 1 height 122", narrow)
 	}
 
-	wide := ExtractLayout(html, 0, ViewportBucket{Cols: 4, MosaicWidth: 1240})
+	wide := ExtractLayout(html, 0, ViewportBucket{Cols: 4, MosaicWidth: 1240}, nil)
 	if wide.Width != 3 || wide.Height != 348 {
 		t.Fatalf("wide layout = %+v, want width 3 height 348", wide)
 	}
@@ -54,7 +54,7 @@ func TestPrebakeAndCSSExposeViewportHeightVars(t *testing.T) {
 		template.HTML(`<section class="profile-section plugin" data-w="2"></section>`),
 	}
 
-	prebaked := string(Prebake(plugins)[0])
+	prebaked := string(Prebake(plugins, nil)[0])
 	if !strings.Contains(prebaked, `data-prebaked="1"`) {
 		t.Fatalf("prebaked html missing data-prebaked marker: %s", prebaked)
 	}
@@ -98,9 +98,28 @@ func TestExtractLayoutBiasesHeightUp(t *testing.T) {
 		`<div class="tech-item"></div><div class="tech-item"></div></div></section>`
 	bucket := ViewportBucket{Name: "bp0", Cols: 3, MosaicWidth: 900}
 	raw := estimateHeightFromHTML("tech", 1, bucket.pluginWidth(1), html)
-	got := ExtractLayout(html, 0, bucket).Height
+	got := ExtractLayout(html, 0, bucket, nil).Height
 	if got < raw {
 		t.Fatalf("ExtractLayout height %d < raw estimate %d (must bias up)", got, raw)
+	}
+}
+
+type fakeLookup map[string]int // key = plugin|bucket|span
+
+func (f fakeLookup) Get(plugin, bucket string, span int) (int, bool) {
+	h, ok := f[plugin+"|"+bucket+"|"+itoaTest(span)]
+	return h, ok
+}
+func itoaTest(n int) string { return string(rune('0' + n)) }
+
+func TestExtractLayoutPrefersStore(t *testing.T) {
+	html := `<section class="tech-section plugin" data-w="1"></section>`
+	bucket := ViewportBucket{Name: "bp0", Cols: 3, MosaicWidth: 900}
+	store := fakeLookup{"tech|bp0|1": 1234}
+	got := ExtractLayout(html, 0, bucket, store).Height
+	// biased-up measured value, but must be >= the raw stored value
+	if got < 1234 {
+		t.Fatalf("store height not used: got %d want >= 1234", got)
 	}
 }
 

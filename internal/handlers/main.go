@@ -25,6 +25,7 @@ type MainHandler struct {
 	template       *template.Template
 	potatoTemplate *template.Template
 	bundler        *assets.Bundler
+	heightStore    layout.HeightLookup
 }
 
 type TemplateData struct {
@@ -41,7 +42,7 @@ type TemplateData struct {
 	PrebakeCSS    template.CSS
 }
 
-func NewMainHandler(pluginManager *plugins.Manager, cfg *config.Config, templateFiles embed.FS, bundler *assets.Bundler) *MainHandler {
+func NewMainHandler(pluginManager *plugins.Manager, cfg *config.Config, templateFiles embed.FS, bundler *assets.Bundler, store layout.HeightLookup) *MainHandler {
 	funcs := template.FuncMap{
 		"default": defaultFunc,
 	}
@@ -67,6 +68,7 @@ func NewMainHandler(pluginManager *plugins.Manager, cfg *config.Config, template
 		template:       tmpl,
 		potatoTemplate: potatoTmpl,
 		bundler:        bundler,
+		heightStore:    store,
 	}
 }
 
@@ -184,7 +186,7 @@ func (h *MainHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		_, jsHash = h.bundler.JSBundle()
 	}
 
-	prebakedPlugins := layout.Prebake(renderedPlugins)
+	prebakedPlugins := layout.Prebake(renderedPlugins, h.heightStore)
 
 	data := TemplateData{
 		Title:       "sanspie",

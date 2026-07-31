@@ -110,7 +110,7 @@ func main() {
 		log.Printf("Warning: Failed to load stats template: %v", err)
 	}
 
-	mainHandler := handlers.NewMainHandler(pluginManager, cfg, templateFiles, bundler)
+	mainHandler := handlers.NewMainHandler(pluginManager, cfg, templateFiles, bundler, nil)
 	r.HandleFunc("/", mainHandler.ServeHTTP).Methods("GET")
 
 	wsHandler := handlers.NewWebSocketHandler(hub)
