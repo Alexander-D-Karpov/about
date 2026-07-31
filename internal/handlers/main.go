@@ -263,9 +263,11 @@ func (h *MainHandler) renderTextResponse(w http.ResponseWriter, r *http.Request)
 	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
 	defer cancel()
 
-	if visitorsPlugin, exists := h.pluginManager.GetPlugin("visitors"); exists {
-		if visitors, ok := visitorsPlugin.(*plugins.VisitorsPlugin); ok {
-			visitors.RecordVisit(r.UserAgent(), getClientIP(r))
+	if r.URL.Query().Get("measure") != "1" {
+		if visitorsPlugin, exists := h.pluginManager.GetPlugin("visitors"); exists {
+			if visitors, ok := visitorsPlugin.(*plugins.VisitorsPlugin); ok {
+				visitors.RecordVisit(r.UserAgent(), getClientIP(r))
+			}
 		}
 	}
 
