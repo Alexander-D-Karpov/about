@@ -151,3 +151,24 @@ func TestPackForColsNeverOverlaps(t *testing.T) {
 		}
 	}
 }
+
+func TestMemeHeightFromImageDimensions(t *testing.T) {
+	bucket := ViewportBucket{Name: "bp8", Cols: 3, MosaicWidth: 900}
+	tall := `<section class="meme-section plugin" data-w="1" data-pb-imgw="1000" data-pb-imgh="2000"><div class="plugin__inner"><img></div></section>`
+	wide := `<section class="meme-section plugin" data-w="1" data-pb-imgw="2000" data-pb-imgh="1000"><div class="plugin__inner"><img></div></section>`
+	ht := ExtractLayout(tall, 0, bucket, nil).Height
+	hw := ExtractLayout(wide, 0, bucket, nil).Height
+	if ht <= hw {
+		t.Fatalf("portrait meme height %d should exceed landscape %d", ht, hw)
+	}
+}
+
+func TestMemeIgnoresStore(t *testing.T) {
+	bucket := ViewportBucket{Name: "bp8", Cols: 3, MosaicWidth: 900}
+	html := `<section class="meme-section plugin" data-w="1" data-pb-imgw="1000" data-pb-imgh="1000"><div class="plugin__inner"><img></div></section>`
+	store := fakeLookup{"meme|bp8|1": 9999}
+	h := ExtractLayout(html, 0, bucket, store).Height
+	if h >= 9000 {
+		t.Fatalf("meme must ignore the stale store height, got %d", h)
+	}
+}

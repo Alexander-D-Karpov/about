@@ -354,12 +354,35 @@ func estimateHeightFromHTML(name string, span, pluginWidth int, html string) int
 		h = 110 + rows*perItem
 
 	case "meme":
-		if strings.Contains(lower, "<img") {
-			imgH := min(int(float64(pluginWidth)*1.25), 760)
+		captionH := 0
+		if countToken(lower, "meme-caption") > 0 {
+			captionH = 44
+		}
+		if iw, okw := extractIntAttr(html, "data-pb-imgw"); okw && iw > 0 {
+			// Deterministic: the served image renders at usableWidth, scaled by
+			// its real aspect ratio and clamped to the CSS max-height (800px).
+			// This matches the ACTUAL meme being served, so a random meme can
+			// never overflow its reserved track.
+			ih, _ := extractIntAttr(html, "data-pb-imgh")
+			imgH := 260
+			if ih > 0 {
+				imgH = roundInt(float64(usableWidth) * float64(ih) / float64(iw))
+			}
+			if imgH > 800 {
+				imgH = 800
+			}
+			if imgH < 120 {
+				imgH = 120
+			}
+			h = imgH + captionH + 96
+		} else if strings.Contains(lower, "<img") {
+			// Unknown/remote image: reserve generously (portrait-ish) rather than
+			// the old tight guess, so an unmeasured tall meme still can't overflow.
+			imgH := min(int(float64(usableWidth)*1.4), 800)
 			if imgH < 260 {
 				imgH = 260
 			}
-			h = imgH + 120
+			h = imgH + captionH + 96
 		} else {
 			lines := countToken(lower, "<p")
 			if lines < 1 {
@@ -460,7 +483,11 @@ func ExtractLayout(html string, order int, bucket ViewportBucket, store HeightLo
 
 	height := 0
 	measured := false
-	if store != nil {
+	// meme is random per request; a persisted measurement is for a different
+	// meme than the one being served, so never trust the store for it. Its
+	// height comes from the served image's real dimensions (see the "meme" case
+	// in estimateHeightFromHTML) instead.
+	if store != nil && name != "meme" {
 		if h, ok := store.Get(name, bucket.Name, w); ok && h > 0 {
 			height = h
 			measured = true

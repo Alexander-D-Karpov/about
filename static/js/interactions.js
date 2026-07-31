@@ -57,6 +57,19 @@
         });
     }
 
+    // Dice button / inline onclick="refreshMeme()" both call this. It asks the
+    // server for a new meme; the server broadcasts `meme_update` over the
+    // websocket, and websocket.js swaps the image and re-packs the masonry.
+    // A single in-flight guard plus the button's own 1.5s disable throttle it.
+    let memeRefreshInFlight = false;
+    window.refreshMeme = function refreshMeme(){
+        if (memeRefreshInFlight) return;
+        memeRefreshInFlight = true;
+        fetch('/api/meme/refresh', { method: 'POST', headers: { 'Accept': 'application/json' } })
+            .catch(() => {})
+            .finally(() => { memeRefreshInFlight = false; });
+    };
+
     function initMeme(){
         const sec = document.querySelector('.meme-section');
         if (!sec) return;

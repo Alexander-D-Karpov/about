@@ -4,10 +4,18 @@ import (
 	"context"
 	"fmt"
 	"html/template"
+	"image"
+	_ "image/gif"
+	_ "image/jpeg"
+	_ "image/png"
 	"math/rand"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
+
+	_ "golang.org/x/image/webp"
 
 	"github.com/Alexander-D-Karpov/about/internal/storage"
 	"github.com/Alexander-D-Karpov/about/internal/stream"
@@ -29,6 +37,49 @@ type Meme struct {
 	Type     string `json:"type"`
 	Source   string `json:"source"`
 	Category string `json:"category"`
+	ImgW     int    `json:"imgW,omitempty"`
+	ImgH     int    `json:"imgH,omitempty"`
+}
+
+// imageDimensions returns the intrinsic pixel size of a locally-served image
+// (under /static or /media). Returns 0,0 for remote or unreadable images, in
+// which case the prebake falls back to a generous height reservation.
+func imageDimensions(urlPath string) (int, int) {
+	if urlPath == "" {
+		return 0, 0
+	}
+	if i := strings.IndexAny(urlPath, "?#"); i >= 0 {
+		urlPath = urlPath[:i]
+	}
+
+	envOr := func(k, d string) string {
+		if v := os.Getenv(k); v != "" {
+			return v
+		}
+		return d
+	}
+
+	var file string
+	switch {
+	case strings.HasPrefix(urlPath, "/static/"):
+		file = filepath.Join(envOr("STATIC_PATH", "./static"), filepath.FromSlash(strings.TrimPrefix(urlPath, "/static/")))
+	case strings.HasPrefix(urlPath, "/media/"):
+		file = filepath.Join(envOr("MEDIA_PATH", "./media"), filepath.FromSlash(strings.TrimPrefix(urlPath, "/media/")))
+	default:
+		return 0, 0
+	}
+
+	f, err := os.Open(file) // #nosec G304 - path derived from a fixed /static or /media prefix
+	if err != nil {
+		return 0, 0
+	}
+	defer f.Close()
+
+	cfg, _, err := image.DecodeConfig(f)
+	if err != nil || cfg.Width <= 0 || cfg.Height <= 0 {
+		return 0, 0
+	}
+	return cfg.Width, cfg.Height
 }
 
 func NewMemePlugin(storage *storage.Storage, hub *stream.Hub) *MemePlugin {
@@ -60,7 +111,7 @@ func (p *MemePlugin) Render(ctx context.Context) (string, error) {
 	sectionTitle := p.getConfigValue(settings, "ui.sectionTitle", "Random Meme")
 
 	tmpl := `
-<section class="meme-section section plugin" id="meme-section" data-w="1">
+<section class="meme-section section plugin" id="meme-section" data-w="1"{{if gt .Meme.ImgW 0}} data-pb-imgw="{{.Meme.ImgW}}" data-pb-imgh="{{.Meme.ImgH}}"{{end}}>
 	<header class="plugin-header meme-header">
 		<h3 class="plugin-title">{{.SectionTitle}}</h3>
 		<button type="button" class="btn btn-sm meme-refresh-btn" onclick="refreshMeme()">🎲</button>
@@ -179,6 +230,10 @@ func (p *MemePlugin) selectRandomMeme() {
 		Type:     p.getStringFromMap(memeMap, "type", "image"),
 		Source:   p.getStringFromMap(memeMap, "source", ""),
 		Category: p.getStringFromMap(memeMap, "category", "general"),
+	}
+
+	if p.currentMeme.Type == "image" || p.currentMeme.Type == "gif" {
+		p.currentMeme.ImgW, p.currentMeme.ImgH = imageDimensions(p.currentMeme.Image)
 	}
 }
 
