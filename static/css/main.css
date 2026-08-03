@@ -1050,6 +1050,14 @@ body.scroll-locked {
     display: block;
     position: relative;
 
+    /* Opaque, stacked above the mosaic: the projects tail is a flex sibling
+       after .mosaic, so if any mosaic item's content ever spills past the grid
+       box (e.g. a first-paint flash where server-measured heights differ from
+       the device's font metrics), it must not show through the tail. Matches
+       the page background, so there is no visual change when nothing spills. */
+    background: var(--bg);
+    z-index: 1;
+
     width: 100%;
     max-width: none;
 
