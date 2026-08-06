@@ -65,7 +65,7 @@
 
 .meme-refresh-btn:not(:disabled):active {
     transform: translateY(0) scale(0.95);
-}`
+}
 
 .meme-mobile-btn {
     display: none;

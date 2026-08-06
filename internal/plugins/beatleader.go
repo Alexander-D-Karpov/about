@@ -359,6 +359,24 @@ func (p *BeatLeaderPlugin) Render(ctx context.Context) (string, error) {
 	<div class="plugin__inner">
 		{{if .ShowMainStats}}
 		<div class="stats-grid">
+			{{if .ProfileURL}}
+			<a class="stat-item" href="{{.ProfileURL}}" target="_blank" rel="noopener noreferrer">
+				<div class="stat-label">Global Rank</div>
+				<div class="stat-value">#{{.PlayerData.Rank}}</div>
+			</a>
+			<a class="stat-item" href="{{.ProfileURL}}" target="_blank" rel="noopener noreferrer">
+				<div class="stat-label">{{.PlayerData.Country}} Rank</div>
+				<div class="stat-value">#{{.PlayerData.CountryRank}}</div>
+			</a>
+			<a class="stat-item" href="{{.ProfileURL}}" target="_blank" rel="noopener noreferrer">
+				<div class="stat-label">Performance Points</div>
+				<div class="stat-value">{{printf "%.0f" .PlayerData.PP}}pp</div>
+			</a>
+			<a class="stat-item" href="{{.ProfileURL}}" target="_blank" rel="noopener noreferrer" data-tooltip="Exact: {{.CubesExact}}">
+				<div class="stat-label">Cubes Sliced</div>
+				<div class="stat-value" data-cubes="{{.CubesSliced}}">{{.CubesFormatted}}</div>
+			</a>
+			{{else}}
 			<div class="stat-item">
 				<div class="stat-label">Global Rank</div>
 				<div class="stat-value">#{{.PlayerData.Rank}}</div>
@@ -375,6 +393,7 @@ func (p *BeatLeaderPlugin) Render(ctx context.Context) (string, error) {
 				<div class="stat-label">Cubes Sliced</div>
 				<div class="stat-value" data-cubes="{{.CubesSliced}}">{{.CubesFormatted}}</div>
 			</div>
+			{{end}}
 		</div>
 		{{end}}
 		{{if and .ShowRecentMaps .RecentScores}}
@@ -453,6 +472,11 @@ func (p *BeatLeaderPlugin) Render(ctx context.Context) (string, error) {
 		"gt":     func(a, b float64) bool { return a > b },
 	}
 
+	profileURL := ""
+	if p.playerData.ID != "" {
+		profileURL = fmt.Sprintf("https://beatleader.com/u/%s", p.playerData.ID)
+	}
+
 	data := struct {
 		SectionTitle   string
 		ShowPepeGif    bool
@@ -463,6 +487,7 @@ func (p *BeatLeaderPlugin) Render(ctx context.Context) (string, error) {
 		CubesSliced    int64
 		CubesFormatted string
 		CubesExact     string
+		ProfileURL     string
 	}{
 		SectionTitle:   sectionTitle,
 		ShowPepeGif:    showPepeGif,
@@ -473,6 +498,7 @@ func (p *BeatLeaderPlugin) Render(ctx context.Context) (string, error) {
 		CubesSliced:    cubesSliced,
 		CubesFormatted: cubesFormatted,
 		CubesExact:     cubesExact,
+		ProfileURL:     profileURL,
 	}
 
 	t, err := template.New("beatleader").Funcs(funcMap).Parse(tmpl)

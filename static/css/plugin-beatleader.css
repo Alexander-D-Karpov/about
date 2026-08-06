@@ -20,6 +20,13 @@
     min-height: 80px;
 }
 
+/* stat cards that link to the BeatLeader profile keep the plain card look */
+a.stat-item {
+    text-decoration: none;
+    color: inherit;
+    cursor: pointer;
+}
+
 .stat-item:hover {
     border-color: var(--edge-1);
 }

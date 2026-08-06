@@ -121,6 +121,15 @@
             preferCanvas: true // OPTIMIZATION: Use Canvas instead of SVGs for vector layers
         });
 
+        // On mobile, one-finger drag should scroll the page, not pan the map
+        // (pinch-zoom and the zoom buttons still work). Prevents the map from
+        // trapping vertical scrolling.
+        if (L.Browser && L.Browser.mobile) {
+            map.dragging.disable();
+            if (map.tap) map.tap.disable();
+            container.style.touchAction = 'pan-y';
+        }
+
         const isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
 
         let tileUrl;

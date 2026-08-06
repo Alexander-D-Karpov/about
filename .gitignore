@@ -1,6 +1,9 @@
 media/bs.jpg
 # Binaries
 main
+/projects
+/backfill
+projects-candidates.json
 /bin/
 /tmp/
 *.exe

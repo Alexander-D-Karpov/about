@@ -1,0 +1,552 @@
+[
+  {
+    "name": "about me site",
+    "description": "a page with a lot live info about me, managed by separate plugins with wm-like design, written Go",
+    "image": "https://akarpov.ru/media/uploads/images/image_2025-10-25_05-01-10.png",
+    "github": "https://github.com/Alexander-D-Karpov/about",
+    "live": "https://preview.about.akarpov.ru",
+    "technologies": [
+      "Go",
+      "JavaScript"
+    ],
+    "created": "2025-08-17",
+    "updated": "2025-11-02"
+  },
+  {
+    "name": "netfetch",
+    "description": "neofetch like app, written in go, which provides info about remote machine",
+    "image": "https://akarpov.ru/media/uploads/images/2025-03-28_00-01.png",
+    "github": "https://github.com/Alexander-D-Karpov/netfetch",
+    "technologies": [
+      "Go"
+    ],
+    "created": "2024-10-20",
+    "updated": "2026-03-02"
+  },
+  {
+    "name": "amp",
+    "description": "a native music player for my music service with full offline support",
+    "image": "https://akarpov.ru/media/uploads/images/photo_2025-10-25_05-24-19.jpg",
+    "github": "https://github.com/Alexander-D-Karpov/amp",
+    "technologies": [
+      "Go"
+    ],
+    "created": "2025-07-26",
+    "updated": "2025-09-12"
+  },
+  {
+    "name": "webring backend",
+    "description": "a webring relay service written in Go. It manages a list of websites, checks their uptime, and provides a dashboard …",
+    "image": "https://akarpov.ru/media/uploads/images/Screenshot_20240716_235433.png",
+    "github": "https://github.com/Alexander-D-Karpov/webring",
+    "live": "https://webring.otomir23.me/",
+    "technologies": [
+      "Go"
+    ],
+    "created": "2024-07-16",
+    "updated": "2025-08-08"
+  },
+  {
+    "name": "gowav",
+    "description": "a tui music tool written in go. Provides multiple song analysis",
+    "image": "https://akarpov.ru/media/uploads/images/photo_2025-01-26_06-31-03.jpg",
+    "github": "https://github.com/Alexander-D-Karpov/gowav",
+    "technologies": [
+      "Go"
+    ],
+    "created": "2024-12-01",
+    "updated": "2025-01-28"
+  },
+  {
+    "name": "RTMP music stream",
+    "description": "a simple script to convert music info into video stream (cover + music) with dynamic image creation. Supports multiple server …",
+    "image": "https://akarpov.ru/media/uploads/images/photo_2024-11-04_18-39-55.jpg",
+    "github": "https://github.com/Alexander-D-Karpov/scripts/tree/master/stream",
+    "technologies": [
+      "Python"
+    ],
+    "created": "2024-10-30",
+    "updated": "2024-10-31"
+  },
+  {
+    "name": "Music app",
+    "description": "Load music from multiple sources, save to playlists add listen together in radio",
+    "image": "https://akarpov.ru/media/uploads/images/Screenshot_20240131_115531.png",
+    "github": "https://github.com/Alexander-D-Karpov/akarpov/tree/main/akarpov/music",
+    "live": "https://next.akarpov.ru/music",
+    "technologies": [
+      "Python"
+    ],
+    "created": "2023-03-27",
+    "updated": "2026-03-31"
+  },
+  {
+    "name": "File share app",
+    "description": "App to share files",
+    "image": "https://akarpov.ru/media/uploads/images/IMG_20230426_121242_993.jpg",
+    "github": "https://github.com/Alexander-D-Karpov/akarpov/tree/main/akarpov/files",
+    "live": "https://new.akarpov.ru/files/",
+    "technologies": [
+      "Python"
+    ],
+    "created": "2023-01-15",
+    "updated": "2024-10-14"
+  },
+  {
+    "name": "UUID tools",
+    "description": "some UUID decoding and generating tools",
+    "image": "https://akarpov.ru/media/uploads/images/Screenshot_20231112_025908.png",
+    "github": "https://github.com/Alexander-D-Karpov/akarpov/tree/main/akarpov/tools/uuidtools",
+    "live": "https://new.akarpov.ru/tools/uuid/",
+    "technologies": [
+      "Python"
+    ],
+    "created": "2023-10-31",
+    "updated": "2023-10-31"
+  },
+  {
+    "name": "Short Link generator",
+    "description": "An app that uses a handy algorithm to create short links: it converts a record id into a base-like string, …",
+    "image": "https://akarpov.ru/media/uploads/images/photo_2023-08-05_11-37-37_3.jpg",
+    "github": "https://github.com/Alexander-D-Karpov/akarpov/tree/main/akarpov/tools/shortener",
+    "live": "https://new.akarpov.ru/tools/shortener/",
+    "technologies": [
+      "Python"
+    ],
+    "created": "2023-02-16",
+    "updated": "2024-02-01"
+  },
+  {
+    "name": "Notifications",
+    "description": "Inner app to make massive user notifications via several providers easy",
+    "image": "https://akarpov.ru/media/uploads/images/photo_2023-10-22_12-13-16.jpg",
+    "github": "https://github.com/Alexander-D-Karpov/akarpov/tree/main/akarpov/notifications",
+    "technologies": [
+      "Python"
+    ],
+    "created": "2023-09-24",
+    "updated": "2023-11-18"
+  },
+  {
+    "name": "Blog app",
+    "description": "App to create, view, comment and rate posts",
+    "image": "https://akarpov.ru/media/uploads/images/E7BE3B27-5184-4C34-969D-D05E25DA69BE.jpeg",
+    "github": "https://github.com/Alexander-D-Karpov/akarpov/tree/main/akarpov/blog",
+    "live": "https://new.akarpov.ru/",
+    "technologies": [
+      "Python"
+    ],
+    "created": "2022-11-23",
+    "updated": "2024-03-29"
+  },
+  {
+    "name": "cookiecutter-django",
+    "description": "My django cookiecutter for fast creation of django projects specified for API development.",
+    "image": "https://akarpov.ru/media/uploads/images/photo_2023-02-21_13-28-05.jpg",
+    "github": "https://github.com/Alexander-D-Karpov/cookiecutter-django",
+    "technologies": [
+      "Python"
+    ],
+    "created": "2023-01-06",
+    "updated": "2023-12-26"
+  },
+  {
+    "name": "Pitch Deck Generator",
+    "description": "App to generate pitch decks via given description",
+    "image": "https://akarpov.ru/media/uploads/images/photo_2023-08-26_02-00-51.jpg",
+    "github": "https://github.com/spbleadersofdigtal/backend",
+    "technologies": [
+      "Python"
+    ],
+    "created": "2023-08-24",
+    "updated": "2023-08-26"
+  },
+  {
+    "name": "nlp doc title processer",
+    "description": "app to load pdf and find propper titles",
+    "image": "https://akarpov.ru/media/uploads/images/photo_2023-06-29_19-31-53.jpg",
+    "github": "https://github.com/mistakes-23/backend",
+    "technologies": [
+      "Jupyter",
+      "Python"
+    ],
+    "created": "2023-06-23",
+    "updated": "2023-06-26"
+  },
+  {
+    "name": "Pass finding app",
+    "description": "App to build tourist pass with some attractions, places to eat and accommodate",
+    "image": "https://akarpov.ru/media/uploads/images/photo_2023-06-09_16-23-39.jpg",
+    "github": "https://github.com/task-17-lct/backend",
+    "live": "https://task-17-lct.github.io",
+    "technologies": [],
+    "created": "2023-05-18",
+    "updated": "2023-06-10"
+  },
+  {
+    "name": "Telegram media downloader",
+    "description": "script to load all media from telegram channels, listed in config",
+    "image": "https://akarpov.ru/media/uploads/images/photo_2023-06-20_13-45-06.jpg",
+    "github": "https://github.com/Alexander-D-Karpov/scripts/tree/master/bots/poller",
+    "technologies": [
+      "Python"
+    ],
+    "created": "2023-05-08",
+    "updated": "2023-06-08"
+  },
+  {
+    "name": "Tender statistics",
+    "description": "An app to view company tender approximated statistics",
+    "image": "https://akarpov.ru/media/uploads/images/IMG_20230403_100622_206.jpg",
+    "github": "https://github.com/Alexander-D-Karpov/tender_statistics",
+    "technologies": [
+      "Jupyter",
+      "Python"
+    ],
+    "created": "2023-03-31",
+    "updated": "2023-04-02"
+  },
+  {
+    "name": "Marking platform",
+    "description": "App to predict amount of sales for markets",
+    "image": "https://akarpov.ru/media/uploads/images/photo_2023-03-26_15-40-05.jpg",
+    "github": "https://github.com/marking-hack/backend",
+    "technologies": [
+      "Python"
+    ],
+    "created": "2023-03-22",
+    "updated": "2023-03-22"
+  },
+  {
+    "name": "Podcast poller script",
+    "description": "Script to load current listening track from yandex music and send it to telegram chat.",
+    "image": "https://akarpov.ru/media/uploads/images/photo_2023-02-21_13-43-35.jpg",
+    "github": "https://github.com/Alexander-D-Karpov/scripts/tree/master/podcasts",
+    "live": "https://t.me/sanspie_podcasts",
+    "technologies": [
+      "Python"
+    ],
+    "created": "2023-02-20",
+    "updated": "2025-04-23"
+  },
+  {
+    "name": "Exhauster analytics",
+    "description": "Ann app to process information from exhausters and try to warn and predict it",
+    "image": "https://akarpov.ru/media/uploads/images/photo_2023-02-19_07-33-56.jpg",
+    "github": "https://github.com/evraz-hack/backend",
+    "technologies": [
+      "Python"
+    ],
+    "created": "2023-02-19",
+    "updated": "2023-02-19"
+  },
+  {
+    "name": "Real estate search",
+    "description": "",
+    "image": "https://akarpov.ru/media/uploads/images/photo_2023-02-21_13-41-32.jpg",
+    "github": "https://github.com/BlackWallTeam/Backend",
+    "technologies": [
+      "Python"
+    ],
+    "created": "2023-02-19",
+    "updated": "2023-02-19"
+  },
+  {
+    "name": "Med Manage Platform",
+    "description": "App with wide functionality to create forms, manage patient info, create appointments, etc",
+    "image": "https://akarpov.ru/media/uploads/images/photo_2023-02-21_13-15-28.jpg",
+    "github": "https://github.com/Alexander-D-Karpov/med_backend",
+    "technologies": [
+      "Python"
+    ],
+    "created": "2022-12-07",
+    "updated": "2022-12-09"
+  },
+  {
+    "name": "DICOM edit platform",
+    "description": "complex platform to view dicom files and generate pathologies",
+    "image": "https://akarpov.ru/media/uploads/images/photo_2022-11-17_23-54-35.jpg",
+    "github": "https://github.com/leaders-of-digital-9-task/backend",
+    "technologies": [
+      "Python"
+    ],
+    "created": "2022-10-25",
+    "updated": "2022-11-06"
+  },
+  {
+    "name": "Product search engine",
+    "description": "API to handle and help search queries",
+    "image": "https://akarpov.ru/media/uploads/images/photo_2022-10-22_22-40-48.jpg",
+    "github": "https://github.com/magnum-opus-tender-hack/backend",
+    "technologies": [
+      "Python"
+    ],
+    "created": "2022-10-21",
+    "updated": "2022-10-23"
+  },
+  {
+    "name": "Motivational platform",
+    "description": "Website to connect workers in teams and reward with cryptocurrency",
+    "image": "https://akarpov.ru/media/uploads/images/photo_2022-10-09_10-49-55.jpg",
+    "github": "https://github.com/more-tech4-magnum-opus",
+    "technologies": [],
+    "created": "2022-10-08",
+    "updated": "2022-10-12"
+  },
+  {
+    "name": "Music server",
+    "description": "MPD server over http with function to load tracks from YouTube, Yandex music and Spotify with metadata gathering from Spotify …",
+    "image": "https://akarpov.ru/media/uploads/images/Screenshot_20220923_000907.png",
+    "github": "https://github.com/Alexander-D-Karpov/music_server",
+    "live": "http://music.akarpov.ru",
+    "technologies": [
+      "Python"
+    ],
+    "created": "2022-09-20",
+    "updated": "2022-09-29"
+  },
+  {
+    "name": "NLP DOC processer",
+    "description": "Backend for service to process docx, doc and other files to check if it follows standards.",
+    "image": "https://akarpov.ru/media/uploads/images/photo_2022-08-28_04-13-48.jpg",
+    "github": "https://github.com/Ai-hack-MAGNUM-OPUS/backend",
+    "technologies": [
+      "Python"
+    ],
+    "created": "2022-08-26",
+    "updated": "2022-08-28"
+  },
+  {
+    "name": "Block site generator",
+    "description": "Backend for constructor sites. Create sites, blocks and build block hierarchy",
+    "image": "https://akarpov.ru/media/uploads/images/photo_2022-08-18_23-00-40.jpg",
+    "github": "https://github.com/Alexander-D-Karpov/agora_hack_backend",
+    "technologies": [
+      "Python"
+    ],
+    "created": "2022-08-13",
+    "updated": "2022-08-22"
+  },
+  {
+    "name": "RPG backend",
+    "description": "Chess RPG game backend with web sockets, timeouts and API",
+    "image": "https://akarpov.ru/media/uploads/images/image.png",
+    "github": "https://github.com/evgen-app/chess_rpg_backend",
+    "technologies": [
+      "Python"
+    ],
+    "created": "2022-06-04",
+    "updated": "2022-08-01"
+  },
+  {
+    "name": "Flower shop",
+    "description": "Site to create orders",
+    "image": "https://akarpov.ru/media/uploads/images/Screenshot_20220513_133815.png",
+    "live": "https://sharoboom-livny.ru/",
+    "technologies": [],
+    "created": "2022-04-06",
+    "updated": "2022-06-01"
+  },
+  {
+    "name": "About me app",
+    "description": "Page to share my links, stack and projects I made",
+    "image": "https://akarpov.ru/media/uploads/images/Screenshot_20220513_131404.png",
+    "github": "https://github.com/Alexander-D-Karpov/about-me",
+    "live": "https://akarpov.ru/about",
+    "technologies": [
+      "HTML",
+      "Python"
+    ],
+    "created": "2022-02-02",
+    "updated": "2022-05-17"
+  },
+  {
+    "name": "Forms generator",
+    "description": "Site to generate and share forms",
+    "image": "https://akarpov.ru/media/uploads/images/Screenshot_20220513_132259.png",
+    "github": "https://github.com/Alexander-D-Karpov/django-forms-app",
+    "live": "https://akarpov.ru/forms/",
+    "technologies": [
+      "HTML",
+      "Python"
+    ],
+    "created": "2022-04-15",
+    "updated": "2022-05-17"
+  },
+  {
+    "name": "Image app",
+    "description": "Share your images",
+    "image": "https://akarpov.ru/media/uploads/images/Screenshot_20220513_131716.png",
+    "github": "https://github.com/Alexander-D-Karpov/django-image-app",
+    "live": "https://akarpov.ru/pics/",
+    "technologies": [
+      "Python",
+      "HTML"
+    ],
+    "created": "2022-04-19",
+    "updated": "2022-05-11"
+  },
+  {
+    "name": "User app",
+    "description": "App to handle user login, registration, setting and user profile. API also provided",
+    "image": "https://akarpov.ru/media/uploads/images/A185F924-5FDF-4580-8116-55FD575D273F.jpeg",
+    "github": "https://github.com/Alexander-D-Karpov/django-user-app",
+    "live": "https://akarpov.ru/user/",
+    "technologies": [
+      "Python"
+    ],
+    "created": "2021-12-15",
+    "updated": "2022-05-14"
+  },
+  {
+    "name": "Tender hackathon backend",
+    "description": "Backend for tender platform",
+    "image": "https://akarpov.ru/media/uploads/images/Screenshot_20220513_134426.png",
+    "github": "https://github.com/Alexander-D-Karpov/tender_hack_back",
+    "technologies": [
+      "Python"
+    ],
+    "created": "2022-04-15",
+    "updated": "2022-04-17"
+  },
+  {
+    "name": "Bot Polling Master",
+    "description": "A small telegram bot to handle messages from users on several bots, gets data from web server to synchronize with …",
+    "image": "https://akarpov.ru/media/uploads/images/Screenshot_20220513_140011.png",
+    "github": "https://github.com/Alexander-D-Karpov/bot_polling_master",
+    "technologies": [
+      "Python"
+    ],
+    "created": "2022-03-18",
+    "updated": "2022-03-20"
+  },
+  {
+    "name": "CTF platform",
+    "description": "Site to view tasks, submit flags, view attempts and start time",
+    "image": "https://akarpov.ru/media/uploads/images/Screenshot_20220513_133358.png",
+    "github": "https://github.com/Alexander-D-Karpov/django-ctf-app",
+    "live": "https://akarpov.ru/ctf/",
+    "technologies": [
+      "HTML",
+      "Python"
+    ],
+    "created": "2021-12-23",
+    "updated": "2022-05-11"
+  },
+  {
+    "name": "vkHandler",
+    "description": "bot to fetch data from vk, get tags and send posts to user subscribed to tags. Notifies user if post …",
+    "image": "https://akarpov.ru/media/uploads/images/Screenshot_20220513_145339.png",
+    "github": "https://github.com/Alexander-D-Karpov/vkHandler",
+    "live": "http://t.me/vkHand_bot",
+    "technologies": [
+      "Python"
+    ],
+    "created": "2022-02-10",
+    "updated": "2022-03-06"
+  },
+  {
+    "name": "Image API",
+    "description": "Api to handle and store images. Crop image, provide user session as JWT",
+    "image": "https://akarpov.ru/media/uploads/images/photo_2022-01-23_23-54-26.jpg",
+    "github": "https://github.com/Alexander-D-Karpov/image_api",
+    "technologies": [
+      "Python"
+    ],
+    "created": "2022-01-24",
+    "updated": "2022-01-24"
+  },
+  {
+    "name": "task api",
+    "description": "REST API для системы управления задачами.",
+    "github": "https://github.com/Alexander-D-Karpov/task_api",
+    "technologies": [
+      "Python"
+    ],
+    "created": "2025-11-01",
+    "updated": "2026-01-20"
+  },
+  {
+    "name": "akfs",
+    "description": "A Linux kernel module implementing a virtual filesystem that stores data on a remote server using a custom binary protocol over TCP with AES-GCM encryption.",
+    "github": "https://github.com/Alexander-D-Karpov/akfs",
+    "technologies": [
+      "Go",
+      "C"
+    ],
+    "created": "2026-01-12",
+    "updated": "2026-01-15"
+  },
+  {
+    "name": "kvorum",
+    "description": "Система управления мероприятиями с регистрацией, квотами, листом ожидания, аналитикой и интеграцией с MAX Bot. Проект позволяет создавать события, собирать р…",
+    "github": "https://github.com/Alexander-D-Karpov/kvorum",
+    "technologies": [
+      "Go",
+      "TypeScript"
+    ],
+    "created": "2025-11-14",
+    "updated": "2025-11-15"
+  },
+  {
+    "name": "calcMat",
+    "description": "",
+    "github": "https://github.com/Alexander-D-Karpov/calcMat",
+    "technologies": [
+      "Go"
+    ],
+    "created": "2025-02-19",
+    "updated": "2025-06-06"
+  },
+  {
+    "name": "MemeSearch",
+    "description": "",
+    "github": "https://github.com/Alexander-D-Karpov/MemeSearch",
+    "technologies": [
+      "Python",
+      "JavaScript"
+    ],
+    "created": "2025-03-16",
+    "updated": "2025-03-16"
+  },
+  {
+    "name": "akarpov music tools",
+    "description": "",
+    "github": "https://github.com/Alexander-D-Karpov/akarpov_music_tools",
+    "technologies": [
+      "Python"
+    ],
+    "created": "2024-12-01",
+    "updated": "2024-12-03"
+  },
+  {
+    "name": "akarpov file tools",
+    "description": "",
+    "github": "https://github.com/Alexander-D-Karpov/akarpov_file_tools",
+    "technologies": [
+      "Python"
+    ],
+    "created": "2024-10-09",
+    "updated": "2024-10-14"
+  },
+  {
+    "name": "akarpov music bot",
+    "description": "",
+    "github": "https://github.com/Alexander-D-Karpov/akarpov_music_bot",
+    "technologies": [
+      "Python"
+    ],
+    "created": "2024-04-04",
+    "updated": "2024-04-04"
+  },
+  {
+    "name": "SOLID",
+    "description": "SOLID is an abbreviation that stands for five software design principles compiled by Uncle Bob",
+    "github": "https://github.com/Alexander-D-Karpov/SOLID",
+    "technologies": [
+      "Python"
+    ],
+    "created": "2022-05-26",
+    "updated": "2022-05-26"
+  }
+]

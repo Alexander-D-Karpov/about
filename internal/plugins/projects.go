@@ -2,13 +2,67 @@ package plugins
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"html/template"
+	"io"
+	"net/http"
+	"net/url"
+	"os"
+	"regexp"
+	"sort"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/Alexander-D-Karpov/about/internal/storage"
 	"github.com/Alexander-D-Karpov/about/internal/stream"
 )
+
+// parseProjectDate parses a stored project date in ISO "2006-01-02", RFC3339, or
+// the old "02 Jan 2006" display form.
+func parseProjectDate(s string) (time.Time, bool) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return time.Time{}, false
+	}
+	for _, layout := range []string{"2006-01-02", time.RFC3339, "2006-01-02T15:04:05Z", "02 Jan 2006", "2 Jan 2006"} {
+		if t, err := time.Parse(layout, s); err == nil {
+			return t, true
+		}
+	}
+	return time.Time{}, false
+}
+
+// fmtProjectDate normalizes a stored date into a consistent "02 Jan 2006" string.
+// Unparseable values are returned as-is so nothing is silently dropped.
+func fmtProjectDate(s string) string {
+	if t, ok := parseProjectDate(s); ok {
+		return t.Format("02 Jan 2006")
+	}
+	return strings.TrimSpace(s)
+}
+
+var ghRepoRe = regexp.MustCompile(`(?i)github\.com/([^/]+)/([^/#?]+)`)
+
+// parseGitHubRepo extracts owner, repo, and an optional subfolder path from a
+// github.com URL. A link like .../tree/<branch>/<dir> yields path=<dir>, so
+// dates come from that folder's commits rather than the whole (mono)repo.
+func parseGitHubRepo(u string) (owner, repo, path string) {
+	m := ghRepoRe.FindStringSubmatch(u)
+	if m == nil {
+		return "", "", ""
+	}
+	owner = m[1]
+	repo = strings.TrimSuffix(m[2], ".git")
+	if i := strings.Index(u, "/tree/"); i >= 0 {
+		rest := u[i+len("/tree/"):] // <branch>/<path...>
+		if parts := strings.SplitN(rest, "/", 2); len(parts) == 2 {
+			path = strings.Trim(parts[1], "/")
+		}
+	}
+	return owner, repo, path
+}
 
 type ProjectsPlugin struct {
 	storage *storage.Storage
@@ -76,6 +130,14 @@ func (p *ProjectsPlugin) Render(ctx context.Context) (string, error) {
 						</div>
 						{{end}}
 					</div>
+					{{if or .Created .Updated}}
+					<div class="project-footer">
+						<div class="project-dates">
+							{{if .Created}}<span class="project-date">Created {{.Created}}</span>{{end}}
+							{{if .Updated}}<span class="project-date">Updated {{.Updated}}</span>{{end}}
+						</div>
+					</div>
+					{{end}}
 				</article>
 				{{end}}
 			</div>
@@ -89,6 +151,9 @@ func (p *ProjectsPlugin) Render(ctx context.Context) (string, error) {
 		GitHub       string
 		Live         string
 		Technologies []string
+		Created      string
+		Updated      string
+		upd          time.Time // sort key (unexported; ignored by template)
 	}
 
 	var projectList []project
@@ -103,6 +168,8 @@ func (p *ProjectsPlugin) Render(ctx context.Context) (string, error) {
 		image, _ := projMap["image"].(string)
 		github, _ := projMap["github"].(string)
 		live, _ := projMap["live"].(string)
+		created, _ := projMap["created"].(string)
+		updated, _ := projMap["updated"].(string)
 
 		var technologies []string
 		if techs, ok := projMap["technologies"].([]interface{}); ok {
@@ -113,6 +180,7 @@ func (p *ProjectsPlugin) Render(ctx context.Context) (string, error) {
 			}
 		}
 
+		updT, _ := parseProjectDate(updated)
 		projectList = append(projectList, project{
 			Name:         name,
 			Description:  desc,
@@ -120,8 +188,16 @@ func (p *ProjectsPlugin) Render(ctx context.Context) (string, error) {
 			GitHub:       github,
 			Live:         live,
 			Technologies: technologies,
+			Created:      fmtProjectDate(created),
+			Updated:      fmtProjectDate(updated),
+			upd:          updT,
 		})
 	}
+
+	// Most recently updated first; undated projects keep their relative order at the end.
+	sort.SliceStable(projectList, func(i, j int) bool {
+		return projectList[i].upd.After(projectList[j].upd)
+	})
 
 	funcMap := template.FuncMap{
 		"printf": fmt.Sprintf,
@@ -141,8 +217,170 @@ func (p *ProjectsPlugin) Render(ctx context.Context) (string, error) {
 	return buf.String(), err
 }
 
+// UpdateData refreshes each project's "last updated" (and fills a missing
+// "created") from its GitHub repo's pushed_at/created_at. Called daily from the
+// background scheduler. Only advances "updated" forward, never regresses it.
 func (p *ProjectsPlugin) UpdateData(ctx context.Context) error {
-	return nil
+	config := p.storage.GetPluginConfig(p.Name())
+	projects, ok := config.Settings["projects"].([]interface{})
+	if !ok || len(projects) == 0 {
+		return nil
+	}
+
+	token := os.Getenv("GITHUB_TOKEN")
+	client := &http.Client{Timeout: 15 * time.Second}
+	changed := false
+
+	for _, proj := range projects {
+		m, ok := proj.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		gh, _ := m["github"].(string)
+		owner, repo, path := parseGitHubRepo(gh)
+		if owner == "" || repo == "" {
+			continue
+		}
+
+		var created, updated string
+		var err error
+		if path != "" {
+			// Folder link inside a (mono)repo: use that folder's commit history.
+			created, updated, err = fetchPathDates(ctx, client, token, owner, repo, path)
+		} else {
+			created, updated, err = fetchRepoDates(ctx, client, token, owner, repo)
+		}
+		if err != nil {
+			continue
+		}
+
+		if updated != "" {
+			if cur, _ := m["updated"].(string); cur != updated {
+				m["updated"] = updated
+				changed = true
+			}
+		}
+		if created != "" {
+			cur, _ := m["created"].(string)
+			// For folder links the earliest path-commit is authoritative (correct
+			// it in either direction); for whole-repo links keep any curated value
+			// and only fill when missing.
+			if (path != "" && cur != created) || (path == "" && cur == "") {
+				m["created"] = created
+				changed = true
+			}
+		}
+	}
+
+	if !changed {
+		return nil
+	}
+	config.Settings["projects"] = projects
+	return p.storage.SetPluginConfig(p.Name(), config)
+}
+
+// ghGet issues an authenticated GET against the GitHub API.
+func ghGet(ctx context.Context, client *http.Client, token, u string) (*http.Response, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Accept", "application/vnd.github+json")
+	req.Header.Set("User-Agent", "about-app")
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	return client.Do(req)
+}
+
+func dateOnly(s string) string {
+	if len(s) >= 10 {
+		return s[:10]
+	}
+	return ""
+}
+
+// fetchRepoDates returns a whole repo's created_at and pushed_at as YYYY-MM-DD.
+func fetchRepoDates(ctx context.Context, client *http.Client, token, owner, repo string) (created, updated string, err error) {
+	resp, err := ghGet(ctx, client, token, "https://api.github.com/repos/"+owner+"/"+repo)
+	if err != nil {
+		return "", "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		io.Copy(io.Discard, resp.Body)
+		return "", "", fmt.Errorf("github %s/%s: %s", owner, repo, resp.Status)
+	}
+	var d struct {
+		CreatedAt string `json:"created_at"`
+		PushedAt  string `json:"pushed_at"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&d); err != nil {
+		return "", "", err
+	}
+	return dateOnly(d.CreatedAt), dateOnly(d.PushedAt), nil
+}
+
+type ghCommit struct {
+	Commit struct {
+		Committer struct {
+			Date string `json:"date"`
+		} `json:"committer"`
+	} `json:"commit"`
+}
+
+var linkLastRe = regexp.MustCompile(`[?&]page=(\d+)[^>]*>;\s*rel="last"`)
+
+func parseLastPage(link string) int {
+	if m := linkLastRe.FindStringSubmatch(link); m != nil {
+		if n, err := strconv.Atoi(m[1]); err == nil {
+			return n
+		}
+	}
+	return 1
+}
+
+// fetchPathDates returns the earliest (created) and latest (updated) commit
+// dates that touched a folder within a repo, as YYYY-MM-DD. This is what makes a
+// project linked to a monorepo subfolder reflect that folder's history rather
+// than the whole repo's last push.
+func fetchPathDates(ctx context.Context, client *http.Client, token, owner, repo, path string) (created, updated string, err error) {
+	base := "https://api.github.com/repos/" + owner + "/" + repo + "/commits?per_page=1&path=" + url.QueryEscape(path)
+	resp, err := ghGet(ctx, client, token, base)
+	if err != nil {
+		return "", "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		io.Copy(io.Discard, resp.Body)
+		return "", "", fmt.Errorf("github commits %s/%s (%s): %s", owner, repo, path, resp.Status)
+	}
+	var commits []ghCommit
+	if err := json.NewDecoder(resp.Body).Decode(&commits); err != nil {
+		return "", "", err
+	}
+	if len(commits) == 0 {
+		return "", "", nil
+	}
+	updated = dateOnly(commits[0].Commit.Committer.Date)
+	created = updated
+
+	// Oldest commit for the path lives on the last page (per_page=1).
+	if last := parseLastPage(resp.Header.Get("Link")); last > 1 {
+		resp2, err := ghGet(ctx, client, token, base+"&page="+strconv.Itoa(last))
+		if err == nil {
+			defer resp2.Body.Close()
+			if resp2.StatusCode == http.StatusOK {
+				var oldest []ghCommit
+				if json.NewDecoder(resp2.Body).Decode(&oldest) == nil && len(oldest) > 0 {
+					created = dateOnly(oldest[0].Commit.Committer.Date)
+				}
+			} else {
+				io.Copy(io.Discard, resp2.Body)
+			}
+		}
+	}
+	return created, updated, nil
 }
 
 func (p *ProjectsPlugin) GetSettings() map[string]interface{} {

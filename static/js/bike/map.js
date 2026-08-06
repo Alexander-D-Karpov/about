@@ -467,6 +467,14 @@
             wheelPxPerZoomLevel: 90
         });
 
+        // On mobile, one-finger drag should scroll the page, not pan the map
+        // (pinch-zoom and the zoom buttons still work).
+        if (L.Browser && L.Browser.mobile) {
+            st.map.dragging.disable();
+            if (st.map.tap) st.map.tap.disable();
+            container.style.touchAction = 'pan-y';
+        }
+
         const boot = bootExtent();
         const bounds = sized ? NS.extentToBounds(boot.extent) : null;
         let viewSet = false;

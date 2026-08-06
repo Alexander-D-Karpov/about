@@ -96,4 +96,9 @@ jobs:
       - name: Run govulncheck
         run: |
           go install golang.org/x/vuln/cmd/govulncheck@latest
-          govulncheck ./...
+          # Package-level scan: it does NOT build SSA, so it avoids the
+          # x/tools/go/ssa subster stack-overflow that crashes the default
+          # symbol-level scan under Go 1.25 (exit 2), while still failing the
+          # build on real vulnerabilities (exit 3). Dependency vulns themselves
+          # are kept clear by bumping modules (see go.mod).
+          govulncheck -scan package ./...

@@ -152,6 +152,15 @@
     NS.setupRideListScrolling = function () {
         const list = document.querySelector('.bike-rides-list');
         if (!list) return;
+        // On mobile a fixed-height inner scroll box traps the page scroll, so
+        // let the list flow with the page instead.
+        if (window.matchMedia('(max-width: 780px)').matches) {
+            list.style.overflowY = 'visible';
+            list.style.overflowX = 'visible';
+            list.style.height = 'auto';
+            list.style.maxHeight = 'none';
+            return;
+        }
         list.style.overflowY = 'auto';
         list.style.overflowX = 'hidden';
         list.style.height = '280px';

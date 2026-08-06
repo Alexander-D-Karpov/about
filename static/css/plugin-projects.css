@@ -136,6 +136,25 @@
     border-color: var(--accent);
 }
 
+.project-footer {
+    padding: 8px 14px;
+    border-top: 1px solid var(--edge-0);
+    background: rgba(255, 255, 255, .015);
+}
+
+.project-dates {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.project-date {
+    font: 600 10px/1.4 var(--mono);
+    color: var(--muted);
+    white-space: nowrap;
+}
+
 @media (max-width: 900px) {
     .projects-grid {
         grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));

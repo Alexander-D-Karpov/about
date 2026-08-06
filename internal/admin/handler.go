@@ -88,6 +88,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.getPluginsAPI(w, r)
 	case path == "/projects":
 		h.projectsAdmin(w, r)
+	case path == "/api/projects" && r.Method == "GET":
+		h.getProjectsAPI(w, r)
 	case path == "/api/projects" && r.Method == "POST":
 		h.saveProjectsAPI(w, r)
 	case path == "/api/plugins" && r.Method == "POST":
@@ -475,12 +477,26 @@ func (h *Handler) projectsAdmin(w http.ResponseWriter, r *http.Request) {
 	}
 	projects, _ := settings["projects"].([]interface{})
 
+	// Offer the techstack plugin's technologies as quick-pick options.
+	var techOptions []string
+	if ts, ok := h.storage.GetPluginConfig("techstack").Settings["technologies"].([]interface{}); ok {
+		for _, t := range ts {
+			if tm, ok := t.(map[string]interface{}); ok {
+				if name, _ := tm["name"].(string); strings.TrimSpace(name) != "" {
+					techOptions = append(techOptions, name)
+				}
+			}
+		}
+	}
+
 	data := struct {
-		Projects []interface{}
-		Config   *config.Config
+		Projects    []interface{}
+		TechOptions []string
+		Config      *config.Config
 	}{
-		Projects: projects,
-		Config:   h.config,
+		Projects:    projects,
+		TechOptions: techOptions,
+		Config:      h.config,
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -489,6 +505,17 @@ func (h *Handler) projectsAdmin(w http.ResponseWriter, r *http.Request) {
 		fmt.Printf("Template error: %v\n", err)
 		http.Error(w, "Template error", http.StatusInternalServerError)
 	}
+}
+
+func (h *Handler) getProjectsAPI(w http.ResponseWriter, r *http.Request) {
+	h.storage.Load()
+	cfg := h.storage.GetPluginConfig("projects")
+	projects, _ := cfg.Settings["projects"].([]interface{})
+	if projects == nil {
+		projects = []interface{}{}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(projects)
 }
 
 func (h *Handler) saveProjectsAPI(w http.ResponseWriter, r *http.Request) {

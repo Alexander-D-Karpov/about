@@ -305,6 +305,15 @@
 .bike-rides-list::-webkit-scrollbar-track { background: transparent }
 .bike-rides-list::-webkit-scrollbar-thumb { background: var(--edge-2); border-radius: 2px }
 
+/* On mobile, don't trap the page scroll inside the rides list. */
+@media (max-width: 780px) {
+    .bike-rides-list {
+        height: auto;
+        max-height: none;
+        overflow: visible;
+    }
+}
+
 .bike-ride-item {
     display: flex;
     align-items: center;

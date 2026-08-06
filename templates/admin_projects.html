@@ -216,19 +216,25 @@
 
 <div class="toast" id="toast"></div>
 <input type="file" class="upload-input" id="global-upload" accept="image/*">
+<datalist id="tech-options"></datalist>
 
 <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
 <script>
     const GRIP_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="6" r="1.5"/><circle cx="15" cy="6" r="1.5"/><circle cx="9" cy="12" r="1.5"/><circle cx="15" cy="12" r="1.5"/><circle cx="9" cy="18" r="1.5"/><circle cx="15" cy="18" r="1.5"/></svg>';
 
     let projects = [];
+    let techOptions = [];
     let dirty = false;
     let saving = false;
     let uploadTarget = null;
 
     (function init() {
-        const raw = {{.Projects | json}};
+        // {{.Projects | json}} renders as a JS string literal in this <script>
+        // context (html/template auto-escaping), so parse it back into an array.
+        const raw = JSON.parse({{.Projects | json}});
         projects = Array.isArray(raw) ? raw.map(normalize) : [];
+        const opts = JSON.parse({{.TechOptions | json}});
+        techOptions = Array.isArray(opts) ? opts : [];
         render();
         initSortable();
         updateCounts();
@@ -247,7 +253,9 @@
             github: p.github || '',
             live: p.live || '',
             image: p.image || '',
-            technologies: Array.isArray(p.technologies) ? p.technologies : []
+            technologies: Array.isArray(p.technologies) ? p.technologies : [],
+            created: p.created || '',
+            updated: p.updated || ''
         };
     }
 
@@ -267,6 +275,31 @@
             card.innerHTML = buildCard(p, i);
             list.appendChild(card);
         });
+
+        populateTechOptions();
+    }
+
+    // Quick-pick list = techstack plugin's technologies + any already used here.
+    function populateTechOptions() {
+        const dl = document.getElementById('tech-options');
+        if (!dl) return;
+        const set = new Set(techOptions);
+        projects.forEach(p => (p.technologies || []).forEach(t => set.add(t)));
+        dl.innerHTML = [...set].sort((a, b) => a.localeCompare(b))
+            .map(t => `<option value="${esc(t)}">`).join('');
+    }
+
+    function handleTagPick(e, i) {
+        const val = e.target.value.trim();
+        if (val && !projects[i].technologies.includes(val)) {
+            projects[i].technologies.push(val);
+            markDirty();
+            render();
+            const inp = document.querySelector(`#tags-${i} .tech-add-input`);
+            if (inp) inp.focus();
+        } else {
+            e.target.value = '';
+        }
     }
 
     function buildCard(p, i) {
@@ -299,10 +332,23 @@
                            oninput="updateField(${i},'live',this.value)">
                 </div>
             </div>
+            <div class="project-links-row">
+                <div class="link-input-group">
+                    <span class="link-label">Created</span>
+                    <input type="date" class="link-input" style="width:150px" value="${esc(p.created)}"
+                           oninput="updateField(${i},'created',this.value)">
+                </div>
+                <div class="link-input-group">
+                    <span class="link-label">Updated</span>
+                    <input type="date" class="link-input" style="width:150px" value="${esc(p.updated)}"
+                           oninput="updateField(${i},'updated',this.value)">
+                </div>
+                <span style="font-size:11px;color:var(--muted);align-self:center">dates auto-refresh daily from GitHub; public list is sorted by Updated</span>
+            </div>
             <div class="tech-tags" id="tags-${i}">
                 ${techs}
-                <input class="tech-add-input" placeholder="+ tag"
-                       onkeydown="handleTagKey(event,${i})">
+                <input class="tech-add-input" placeholder="+ tag" list="tech-options"
+                       onkeydown="handleTagKey(event,${i})" onchange="handleTagPick(event,${i})">
             </div>
         </div>
         <div class="project-actions">

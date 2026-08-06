@@ -425,6 +425,11 @@
             if (p.el.style.gridRowStart !== newRowStart) p.el.style.gridRowStart = newRowStart;
             if (p.el.style.gridRowEnd !== newRowEnd) p.el.style.gridRowEnd = newRowEnd;
             if (p.el.style.height !== newHeight) p.el.style.height = newHeight;
+            // Keep min-height in sync with the packed height. finalizeFromPrebake
+            // freezes an inline min-height from scrollHeight that is often larger
+            // than the packed height; if left stale it forces the box past its grid
+            // track and overlaps the next plugin (worst on mobile's 2-col layout).
+            if (p.el.style.minHeight !== newHeight) p.el.style.minHeight = newHeight;
             p.el.dataset.currentSpan = String(p.colSpan);
 
             spansOut[p.el.id] = p.rowSpan;

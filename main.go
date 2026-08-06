@@ -311,6 +311,39 @@ func disableDirectoryListing(next http.Handler) http.Handler {
 func startBackgroundTasks(store *storage.Storage, pm *plugins.Manager) {
 	quit := make(chan struct{})
 
+	// Daily: refresh projects' "last updated" (and missing "created") from GitHub.
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("Projects updater panic recovered: %v", r)
+			}
+		}()
+
+		initial := time.NewTimer(45 * time.Second) // first run shortly after boot
+		defer initial.Stop()
+		ticker := time.NewTicker(24 * time.Hour)
+		defer ticker.Stop()
+
+		run := func() {
+			if err := pm.UpdatePlugin("projects"); err != nil {
+				log.Printf("[Projects] daily update failed: %v", err)
+			} else {
+				log.Println("[Projects] refreshed last-updated dates from GitHub")
+			}
+		}
+
+		for {
+			select {
+			case <-quit:
+				return
+			case <-initial.C:
+				run()
+			case <-ticker.C:
+				run()
+			}
+		}
+	}()
+
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
