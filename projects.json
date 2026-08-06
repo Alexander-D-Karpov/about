@@ -174,16 +174,6 @@
     "updated": "2023-06-26"
   },
   {
-    "name": "Pass finding app",
-    "description": "App to build tourist pass with some attractions, places to eat and accommodate",
-    "image": "https://akarpov.ru/media/uploads/images/photo_2023-06-09_16-23-39.jpg",
-    "github": "https://github.com/task-17-lct/backend",
-    "live": "https://task-17-lct.github.io",
-    "technologies": [],
-    "created": "2023-05-18",
-    "updated": "2023-06-10"
-  },
-  {
     "name": "Telegram media downloader",
     "description": "script to load all media from telegram channels, listed in config",
     "image": "https://akarpov.ru/media/uploads/images/photo_2023-06-20_13-45-06.jpg",
@@ -548,5 +538,48 @@
     ],
     "created": "2022-05-26",
     "updated": "2022-05-26"
+  },
+  {
+    "name": "concord",
+    "description": "a discord-like app (mainback + voice cdn)",
+    "github": "https://github.com/Alexander-D-Karpov/concord",
+    "technologies": [
+      "Go"
+    ],
+    "created": "2025-10-23",
+    "updated": "2026-03-23"
+  },
+  {
+    "name": "concord client",
+    "description": "a discord-like app (native client)",
+    "github": "https://github.com/Alexander-D-Karpov/concord-client",
+    "technologies": [
+      "TypeScript"
+    ],
+    "created": "2025-10-23",
+    "updated": "2026-03-16"
+  },
+  {
+    "name": "photodock",
+    "description": "a small self-hosted photo gallery written with go",
+    "github": "https://github.com/Alexander-D-Karpov/photodock",
+    "technologies": [
+      "Go",
+      "JavaScript"
+    ],
+    "created": "2025-12-28",
+    "updated": "2026-07-04",
+    "live": "https://photos.akarpov.ru"
+  },
+  {
+    "name": "bereal tg",
+    "description": "A bereal-like tg bot",
+    "github": "https://github.com/Alexander-D-Karpov/bereal-tg",
+    "technologies": [
+      "Python"
+    ],
+    "created": "2025-11-18",
+    "updated": "2026-03-17",
+    "live": "https://t.me/beRealMan_bot"
   }
 ]
