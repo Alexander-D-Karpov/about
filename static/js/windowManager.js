@@ -437,6 +437,24 @@
 
         storageSet(spansStoreKey, JSON.stringify(spansOut));
 
+        // Safety net: force the mosaic box to enclose its actual rendered content.
+        // The projects section is a flex sibling appended AFTER .mosaic, so if any
+        // plugin's real content ends up taller than its packed grid span (common on
+        // mobile, where narrow columns reflow taller than the server-measured
+        // height, or when async images load), the grid box would be too short and
+        // the projects tail would overlap the last rows. Measuring the true bottom
+        // and pinning min-height guarantees the tail always flows below.
+        let contentBottom = 0;
+        const mosaicTop = mosaic.getBoundingClientRect().top;
+        items.forEach((el) => {
+            const b = el.getBoundingClientRect().bottom - mosaicTop;
+            if (b > contentBottom) contentBottom = b;
+        });
+        if (contentBottom > 0) {
+            const mh = Math.ceil(contentBottom) + 'px';
+            if (mosaic.style.minHeight !== mh) mosaic.style.minHeight = mh;
+        }
+
         restoreScrollAnchor(anchor);
 
         phase = prevPhase === 'packing' ? 'idle' : prevPhase;

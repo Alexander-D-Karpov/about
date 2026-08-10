@@ -305,14 +305,22 @@
 .bike-rides-list::-webkit-scrollbar-track { background: transparent }
 .bike-rides-list::-webkit-scrollbar-thumb { background: var(--edge-2); border-radius: 2px }
 
-/* On mobile, don't trap the page scroll inside the rides list. */
-@media (max-width: 780px) {
-    .bike-rides-list {
-        height: auto;
-        max-height: none;
-        overflow: visible;
-    }
+/* Mobile: the rides list is collapsed by default (JS controls its height and
+   overflow inline) so it doesn't trap page scrolling; this styles the toggle. */
+.bike-rides-toggle {
+    display: none;
+    width: 100%;
+    margin-top: 8px;
+    padding: 8px 10px;
+    background: var(--bg-3);
+    border: 1px solid var(--edge-0);
+    border-radius: 8px;
+    color: var(--ink-2);
+    font: 600 12px/1 var(--mono);
+    cursor: pointer;
+    transition: border-color .12s ease, color .12s ease;
 }
+.bike-rides-toggle:hover { border-color: var(--edge-2); color: var(--ink); }
 
 .bike-ride-item {
     display: flex;

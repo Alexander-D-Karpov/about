@@ -152,21 +152,65 @@
     NS.setupRideListScrolling = function () {
         const list = document.querySelector('.bike-rides-list');
         if (!list) return;
-        // On mobile a fixed-height inner scroll box traps the page scroll, so
-        // let the list flow with the page instead.
-        if (window.matchMedia('(max-width: 780px)').matches) {
-            list.style.overflowY = 'visible';
-            list.style.overflowX = 'visible';
-            list.style.height = 'auto';
-            list.style.maxHeight = 'none';
+
+        if (!window.matchMedia('(max-width: 780px)').matches) {
+            // Desktop: fixed-height scroll box (mouse wheel is fine here).
+            list.style.overflowY = 'auto';
+            list.style.overflowX = 'hidden';
+            list.style.height = '280px';
+            list.style.maxHeight = '280px';
+            list.style.scrollBehavior = 'smooth';
+            list.style.webkitOverflowScrolling = 'touch';
+            list.style.overscrollBehavior = 'contain';
             return;
         }
-        list.style.overflowY = 'auto';
-        list.style.overflowX = 'hidden';
-        list.style.height = '280px';
-        list.style.maxHeight = '280px';
-        list.style.scrollBehavior = 'smooth';
-        list.style.webkitOverflowScrolling = 'touch';
+
+        // Mobile: collapse the list by default so it neither dominates the page
+        // nor traps page scrolling (a collapsed list has no inner scroll region).
+        // "Show all" expands into a bounded, opt-in scroll area with contained
+        // overscroll so a flick doesn't chain into the page.
+        if (list.dataset.mobileCollapse === '1') return;
+        list.dataset.mobileCollapse = '1';
+
+        const COLLAPSED = 3;
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'bike-rides-toggle';
+        let expanded = false;
+
+        const items = () => Array.from(list.querySelectorAll('.bike-ride-item'));
+
+        function apply() {
+            const its = items();
+            const hidden = Math.max(0, its.length - COLLAPSED);
+            if (expanded) {
+                its.forEach((el) => { el.style.display = ''; });
+                list.style.overflowY = 'auto';
+                list.style.overflowX = 'hidden';
+                list.style.height = 'auto';
+                list.style.maxHeight = '60vh';
+                list.style.overscrollBehavior = 'contain';
+                list.style.webkitOverflowScrolling = 'touch';
+                btn.textContent = 'Collapse rides ▴';
+            } else {
+                its.forEach((el, i) => { el.style.display = i < COLLAPSED ? '' : 'none'; });
+                list.style.overflowY = 'visible';
+                list.style.overflowX = 'visible';
+                list.style.height = 'auto';
+                list.style.maxHeight = 'none';
+                btn.textContent = 'Show all ' + its.length + ' rides ▾';
+            }
+            btn.style.display = hidden > 0 ? '' : 'none';
+            // Height changed -> ask the mosaic to re-pack so the layout (and the
+            // projects tail below it) stays correct.
+            if (window.mosaicUtils && window.mosaicUtils.notifyContentChanged) {
+                window.mosaicUtils.notifyContentChanged(list.closest('.plugin') || list);
+            }
+        }
+
+        btn.addEventListener('click', () => { expanded = !expanded; apply(); });
+        list.after(btn);
+        apply();
     };
 
     NS.decorateRideList = function () {
