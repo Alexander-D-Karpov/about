@@ -18,6 +18,11 @@ import (
 
 const maxRideCoords = 600
 
+// movingSpeedThresholdKmh is the segment speed below which the rider is treated
+// as stopped, so that time is excluded from "time in motion" (Strava-style
+// moving time). Kept in sync with NS.MOVE_MIN_KMH in static/js/bike/core.js.
+const movingSpeedThresholdKmh = 3.0
+
 type BikePlugin struct {
 	storage *storage.Storage
 	hub     *stream.Hub
@@ -85,16 +90,23 @@ func (p *BikePlugin) Render(ctx context.Context) (string, error) {
 		}
 	}
 
-	var totalElev, totalDur float64
+	var totalElev, totalDur, totalMoving float64
 	for _, r := range rides {
 		totalElev += r.ElevationGainM
 		totalDur += r.DurationMin
+		mt, ok := movingTimeMinutes(r.Coordinates)
+		if !ok {
+			mt = r.DurationMin // no timestamps: fall back to elapsed time
+		}
+		totalMoving += mt
 	}
 	avgDist := totalKm / float64(len(rides))
 
+	// Average speed uses time in motion (moving time), not total elapsed
+	// time, matching how Strava reports average speed.
 	avgSpeed := 0.0
-	if totalDur > 0 {
-		avgSpeed = totalKm / (totalDur / 60)
+	if totalMoving > 0 {
+		avgSpeed = totalKm / (totalMoving / 60)
 	}
 
 	displayRides := make([]BikeRide, len(rides))
@@ -257,14 +269,18 @@ func (p *BikePlugin) GetMetrics() map[string]interface{} {
 	cfg := p.storage.GetPluginConfig(p.Name())
 	rides := p.loadRides(cfg.Settings)
 	total := 0.0
-	var dur float64
+	var moving float64
 	for _, r := range rides {
 		total += r.DistanceKm
-		dur += r.DurationMin
+		mt, ok := movingTimeMinutes(r.Coordinates)
+		if !ok {
+			mt = r.DurationMin // no timestamps: fall back to elapsed time
+		}
+		moving += mt
 	}
 	avg := 0.0
-	if dur > 0 {
-		avg = total / (dur / 60)
+	if moving > 0 {
+		avg = total / (moving / 60)
 	}
 	return map[string]interface{}{
 		"total_rides":   len(rides),
@@ -419,6 +435,31 @@ func haversineKm(lat1, lon1, lat2, lon2 float64) float64 {
 		math.Cos(lat1*math.Pi/180)*math.Cos(lat2*math.Pi/180)*
 			math.Sin(dLon/2)*math.Sin(dLon/2)
 	return R * 2 * math.Atan2(math.Sqrt(a), math.Sqrt(1-a))
+}
+
+// movingTimeMinutes returns the time in motion (minutes) for a ride, summing
+// only the segments where the rider was actually moving (segment speed at or
+// above movingSpeedThresholdKmh). Coordinates must carry a per-point time
+// offset in seconds at index 3; ok is false when the ride has no usable
+// timestamps, in which case callers should fall back to elapsed duration.
+func movingTimeMinutes(coords [][]float64) (movingMin float64, ok bool) {
+	var movingSec float64
+	for i := 1; i < len(coords); i++ {
+		a, b := coords[i-1], coords[i]
+		if len(a) < 4 || len(b) < 4 {
+			continue
+		}
+		dt := b[3] - a[3]
+		if dt <= 0 {
+			continue
+		}
+		ok = true
+		d := haversineKm(a[0], a[1], b[0], b[1])
+		if d/(dt/3600) >= movingSpeedThresholdKmh {
+			movingSec += dt
+		}
+	}
+	return movingSec / 60, ok
 }
 
 func formatBikeDuration(min float64) string {

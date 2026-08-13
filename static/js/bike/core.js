@@ -29,6 +29,10 @@
     NS.SPEED_MAX = 40;
     NS.SPEED_BUCKET = 1.5;
     NS.SPEED_NOISE_CAP = 80;
+    // Segment speed (km/h) below which the rider counts as stopped; time under
+    // this is excluded from moving-time / average-speed. Matches
+    // movingSpeedThresholdKmh in internal/plugins/bike.go.
+    NS.MOVE_MIN_KMH = 3;
     NS.CELL_DEG = 0.0003;
 
     NS.CHART_H = 150;

@@ -118,6 +118,25 @@
         return lo;
     };
 
+    // movingSeconds sums only the time spent actually moving (segment speed at
+    // or above NS.MOVE_MIN_KMH), so average speed excludes stops — matching how
+    // Strava reports moving time. Returns null when the ride has no timestamps.
+    NS.movingSeconds = function (prof) {
+        if (!prof || !prof.hasTime) return null;
+        const pts = prof.points;
+        let moving = 0;
+        for (let i = 1; i < pts.length; i++) {
+            const a = pts[i - 1];
+            const b = pts[i];
+            if (a.t == null || b.t == null) continue;
+            const dt = b.t - a.t;
+            if (dt <= 0) continue;
+            const dd = b.dist - a.dist;
+            if (dd / (dt / 3600) >= NS.MOVE_MIN_KMH) moving += dt;
+        }
+        return moving > 0 ? moving : null;
+    };
+
     NS.summaryText = function (idx) {
         const ride = NS.state.rides[idx];
         const prof = NS.state.profiles[idx];
@@ -128,8 +147,12 @@
             '↑' + Number(ride.elevation_gain_m || 0).toFixed(0) + ' m'
         ];
 
-        if (ride.duration_minutes > 0) {
-            const avg = Number(ride.distance_km || 0) / (Number(ride.duration_minutes) / 60);
+        const dist = Number(ride.distance_km || prof.totalDist || 0);
+        const movingSec = NS.movingSeconds(prof);
+        if (movingSec) {
+            parts.push('avg ' + (dist / (movingSec / 3600)).toFixed(1) + ' km/h');
+        } else if (ride.duration_minutes > 0) {
+            const avg = dist / (Number(ride.duration_minutes) / 60);
             parts.push('avg ' + avg.toFixed(1) + ' km/h');
         } else if (!prof.hasTime) {
             parts.push('no timing data');
