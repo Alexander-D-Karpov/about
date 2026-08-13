@@ -12,12 +12,13 @@ PROD_SERVICE    := about-prod.service
 BUILD_ENV := CGO_ENABLED=0 GOOS=linux GOARCH=amd64
 BUILD_FLAGS := -trimpath -ldflags="-s -w"
 
-.PHONY: help build build-linux cli deploy deploy-prod _require-host
+.PHONY: help build build-linux cli cli-bike deploy deploy-prod _require-host
 
 help:
 	@echo "make build        - build ./main for the local OS"
 	@echo "make build-linux  - build ./main for linux/amd64 (server target)"
 	@echo "make cli          - build ./projects (the projects CLI)"
+	@echo "make cli-bike     - build ./bike (the bike rides / GPX-reprocess CLI)"
 	@echo "make deploy       - build + ship ./main to PREVIEW ($(PREVIEW_DIR)) and restart $(PREVIEW_SERVICE)"
 	@echo "make deploy-prod  - build + ship ./main to PROD ($(PROD_DIR)) and restart $(PROD_SERVICE)"
 	@echo "DEPLOY_HOST = $(DEPLOY_HOST)"
@@ -30,6 +31,9 @@ build-linux:
 
 cli:
 	go build $(BUILD_FLAGS) -o projects ./cmd/projects
+
+cli-bike:
+	go build $(BUILD_FLAGS) -o bike ./cmd/bike
 
 _require-host:
 	@test -n "$(DEPLOY_HOST)" || { echo "DEPLOY_HOST not set in .env"; exit 1; }
