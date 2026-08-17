@@ -1,0 +1,279 @@
+package plugins
+
+import (
+	"context"
+	"encoding/json"
+	"os"
+	"testing"
+	"time"
+
+	"github.com/Alexander-D-Karpov/about/internal/storage"
+	"github.com/Alexander-D-Karpov/about/internal/stream"
+)
+
+func newTestSteamPlugin(t *testing.T, settings map[string]interface{}) *SteamPlugin {
+	t.Helper()
+
+	// Not t.TempDir(): storage.SetPluginConfig spawns an async backup goroutine that can still be
+	// writing when the test ends, and t.TempDir fails the test if cleanup finds a non-empty dir.
+	dir, err := os.MkdirTemp("", "steamplugin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+
+	st := storage.New(dir)
+	if err := st.Load(); err != nil {
+		t.Fatal(err)
+	}
+	if settings != nil {
+		if err := st.SetPluginConfig("steam", &storage.PluginConfig{Enabled: true, Settings: settings}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Empty API key keeps the background loop and all network calls inert.
+	return NewSteamPlugin(st, stream.New(), "", dir)
+}
+
+func TestSteamApplyLibraryFiltersAndSorts(t *testing.T) {
+	p := newTestSteamPlugin(t, map[string]interface{}{
+		"steamid":     "123",
+		"hiddenGames": []interface{}{float64(2)},
+	})
+
+	p.applyLibrary([]SteamGame{
+		{AppID: 1, Name: "Middle", PlaytimeAll: 100},
+		{AppID: 2, Name: "Hidden", PlaytimeAll: 999},
+		{AppID: 3, Name: "Most", PlaytimeAll: 500},
+		{AppID: 4, Name: "Least", PlaytimeAll: 10},
+	})
+
+	games := p.snapshotGames()
+	if len(games) != 3 {
+		t.Fatalf("blacklisted game not filtered: got %d games", len(games))
+	}
+	if games[0].Name != "Most" || games[1].Name != "Middle" || games[2].Name != "Least" {
+		t.Fatalf("games not sorted by playtime desc: %v", []string{games[0].Name, games[1].Name, games[2].Name})
+	}
+	for _, g := range games {
+		if g.AppID == 2 {
+			t.Fatalf("hidden game leaked into the visible library")
+		}
+	}
+}
+
+func TestSteamHiddenGamesExcludedFromMetrics(t *testing.T) {
+	p := newTestSteamPlugin(t, map[string]interface{}{
+		"steamid":     "123",
+		"hiddenGames": []interface{}{float64(2)},
+	})
+	p.applyLibrary([]SteamGame{
+		{AppID: 1, PlaytimeAll: 60},
+		{AppID: 2, PlaytimeAll: 6000},
+	})
+
+	m := p.GetMetrics()
+	if hours := m["total_playtime_hours"].(float64); hours != 1 {
+		t.Fatalf("hidden game counted in playtime: %v", hours)
+	}
+
+	// The stats page pre-declares these four keys; they must keep existing.
+	for _, k := range []string{"is_online", "is_playing", "recent_games_count", "total_playtime_hours"} {
+		if _, ok := m[k]; !ok {
+			t.Fatalf("required metric %q missing", k)
+		}
+	}
+}
+
+func TestSteamUpdateDataReturnsImmediately(t *testing.T) {
+	p := newTestSteamPlugin(t, map[string]interface{}{"steamid": "123"})
+
+	done := make(chan struct{})
+	go func() {
+		_ = p.UpdateData(context.Background())
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("UpdateData blocked; it must return immediately so it cannot delay server start")
+	}
+}
+
+func TestSteamPlaytimeThisYearDelta(t *testing.T) {
+	p := newTestSteamPlugin(t, map[string]interface{}{"steamid": "123"})
+
+	p.applyLibrary([]SteamGame{
+		{AppID: 1, Name: "Played more", PlaytimeAll: 300},
+		{AppID: 2, Name: "Untouched", PlaytimeAll: 100},
+		{AppID: 3, Name: "New this year", PlaytimeAll: 45},
+	})
+	p.store.SetYearSnapshot(steamYearSnapshot{
+		Year:     time.Now().Year(),
+		Playtime: map[int]int{1: 200, 2: 100}, // appid 3 acquired after the snapshot
+		TakenAt:  time.Now().Add(-30 * 24 * time.Hour).Unix(),
+	})
+
+	yearly, _ := p.playtimeThisYear()
+	if yearly[1] != 100 {
+		t.Fatalf("expected 100 minutes this year for appid 1, got %d", yearly[1])
+	}
+	if _, ok := yearly[2]; ok {
+		t.Fatalf("game with no new playtime should be absent, got %d", yearly[2])
+	}
+	if yearly[3] != 45 {
+		t.Fatalf("game acquired after the snapshot should count fully, got %d", yearly[3])
+	}
+}
+
+func TestSteamPlaytimeThisYearIgnoresStaleSnapshot(t *testing.T) {
+	p := newTestSteamPlugin(t, map[string]interface{}{"steamid": "123"})
+	p.applyLibrary([]SteamGame{{AppID: 1, PlaytimeAll: 300}})
+	p.store.SetYearSnapshot(steamYearSnapshot{
+		Year:     time.Now().Year() - 1,
+		Playtime: map[int]int{1: 10},
+	})
+
+	if yearly, _ := p.playtimeThisYear(); len(yearly) != 0 {
+		t.Fatalf("last year's snapshot must not produce this-year figures: %v", yearly)
+	}
+}
+
+func TestSteamPatchFromRecentUpdatesPlaytime(t *testing.T) {
+	p := newTestSteamPlugin(t, map[string]interface{}{"steamid": "123"})
+
+	initial := []SteamGame{
+		{AppID: 1, Name: "Active", PlaytimeAll: 100, Playtime2w: 0, LastPlayed: 10},
+		{AppID: 2, Name: "Idle", PlaytimeAll: 50},
+	}
+	p.store.SetGames(initial)
+	p.applyLibrary(initial)
+
+	p.patchFromRecent([]SteamGame{
+		{AppID: 1, PlaytimeAll: 160, Playtime2w: 60, LastPlayed: 99},
+	})
+
+	games := p.snapshotGames()
+	var active SteamGame
+	for _, g := range games {
+		if g.AppID == 1 {
+			active = g
+		}
+	}
+	if active.PlaytimeAll != 160 || active.Playtime2w != 60 || active.LastPlayed != 99 {
+		t.Fatalf("recent playtime not patched in: %+v", active)
+	}
+
+	// It must also be persisted, so a restart keeps the fresher numbers.
+	stored, _ := p.store.Games()
+	for _, g := range stored {
+		if g.AppID == 1 && g.PlaytimeAll != 160 {
+			t.Fatalf("patched playtime not persisted: %+v", g)
+		}
+	}
+}
+
+func TestSteamPatchFromRecentNeverLowersTotal(t *testing.T) {
+	p := newTestSteamPlugin(t, map[string]interface{}{"steamid": "123"})
+	initial := []SteamGame{{AppID: 1, PlaytimeAll: 500, Playtime2w: 10}}
+	p.store.SetGames(initial)
+	p.applyLibrary(initial)
+
+	// A stale/partial response must not shrink a known total.
+	p.patchFromRecent([]SteamGame{{AppID: 1, PlaytimeAll: 5, Playtime2w: 2}})
+
+	if got := p.snapshotGames()[0].PlaytimeAll; got != 500 {
+		t.Fatalf("total playtime regressed to %d", got)
+	}
+}
+
+func TestSteamSetHiddenGamesRefiltersLibrary(t *testing.T) {
+	p := newTestSteamPlugin(t, map[string]interface{}{"steamid": "123"})
+	games := []SteamGame{{AppID: 1, PlaytimeAll: 10}, {AppID: 2, PlaytimeAll: 20}}
+	p.store.SetGames(games)
+	p.applyLibrary(games)
+
+	if len(p.snapshotGames()) != 2 {
+		t.Fatalf("setup failed")
+	}
+
+	p.SetHiddenGames([]int{1})
+	if got := len(p.snapshotGames()); got != 1 {
+		t.Fatalf("expected 1 visible game after hiding, got %d", got)
+	}
+
+	p.SetHiddenGames(nil)
+	if got := len(p.snapshotGames()); got != 2 {
+		t.Fatalf("expected 2 visible games after unhiding, got %d", got)
+	}
+}
+
+// Regression: Steam returns global achievement rarity as a JSON string ("64.4"), not a number.
+// Decoding it into float64 used to fail silently and made every achievement look 100% common.
+func TestSteamFlexFloatAcceptsStringAndNumber(t *testing.T) {
+	var resp steamGlobalPercentResponse
+	body := `{"achievementpercentages":{"achievements":[
+		{"name":"a","percent":"64.4"},
+		{"name":"b","percent":3.1},
+		{"name":"c","percent":"0"}
+	]}}`
+	if err := json.Unmarshal([]byte(body), &resp); err != nil {
+		t.Fatalf("failed to decode mixed string/number percentages: %v", err)
+	}
+
+	got := map[string]float64{}
+	for _, a := range resp.AchievementPercentages.Achievements {
+		got[a.Name] = float64(a.Percent)
+	}
+	if got["a"] != 64.4 || got["b"] != 3.1 || got["c"] != 0 {
+		t.Fatalf("unexpected parsed percentages: %v", got)
+	}
+}
+
+func TestSteamRarestOrdersByGlobalRarity(t *testing.T) {
+	p := newTestSteamPlugin(t, map[string]interface{}{"steamid": "123"})
+	games := []SteamGame{{AppID: 1, Name: "A"}, {AppID: 2, Name: "B"}}
+	p.store.SetGames(games)
+	p.applyLibrary(games)
+
+	p.store.SetAchievement(1, steamAchEntry{Available: true, Achieved: 1, Total: 1, Rarest: []SteamRarestAchievement{
+		{AppID: 1, Name: "common", GlobalPercent: 40},
+		{AppID: 1, Name: "rare", GlobalPercent: 2.5},
+	}})
+	p.store.SetAchievement(2, steamAchEntry{Available: true, Achieved: 1, Total: 1, Rarest: []SteamRarestAchievement{
+		{AppID: 2, Name: "rarest", GlobalPercent: 0.4},
+	}})
+
+	out := p.rarestAcrossLibrary(10)
+	if len(out) != 3 {
+		t.Fatalf("expected 3 achievements, got %d", len(out))
+	}
+	if out[0].Name != "rarest" || out[1].Name != "rare" || out[2].Name != "common" {
+		t.Fatalf("wrong rarity order: %v", []string{out[0].Name, out[1].Name, out[2].Name})
+	}
+}
+
+func TestSteamRarestExcludesHiddenGames(t *testing.T) {
+	p := newTestSteamPlugin(t, map[string]interface{}{
+		"steamid":     "123",
+		"hiddenGames": []interface{}{float64(2)},
+	})
+	games := []SteamGame{{AppID: 1, Name: "A"}, {AppID: 2, Name: "Hidden"}}
+	p.store.SetGames(games)
+	p.applyLibrary(games)
+
+	p.store.SetAchievement(1, steamAchEntry{Available: true, Rarest: []SteamRarestAchievement{{AppID: 1, Name: "keep", GlobalPercent: 5}}})
+	p.store.SetAchievement(2, steamAchEntry{Available: true, Rarest: []SteamRarestAchievement{{AppID: 2, Name: "drop", GlobalPercent: 0.1}}})
+
+	out := p.rarestAcrossLibrary(10)
+	if len(out) != 1 || out[0].Name != "keep" {
+		t.Fatalf("hidden game leaked into the rarest showcase: %+v", out)
+	}
+
+	unlocked, _, _, enriched := p.achievementSummary()
+	if enriched != 1 {
+		t.Fatalf("hidden game counted in the achievement summary (enriched=%d, unlocked=%d)", enriched, unlocked)
+	}
+}

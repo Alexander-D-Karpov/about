@@ -58,7 +58,7 @@ func NewHandler(storage *storage.Storage, pluginManager *plugins.Manager, config
 	}
 
 	tmplMap := make(map[string]*template.Template)
-	for _, name := range []string{"admin", "admin_projects"} {
+	for _, name := range []string{"admin", "admin_projects", "admin_steam"} {
 		t, err := template.New(name+".html").Funcs(funcMap).ParseFS(templates, "templates/"+name+".html")
 		if err != nil {
 			panic(fmt.Sprintf("Failed to parse %s template: %v", name, err))
@@ -102,6 +102,14 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.uploadFileAPI(w, r)
 	case path == "/api/refresh" && r.Method == "POST":
 		h.refreshConfigAPI(w, r)
+	case path == "/steam":
+		h.steamAdmin(w, r)
+	case path == "/api/steam/games" && r.Method == "GET":
+		h.getSteamGamesAPI(w, r)
+	case path == "/api/steam" && r.Method == "POST":
+		h.saveSteamAPI(w, r)
+	case path == "/api/steam/sync" && r.Method == "POST":
+		h.syncSteamAPI(w, r)
 	case path == "/api/bike/upload-gpx" && r.Method == "POST":
 		h.uploadGPXAPI_Bike(w, r)
 	case path == "/api/bike/reprocess-gpx" && r.Method == "POST":
@@ -554,6 +562,9 @@ var hiddenSettingKeys = map[string][]string{
 		"last_persist", "last_reset_date", "last_workout",
 	},
 	"code": {"gitStatsCache"},
+	// access_token has no "cache" in its name, so it must be listed explicitly or it would render
+	// as an editable blob on the main dashboard and be wiped on save.
+	"steam": {"access_token"},
 }
 
 func isHiddenSettingKey(pluginName, key string) bool {

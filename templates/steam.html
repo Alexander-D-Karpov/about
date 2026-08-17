@@ -1,0 +1,515 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{ .Title }}</title>
+<link rel="icon" type="image/x-icon" href="/favicon.ico">
+<style>
+:root{
+  --bg:#0a0c10; --bg-2:#12161c; --card:#161b22; --hover:#1c2128;
+  --fg:#e6edf3; --fg-2:#8b949e; --fg-3:#6e7681;
+  --steam:#66c0f4; --green:#3fb950; --purple:#a371f7; --gold:#ffd166; --red:#f85149;
+  --edge:rgba(240,246,252,.10); --edge-2:rgba(240,246,252,.06);
+  --mono:ui-monospace,"JetBrains Mono","SF Mono",SFMono-Regular,Menlo,Consolas,monospace;
+  --sans:system-ui,-apple-system,"Segoe UI",Inter,Roboto,Helvetica,Arial,sans-serif;
+  --r:10px;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{
+  background:var(--bg); color:var(--fg); font-family:var(--sans);
+  font-size:15px; line-height:1.5; -webkit-font-smoothing:antialiased;
+}
+a{color:inherit}
+.wrap{max-width:1320px;margin:0 auto;padding:28px 20px 80px}
+
+/* ---------- header ---------- */
+.top{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:26px}
+.back{
+  font-family:var(--mono);font-size:12px;color:var(--fg-2);text-decoration:none;
+  border:1px solid var(--edge);border-radius:99px;padding:6px 13px;transition:.18s;
+}
+.back:hover{color:var(--fg);border-color:var(--steam);background:var(--hover)}
+h1{
+  font-size:clamp(22px,3.6vw,32px);margin:0;font-weight:700;letter-spacing:-.02em;
+}
+.title-mark{color:var(--steam)}
+
+/* stat row: data reads as telemetry, so tabular monospace */
+.stats{
+  display:flex;flex-wrap:wrap;gap:0;margin-bottom:26px;
+  border:1px solid var(--edge);border-radius:var(--r);overflow:hidden;background:var(--bg-2);
+}
+.stat{flex:1 1 150px;padding:14px 16px;border-right:1px solid var(--edge-2);min-width:0}
+.stat:last-child{border-right:none}
+.stat-v{
+  font-family:var(--mono);font-size:clamp(17px,2.4vw,23px);font-weight:600;
+  font-variant-numeric:tabular-nums;letter-spacing:-.02em;line-height:1.2;
+}
+.stat-l{font-size:11px;color:var(--fg-3);text-transform:uppercase;letter-spacing:.09em;margin-top:4px}
+
+/* ---------- now playing ---------- */
+.now{
+  display:flex;gap:16px;align-items:center;padding:14px;margin-bottom:26px;
+  border:1px solid rgba(63,185,80,.35);border-radius:var(--r);
+  background:linear-gradient(90deg,rgba(63,185,80,.10),transparent 60%);
+}
+.now img{width:132px;height:62px;object-fit:cover;border-radius:6px;flex-shrink:0}
+.now-l{font-family:var(--mono);font-size:11px;color:var(--green);text-transform:uppercase;letter-spacing:.09em}
+.now-n{font-size:17px;font-weight:600;margin-top:2px}
+.dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--green);margin-right:7px;animation:pulse 2s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+
+/* ---------- section headings ---------- */
+.sec{margin-bottom:30px}
+.sec-h{
+  display:flex;align-items:baseline;gap:10px;margin-bottom:13px;
+  font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:.11em;color:var(--fg-2);
+}
+.sec-h::after{content:"";flex:1;height:1px;background:var(--edge-2)}
+.sec-note{font-family:var(--mono);font-size:10px;color:var(--fg-3);text-transform:none;letter-spacing:.03em}
+
+/* ---------- rarest achievements strip ---------- */
+.rare-strip{display:flex;gap:10px;overflow-x:auto;padding-bottom:6px;scrollbar-width:thin}
+.rare{
+  flex:0 0 auto;width:198px;display:flex;gap:10px;align-items:center;padding:9px;
+  background:var(--card);border:1px solid var(--edge);border-radius:var(--r);
+}
+.rare img{width:38px;height:38px;border-radius:6px;flex-shrink:0;background:var(--bg-2)}
+.rare-b{min-width:0}
+.rare-n{font-size:12.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rare-g{font-size:11px;color:var(--fg-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rare-p{font-family:var(--mono);font-size:11px;font-weight:600;font-variant-numeric:tabular-nums}
+
+/* ---------- top this year ---------- */
+.year-list{display:flex;flex-direction:column;gap:9px}
+.year-row{display:flex;align-items:center;gap:12px}
+.year-name{flex:0 0 auto;width:min(210px,38vw);font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.year-bar{flex:1;height:8px;background:var(--bg-2);border-radius:99px;overflow:hidden}
+.year-fill{height:100%;background:linear-gradient(90deg,var(--steam),var(--purple));border-radius:99px}
+.year-h{font-family:var(--mono);font-size:12px;color:var(--fg-2);font-variant-numeric:tabular-nums;flex:0 0 auto;width:58px;text-align:right}
+
+/* ---------- controls ---------- */
+.controls{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:18px}
+.search{
+  flex:1 1 230px;min-width:0;background:var(--bg-2);border:1px solid var(--edge);color:var(--fg);
+  padding:9px 13px;border-radius:8px;font-family:var(--sans);font-size:14px;
+}
+.search:focus{outline:2px solid var(--steam);outline-offset:1px;border-color:transparent}
+select.sort{
+  background:var(--bg-2);border:1px solid var(--edge);color:var(--fg);
+  padding:9px 11px;border-radius:8px;font-size:13.5px;font-family:var(--sans);cursor:pointer;
+}
+select.sort:focus{outline:2px solid var(--steam);outline-offset:1px}
+.chips{display:flex;gap:7px;flex-wrap:wrap}
+.chip{
+  background:transparent;border:1px solid var(--edge);color:var(--fg-2);
+  padding:7px 13px;border-radius:99px;font-size:12.5px;cursor:pointer;
+  font-family:var(--mono);letter-spacing:.02em;transition:.16s;
+}
+.chip:hover{color:var(--fg);border-color:var(--fg-3)}
+.chip[aria-pressed="true"]{background:var(--steam);border-color:var(--steam);color:#04131f;font-weight:600}
+.chip:focus-visible,.back:focus-visible{outline:2px solid var(--steam);outline-offset:2px}
+
+/* ---------- grid + cards ---------- */
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(238px,1fr));gap:15px}
+.card{
+  background:var(--card);border:1px solid var(--edge);border-radius:var(--r);
+  overflow:hidden;display:flex;flex-direction:column;
+  opacity:0;transform:translateY(8px);transition:opacity .32s ease,transform .32s ease;
+}
+.card.in{opacity:1;transform:none}
+.card:hover{border-color:rgba(102,192,244,.42)}
+.shot{position:relative;aspect-ratio:460/215;background:var(--bg-2);overflow:hidden}
+.shot img{width:100%;height:100%;object-fit:cover;display:block;transition:transform .35s ease}
+.card:hover .shot img{transform:scale(1.035)}
+.badge{
+  position:absolute;top:8px;right:8px;font-family:var(--mono);font-size:10px;
+  background:rgba(10,12,16,.82);border:1px solid var(--edge);color:var(--purple);
+  padding:2px 7px;border-radius:99px;backdrop-filter:blur(3px);
+}
+.body{padding:12px 13px 13px;display:flex;flex-direction:column;gap:9px;flex:1}
+.name{font-size:14px;font-weight:600;line-height:1.3}
+
+/* SIGNATURE: the playtime spine — length encodes hours vs the most-played game */
+.spine{height:2px;background:var(--edge-2);border-radius:2px;overflow:hidden}
+.spine i{display:block;height:100%;background:var(--steam);border-radius:2px}
+
+.meta{display:grid;grid-template-columns:1fr 1fr;gap:5px 10px;font-family:var(--mono);font-size:11px;color:var(--fg-3)}
+.meta b{color:var(--fg-2);font-weight:600;font-variant-numeric:tabular-nums}
+.hours{font-family:var(--mono);font-size:15px;font-weight:600;font-variant-numeric:tabular-nums;letter-spacing:-.01em}
+.hours span{font-size:11px;color:var(--fg-3);font-weight:400}
+.acts{display:flex;gap:7px;margin-top:auto;padding-top:2px}
+.btn{
+  flex:1 1 auto;text-align:center;text-decoration:none;font-size:12px;padding:7px 6px;border-radius:7px;
+  border:1px solid var(--edge);color:var(--fg-2);background:transparent;cursor:pointer;
+  font-family:var(--sans);transition:.16s;white-space:nowrap;
+}
+.btn:hover{background:var(--hover);color:var(--fg);border-color:var(--fg-3)}
+.btn-p{border-color:rgba(102,192,244,.4);color:var(--steam)}
+.btn-p:hover{background:rgba(102,192,244,.12);border-color:var(--steam)}
+.btn:focus-visible{outline:2px solid var(--steam);outline-offset:2px}
+
+/* achievements panel */
+.ach{border-top:1px solid var(--edge-2);padding-top:10px;display:flex;flex-direction:column;gap:8px}
+.ach-top{display:flex;justify-content:space-between;font-family:var(--mono);font-size:11px;color:var(--fg-2)}
+.ach-bar{height:5px;background:var(--bg-2);border-radius:99px;overflow:hidden}
+.ach-fill{height:100%;background:linear-gradient(90deg,var(--steam),var(--green));border-radius:99px}
+.ach-list{display:flex;flex-direction:column;gap:7px}
+.ach-i{display:flex;gap:8px;align-items:center}
+.ach-i img{width:26px;height:26px;border-radius:4px;flex-shrink:0;background:var(--bg-2)}
+.ach-n{font-size:11.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ach-p{font-family:var(--mono);font-size:10.5px;font-variant-numeric:tabular-nums;flex-shrink:0}
+
+/* states */
+.msg{padding:44px 20px;text-align:center;color:var(--fg-3);font-family:var(--mono);font-size:13px}
+.sentinel{height:1px}
+.spinner{
+  width:20px;height:20px;margin:22px auto;border:2px solid var(--edge);
+  border-top-color:var(--steam);border-radius:50%;animation:spin .8s linear infinite;
+}
+@keyframes spin{to{transform:rotate(360deg)}}
+.hide{display:none !important}
+
+@media (max-width:560px){
+  .wrap{padding:20px 14px 60px}
+  .stat{flex:1 1 50%;border-right:none;border-bottom:1px solid var(--edge-2)}
+  .now img{width:96px;height:46px}
+  .year-name{width:40vw}
+  .grid{grid-template-columns:repeat(auto-fill,minmax(min(100%,215px),1fr));gap:12px}
+}
+@media (prefers-reduced-motion:reduce){
+  *{animation-duration:.01ms !important;transition-duration:.01ms !important}
+  .card{opacity:1;transform:none}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="top">
+    <a class="back" href="/">&larr; back</a>
+    <h1>Steam <span class="title-mark">library</span></h1>
+  </div>
+
+  <div class="stats" id="stats"></div>
+  <div id="now"></div>
+
+  <section class="sec hide" id="rare-sec">
+    <div class="sec-h">Rarest unlocks <span class="sec-note" id="rare-note"></span></div>
+    <div class="rare-strip" id="rare"></div>
+  </section>
+
+  <section class="sec hide" id="year-sec">
+    <div class="sec-h">Most played <span id="year-label"></span> <span class="sec-note" id="year-note"></span></div>
+    <div class="year-list" id="year"></div>
+  </section>
+
+  <section class="sec">
+    <div class="controls">
+      <input class="search" id="q" type="search" placeholder="Search games" aria-label="Search games">
+      <select class="sort" id="sort" aria-label="Sort by">
+        <option value="playtime">Most played</option>
+        <option value="recent">Recently played</option>
+        <option value="year">Most played this year</option>
+        <option value="added">Recently added</option>
+        <option value="ach">Achievement %</option>
+        <option value="name">Name</option>
+      </select>
+      <div class="chips" id="chips">
+        <button class="chip" data-f="all" aria-pressed="true">All</button>
+        <button class="chip" data-f="played" aria-pressed="false">Played</button>
+        <button class="chip" data-f="unplayed" aria-pressed="false">Unplayed</button>
+        <button class="chip" data-f="stats" aria-pressed="false">Achievements</button>
+        <button class="chip" data-f="family" aria-pressed="false">Family</button>
+      </div>
+    </div>
+
+    <div class="grid" id="grid"></div>
+    <div class="spinner hide" id="spin"></div>
+    <div class="msg hide" id="msg"></div>
+    <div class="sentinel" id="sentinel"></div>
+  </section>
+
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  var PAGE = 40;
+  var state = { offset:0, q:"", sort:"playtime", filter:"all", loading:false, hasMore:true, max:0, seeded:false };
+
+  var grid = document.getElementById("grid");
+  var spin = document.getElementById("spin");
+  var msg  = document.getElementById("msg");
+
+  function h(mins){
+    var v = (mins||0)/60;
+    if(v >= 100) return Math.round(v).toLocaleString();
+    if(v >= 10)  return v.toFixed(1);
+    if(v > 0)    return v.toFixed(1);
+    return "0";
+  }
+  function when(ts){
+    if(!ts) return "never";
+    var d = new Date(ts*1000);
+    return d.toLocaleDateString(undefined,{month:"short", year:"numeric"});
+  }
+  function rarityColor(p){
+    if(p < 1)  return "var(--gold)";
+    if(p < 5)  return "var(--purple)";
+    if(p < 15) return "var(--steam)";
+    return "var(--fg-3)";
+  }
+  function esc(s){
+    return String(s==null?"":s).replace(/[&<>"']/g, function(c){
+      return {"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c];
+    });
+  }
+
+  // Walk the fallback chain: header -> library capsule -> icon -> initial placeholder.
+  function attachImage(img, sources, name){
+    var i = 0;
+    img.addEventListener("error", function(){
+      i++;
+      if(i < sources.length){ img.src = sources[i]; return; }
+      img.removeAttribute("src");
+      img.parentNode.style.display = "flex";
+      img.parentNode.style.alignItems = "center";
+      img.parentNode.style.justifyContent = "center";
+      img.parentNode.innerHTML = '<span style="font:600 30px var(--sans);color:var(--fg-3)">'+esc((name||"?").charAt(0).toUpperCase())+'</span>';
+    });
+    img.src = sources[0];
+  }
+
+  var io = ("IntersectionObserver" in window) ? new IntersectionObserver(function(es){
+    es.forEach(function(e){ if(e.isIntersecting){ e.target.classList.add("in"); io.unobserve(e.target); } });
+  }, {rootMargin:"60px"}) : null;
+
+  function card(g){
+    var el = document.createElement("article");
+    el.className = "card";
+
+    var pct = state.max > 0 ? Math.max(1.5, (g.playtimeForever/state.max)*100) : 0;
+    var added = g.addedAt ? when(g.addedAt) : "unknown";
+    var addedLabel = g.addedIsFirstSeen ? "in library since" : "added";
+
+    el.innerHTML =
+      '<div class="shot">'+
+        (g.source === "family" ? '<span class="badge">family</span>' : '')+
+        '<img alt="" loading="lazy" decoding="async">'+
+      '</div>'+
+      '<div class="body">'+
+        '<div class="name">'+esc(g.name)+'</div>'+
+        (pct>0 ? '<div class="spine"><i style="width:'+pct.toFixed(2)+'%"></i></div>' : '')+
+        '<div class="hours">'+h(g.playtimeForever)+'<span> h total</span></div>'+
+        '<div class="meta">'+
+          '<div>'+addedLabel+'<br><b>'+added+'</b></div>'+
+          '<div>last played<br><b>'+when(g.lastPlayed)+'</b></div>'+
+          (g.playtime2w ? '<div>last 2 weeks<br><b>'+h(g.playtime2w)+' h</b></div>' : '')+
+          (g.playtimeYear ? '<div>this year<br><b>'+h(g.playtimeYear)+' h</b></div>' : '')+
+        '</div>'+
+        '<div class="ach-slot"></div>'+
+        '<div class="acts">'+
+          '<a class="btn btn-p" href="'+esc(g.storeUrl)+'" target="_blank" rel="noopener">View on Steam</a>'+
+          (g.hasStats ? '<button class="btn js-ach" aria-expanded="false">Achievements</button>' : '')+
+        '</div>'+
+      '</div>';
+
+    var img = el.querySelector(".shot img");
+    img.alt = g.name;
+    attachImage(img, [g.img].concat(g.imgFallbacks||[]), g.name);
+
+    var btn = el.querySelector(".js-ach");
+    if(btn) btn.addEventListener("click", function(){ toggleAch(btn, el, g); });
+
+    if(io) io.observe(el); else el.classList.add("in");
+    return el;
+  }
+
+  function toggleAch(btn, el, g){
+    var slot = el.querySelector(".ach-slot");
+    if(btn.getAttribute("aria-expanded") === "true"){
+      slot.innerHTML = "";
+      btn.setAttribute("aria-expanded","false");
+      btn.textContent = "Achievements";
+      return;
+    }
+    btn.setAttribute("aria-expanded","true");
+    btn.textContent = "Hide";
+    slot.innerHTML = '<div class="ach"><div class="ach-top"><span>loading…</span></div></div>';
+
+    fetch("/api/steam/achievements?appid="+g.appid)
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        if(!d.available){
+          slot.innerHTML = '<div class="ach"><div class="ach-top"><span>No achievement data</span></div></div>';
+          return;
+        }
+        var rows = (d.rarest||[]).map(function(a){
+          return '<div class="ach-i">'+
+            (a.icon ? '<img src="'+esc(a.icon)+'" alt="" loading="lazy">' : '<img alt="">')+
+            '<div style="min-width:0;flex:1"><div class="ach-n">'+esc(a.name)+'</div></div>'+
+            '<div class="ach-p" style="color:'+rarityColor(a.globalPercent)+'">'+a.globalPercent.toFixed(1)+'%</div>'+
+          '</div>';
+        }).join("");
+
+        slot.innerHTML =
+          '<div class="ach">'+
+            '<div class="ach-top"><span>'+d.achieved+' / '+d.total+' unlocked</span><span>'+d.percent.toFixed(0)+'%</span></div>'+
+            '<div class="ach-bar"><div class="ach-fill" style="width:'+d.percent.toFixed(1)+'%"></div></div>'+
+            (rows ? '<div class="ach-list">'+rows+'</div>' : '')+
+          '</div>';
+      })
+      .catch(function(){
+        slot.innerHTML = '<div class="ach"><div class="ach-top"><span>Couldn\'t load achievements</span></div></div>';
+      });
+  }
+
+  function renderStats(s){
+    if(state.seeded) return;
+    state.seeded = true;
+
+    // Achievement totals only cover games scanned so far, so say that rather than imply completeness.
+    var scanned = s.pendingEnrichment > 0
+      ? "achievements · " + s.gamesEnriched + " of " + (s.gamesEnriched + s.pendingEnrichment) + " games scanned"
+      : "achievements";
+
+    var tiles = [
+      [s.totalGames.toLocaleString(), "games"],
+      [Math.round(s.totalPlaytimeHours).toLocaleString(), "hours played"],
+      [s.playedGames.toLocaleString(), "played"],
+      [s.achievementsUnlocked.toLocaleString(), scanned],
+      [s.perfectGames.toLocaleString(), "100% games"]
+    ];
+    document.getElementById("stats").innerHTML = tiles.map(function(t){
+      return '<div class="stat"><div class="stat-v">'+t[0]+'</div><div class="stat-l">'+t[1]+'</div></div>';
+    }).join("");
+
+    var c = s.current || {};
+    if(c.playing){
+      document.getElementById("now").innerHTML =
+        '<div class="now">'+
+          (c.gameImage ? '<img src="'+esc(c.gameImage)+'" alt="">' : '')+
+          '<div><div class="now-l"><span class="dot"></span>now playing</div>'+
+          '<div class="now-n">'+esc(c.gameName)+'</div></div>'+
+        '</div>';
+    }
+
+    var rare = s.rarest || [];
+    if(rare.length){
+      document.getElementById("rare-sec").classList.remove("hide");
+      document.getElementById("rare-note").textContent = "by global unlock rate";
+      document.getElementById("rare").innerHTML = rare.map(function(a){
+        return '<div class="rare">'+
+          (a.icon ? '<img src="'+esc(a.icon)+'" alt="" loading="lazy">' : '<img alt="">')+
+          '<div class="rare-b">'+
+            '<div class="rare-n">'+esc(a.name)+'</div>'+
+            '<div class="rare-g">'+esc(a.gameName)+'</div>'+
+            '<div class="rare-p" style="color:'+rarityColor(a.globalPercent)+'">'+a.globalPercent.toFixed(1)+'% of players</div>'+
+          '</div>'+
+        '</div>';
+      }).join("");
+    }
+
+    var yr = s.topThisYear || [];
+    if(yr.length){
+      document.getElementById("year-sec").classList.remove("hide");
+      document.getElementById("year-label").textContent = "in " + s.year;
+      if(s.yearSnapshotAt){
+        document.getElementById("year-note").textContent =
+          "tracked since " + new Date(s.yearSnapshotAt*1000).toLocaleDateString(undefined,{month:"short",day:"numeric",year:"numeric"});
+      }
+      var top = yr[0].minutes || 1;
+      document.getElementById("year").innerHTML = yr.map(function(g){
+        return '<div class="year-row">'+
+          '<div class="year-name">'+esc(g.name)+'</div>'+
+          '<div class="year-bar"><div class="year-fill" style="width:'+((g.minutes/top)*100).toFixed(1)+'%"></div></div>'+
+          '<div class="year-h">'+h(g.minutes)+' h</div>'+
+        '</div>';
+      }).join("");
+    }
+  }
+
+  function load(){
+    if(state.loading || !state.hasMore) return;
+    state.loading = true;
+    spin.classList.remove("hide");
+    msg.classList.add("hide");
+
+    var url = "/api/steam/games?offset="+state.offset+"&limit="+PAGE+
+              "&sort="+encodeURIComponent(state.sort)+
+              "&filter="+encodeURIComponent(state.filter)+
+              "&q="+encodeURIComponent(state.q);
+
+    fetch(url).then(function(r){ return r.json(); }).then(function(d){
+      if(d.stats) renderStats(d.stats);
+
+      // Anchor the spine scale once, to the most-played game in the library.
+      if(!state.max && state.sort === "playtime" && !state.q && state.filter === "all" && d.games.length){
+        state.max = d.games[0].playtimeForever || 0;
+      }
+
+      var frag = document.createDocumentFragment();
+      d.games.forEach(function(g){ frag.appendChild(card(g)); });
+      grid.appendChild(frag);
+
+      state.offset += d.games.length;
+      state.hasMore = d.hasMore;
+      state.loading = false;
+      spin.classList.add("hide");
+
+      if(state.offset === 0){
+        msg.textContent = state.q ? "No games match that search." : "No games in the library yet.";
+        msg.classList.remove("hide");
+      }
+    }).catch(function(){
+      state.loading = false;
+      state.hasMore = false;
+      spin.classList.add("hide");
+      msg.textContent = "Couldn't load the library. Reload to try again.";
+      msg.classList.remove("hide");
+    });
+  }
+
+  function reset(){
+    state.offset = 0; state.hasMore = true;
+    grid.innerHTML = "";
+    load();
+  }
+
+  var t;
+  document.getElementById("q").addEventListener("input", function(e){
+    clearTimeout(t);
+    var v = e.target.value;
+    t = setTimeout(function(){ state.q = v; reset(); }, 240);
+  });
+  document.getElementById("sort").addEventListener("change", function(e){
+    state.sort = e.target.value; reset();
+  });
+  document.getElementById("chips").addEventListener("click", function(e){
+    var b = e.target.closest(".chip");
+    if(!b) return;
+    Array.prototype.forEach.call(this.querySelectorAll(".chip"), function(c){ c.setAttribute("aria-pressed","false"); });
+    b.setAttribute("aria-pressed","true");
+    state.filter = b.dataset.f;
+    reset();
+  });
+
+  if("IntersectionObserver" in window){
+    new IntersectionObserver(function(es){
+      if(es[0].isIntersecting) load();
+    }, {rootMargin:"400px"}).observe(document.getElementById("sentinel"));
+  } else {
+    window.addEventListener("scroll", function(){
+      if(window.innerHeight + window.scrollY >= document.body.offsetHeight - 500) load();
+    });
+  }
+
+  load();
+})();
+</script>
+</body>
+</html>

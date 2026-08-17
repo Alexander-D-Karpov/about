@@ -255,3 +255,20 @@
         grid-template-columns: 1fr;
     }
 }
+
+/* Actions row: "View all games" sits beside the profile link. */
+.steam-section .steam-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 12px;
+}
+
+.steam-section .steam-actions > a {
+    flex: 1 1 auto;
+    text-align: center;
+}
+
+.steam-section .steam-all-games-btn {
+    white-space: nowrap;
+}

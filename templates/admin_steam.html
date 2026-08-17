@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Steam Admin</title>
+<link rel="stylesheet" href="/static/css/admin.css">
+<style>
+  .steam-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px;margin-bottom:20px}
+  .steam-stat{padding:12px 14px;border:1px solid var(--edge-1);border-radius:8px}
+  .steam-stat .v{font-size:20px;font-weight:600}
+  .steam-stat .l{font-size:11px;text-transform:uppercase;letter-spacing:.08em;opacity:.65;margin-top:3px}
+  .pill{display:inline-block;padding:2px 9px;border-radius:99px;font-size:11px;font-weight:600}
+  .pill.ok{background:rgba(63,185,80,.16);color:#3fb950}
+  .pill.warn{background:rgba(210,153,34,.16);color:#d29922}
+  .pill.off{background:rgba(139,148,158,.16);color:#8b949e}
+  .card-box{border:1px solid var(--edge-1);border-radius:10px;padding:16px;margin-bottom:20px}
+  .card-box h2{margin:0 0 4px;font-size:15px}
+  .card-box p.hint{margin:0 0 14px;font-size:12.5px;opacity:.7;line-height:1.5}
+  .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+  .row input[type=password],.row input[type=text]{flex:1 1 260px;min-width:0}
+  .game-list{max-height:560px;overflow:auto;border:1px solid var(--edge-1);border-radius:8px}
+  .game-row{display:flex;align-items:center;gap:11px;padding:8px 12px;border-bottom:1px solid var(--edge-1)}
+  .game-row:last-child{border-bottom:none}
+  .game-row img{width:30px;height:30px;border-radius:5px;flex-shrink:0;background:rgba(255,255,255,.05)}
+  .game-row .nm{flex:1;min-width:0;font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .game-row .hrs{font-size:12px;opacity:.6;flex-shrink:0;font-variant-numeric:tabular-nums}
+  .game-row.hidden-game{opacity:.5}
+  .tag{font-size:10px;padding:1px 6px;border-radius:99px;background:rgba(163,113,247,.18);color:#a371f7}
+  .list-head{display:flex;gap:10px;align-items:center;margin-bottom:10px;flex-wrap:wrap}
+  .list-head input{flex:1 1 220px}
+  .count{font-size:12px;opacity:.65}
+</style>
+</head>
+<body>
+<div class="header">
+  <div class="header-inner">
+    <h1>Steam</h1>
+    <div class="header-actions">
+      <button class="btn btn-primary" onclick="saveSteam()">Save changes</button>
+      <button class="btn btn-secondary" onclick="syncNow()">Sync library now</button>
+      <button class="btn btn-secondary" onclick="window.open('/steam','_blank')">View page</button>
+      <button class="btn btn-secondary" onclick="window.location.href='/admin'">Back to admin</button>
+    </div>
+  </div>
+</div>
+
+<div class="container">
+  {{if .Missing}}
+    <div class="card-box"><h2>Steam plugin not loaded</h2>
+    <p class="hint">The Steam plugin is not registered, so there is nothing to configure here.</p></div>
+  {{else}}
+
+  <div class="steam-grid" id="status-grid"></div>
+
+  <div class="card-box">
+    <h2>Family library access token</h2>
+    <p class="hint">
+      Steam Family shared games need a logged-in session token, which is separate from the API key and
+      expires after a few hours or days. While it is valid, shared games are merged into the library.
+      When it expires, the library falls back to your own games automatically.
+      The stored token is never displayed.
+    </p>
+    <div class="row">
+      <input type="password" id="token" placeholder="{{if .HasToken}}Token stored — leave blank to keep it{{else}}Paste access token{{end}}" autocomplete="off">
+      <button class="btn btn-secondary" onclick="clearToken()">Clear token</button>
+    </div>
+  </div>
+
+  <div class="card-box">
+    <h2>Hidden games</h2>
+    <p class="hint">
+      Steam does not expose which games you hid in the client, so pick them here. Checked games are
+      removed from the public library page and from all totals.
+    </p>
+    <div class="list-head">
+      <input type="text" id="filter" class="search-input" placeholder="Search games...">
+      <span class="count" id="count"></span>
+    </div>
+    <div class="game-list" id="games"></div>
+  </div>
+
+  {{end}}
+</div>
+
+<script>
+(function(){
+  "use strict";
+  var games = [];
+  var hidden = {};
+
+  function esc(s){
+    return String(s==null?"":s).replace(/[&<>"']/g,function(c){
+      return {"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c];
+    });
+  }
+
+  function pill(state){
+    if(state === "valid") return '<span class="pill ok">valid</span>';
+    if(state === "expired") return '<span class="pill warn">expired</span>';
+    return '<span class="pill off">not set</span>';
+  }
+
+  function renderStatus(s){
+    var last = s.lastFullSync ? new Date(s.lastFullSync*1000).toLocaleString() : "never";
+    var tiles = [
+      ["<div class=\"v\">"+s.games+"</div><div class=\"l\">visible games</div>"],
+      ["<div class=\"v\">"+s.totalLibrary+"</div><div class=\"l\">in library</div>"],
+      ["<div class=\"v\">"+s.familyApps+"</div><div class=\"l\">family shared</div>"],
+      ["<div class=\"v\">"+s.pending+"</div><div class=\"l\">pending achievement sync</div>"],
+      ["<div class=\"v\">"+pill(s.tokenState)+"</div><div class=\"l\">family token</div>"],
+      ["<div class=\"v\" style=\"font-size:13px\">"+last+"</div><div class=\"l\">last full sync</div>"]
+    ];
+    document.getElementById("status-grid").innerHTML = tiles.map(function(t){
+      return '<div class="steam-stat">'+t[0]+'</div>';
+    }).join("");
+  }
+
+  function renderGames(){
+    var q = document.getElementById("filter").value.toLowerCase().trim();
+    var list = games.filter(function(g){ return !q || g.name.toLowerCase().indexOf(q) !== -1; });
+
+    document.getElementById("games").innerHTML = list.map(function(g){
+      return '<label class="game-row'+(hidden[g.appid]?' hidden-game':'')+'" data-id="'+g.appid+'">'+
+        '<input type="checkbox" data-id="'+g.appid+'"'+(hidden[g.appid]?' checked':'')+'>'+
+        (g.icon ? '<img src="'+esc(g.icon)+'" alt="" loading="lazy">' : '<img alt="">')+
+        '<span class="nm">'+esc(g.name)+'</span>'+
+        (g.source === "family" ? '<span class="tag">family</span>' : '')+
+        '<span class="hrs">'+esc(g.hours)+'</span>'+
+      '</label>';
+    }).join("");
+
+    var hiddenCount = Object.keys(hidden).filter(function(k){ return hidden[k]; }).length;
+    document.getElementById("count").textContent = list.length+" shown · "+hiddenCount+" hidden";
+  }
+
+  function loadGames(){
+    fetch("/admin/api/steam/games").then(function(r){ return r.json(); }).then(function(d){
+      games = d.games || [];
+      hidden = {};
+      games.forEach(function(g){ if(g.hidden) hidden[g.appid] = true; });
+      if(d.status) renderStatus(d.status);
+      renderGames();
+    });
+  }
+
+  document.getElementById("games").addEventListener("change", function(e){
+    var cb = e.target;
+    if(cb.type !== "checkbox") return;
+    var id = parseInt(cb.dataset.id, 10);
+    hidden[id] = cb.checked;
+    cb.closest(".game-row").classList.toggle("hidden-game", cb.checked);
+    var hiddenCount = Object.keys(hidden).filter(function(k){ return hidden[k]; }).length;
+    document.getElementById("count").textContent =
+      document.getElementById("count").textContent.split("·")[0] + "· " + hiddenCount + " hidden";
+  });
+
+  document.getElementById("filter").addEventListener("input", renderGames);
+
+  window.saveSteam = function(){
+    var ids = Object.keys(hidden).filter(function(k){ return hidden[k]; }).map(Number);
+    var body = { hiddenGames: ids };
+    var tok = document.getElementById("token").value;
+    if(tok) body.accessToken = tok;
+
+    fetch("/admin/api/steam", {
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify(body)
+    }).then(function(r){ return r.json(); }).then(function(d){
+      if(d.success){
+        document.getElementById("token").value = "";
+        if(d.status) renderStatus(d.status);
+        alert("Saved. "+ids.length+" games hidden.");
+      } else {
+        alert("Save failed: "+(d.error||"unknown error"));
+      }
+    });
+  };
+
+  window.clearToken = function(){
+    if(!confirm("Remove the stored family access token? Shared games will stop loading.")) return;
+    fetch("/admin/api/steam", {
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({clearToken:true})
+    }).then(function(r){ return r.json(); }).then(function(d){
+      if(d.status) renderStatus(d.status);
+      alert("Token removed.");
+    });
+  };
+
+  window.syncNow = function(){
+    fetch("/admin/api/steam/sync", {method:"POST"})
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        if(d.status) renderStatus(d.status);
+        alert(d.message || "Sync queued.");
+      });
+  };
+
+  loadGames();
+})();
+</script>
+</body>
+</html>

@@ -94,6 +94,11 @@ func (m *Manager) LoadAll() error {
 		m.InvalidatePluginCache("code")
 	})
 
+	steamPlugin := NewSteamPlugin(m.storage, m.hub, m.config.SteamKey, m.config.DataPath)
+	steamPlugin.SetCacheInvalidator(func() {
+		m.InvalidatePluginCache("steam")
+	})
+
 	plugins := []Plugin{
 		NewProfilePlugin(m.storage, m.hub),
 		NewSocialPlugin(m.storage, m.hub),
@@ -103,7 +108,7 @@ func (m *Manager) LoadAll() error {
 		NewWebringPlugin(m.storage, m.hub),
 		musicPlugin,
 		beatLeaderPlugin,
-		NewSteamPlugin(m.storage, m.hub, m.config.SteamKey),
+		steamPlugin,
 		NewVisitorsPlugin(m.storage, m.hub, m.config.DataPath),
 		NewServicesPlugin(m.storage, m.hub),
 		codePlugin,

@@ -159,6 +159,22 @@ func main() {
 		}
 	}
 
+	if sp, ok := pluginManager.GetPlugin("steam"); ok {
+		if steam, ok := sp.(*plugins.SteamPlugin); ok {
+			r.HandleFunc("/api/steam/games", steam.HandleGamesAPI).Methods("GET")
+			r.HandleFunc("/api/steam/achievements", steam.HandleAchievementsAPI).Methods("GET")
+			r.HandleFunc("/api/steam/rarest", steam.HandleRarestAPI).Methods("GET")
+
+			steamTmpl, err := template.ParseFS(templateFiles, "templates/steam.html")
+			if err != nil {
+				log.Printf("Warning: Failed to load steam page template: %v", err)
+			} else {
+				r.Handle("/steam", handlers.NewSteamPageHandler(steamTmpl)).Methods("GET")
+				log.Printf("Serving Steam library UI at /steam")
+			}
+		}
+	}
+
 	if cp, ok := pluginManager.GetPlugin("code"); ok {
 		if code, ok := cp.(*plugins.CodePlugin); ok {
 			r.HandleFunc("/api/git/day", code.Git().HandleDayAPI).Methods("GET")
