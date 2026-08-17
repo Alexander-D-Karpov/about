@@ -45,15 +45,6 @@ h1 span{color:var(--steam)}
 .sec-h::after{content:"";flex:1;height:1px;background:var(--edge)}
 .sec-note{font-size:10px;color:var(--fg-3);text-transform:none;letter-spacing:.02em}
 
-/* top this year */
-.year-list{display:flex;flex-direction:column;gap:8px}
-.year-row{display:flex;align-items:center;gap:12px}
-.year-name{flex:0 0 auto;width:min(220px,36vw);font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.year-bar{flex:1;height:6px;background:var(--panel-2);border-radius:2px;overflow:hidden}
-.year-fill{height:100%;background:var(--steam);border-radius:2px}
-.year-v{flex:0 0 auto;width:170px;text-align:right;white-space:nowrap;font-family:var(--mono);font-variant-numeric:tabular-nums}
-.year-v b{font-size:13px;font-weight:600}
-.year-v s{font-size:10px;color:var(--fg-3);text-decoration:none;margin-left:6px}
 
 /* controls */
 .controls{display:flex;gap:9px;flex-wrap:wrap;align-items:center;margin-bottom:14px}
@@ -145,8 +136,6 @@ select.sort:focus{outline:2px solid var(--steam-dim)}
   .art{flex:0 0 auto;width:100%;aspect-ratio:460/215}
   .art img.icon-only{padding:30px}
   .stat{flex:1 1 50%}
-  .year-name{width:40vw}
-  .year-v{width:150px}
   .cols{gap:18px}
 }
 @media (prefers-reduced-motion:reduce){*{animation-duration:.01ms !important;transition-duration:.01ms !important}}
@@ -161,11 +150,6 @@ select.sort:focus{outline:2px solid var(--steam-dim)}
 
   <div class="stats" id="stats"></div>
   <div id="now"></div>
-
-  <section class="sec hide" id="year-sec">
-    <div class="sec-h">Most played <span id="year-label"></span> <span class="sec-note" id="year-note"></span></div>
-    <div class="year-list" id="year"></div>
-  </section>
 
   <section class="sec">
     <div class="controls">
@@ -461,26 +445,6 @@ select.sort:focus{outline:2px solid var(--steam-dim)}
     var optYear = document.getElementById("opt-year");
     if(optYear && s.year) optYear.textContent = "Most played in " + s.year;
 
-    var yr = s.topThisYear || [];
-    if(yr.length){
-      document.getElementById("year-sec").classList.remove("hide");
-      document.getElementById("year-label").textContent = "in " + s.year;
-      // Steam only publishes a year once it has ended; until then these are our own figures.
-      if(s.yearFromSteam){
-        document.getElementById("year-note").textContent = "from Steam's " + s.year + " review";
-      } else if(s.yearSnapshotAt){
-        document.getElementById("year-note").textContent =
-          "tracked here since " + new Date(s.yearSnapshotAt*1000).toLocaleDateString(undefined,{month:"short",day:"numeric",year:"numeric"});
-      }
-      var top = yr[0].minutes || 1;
-      document.getElementById("year").innerHTML = yr.map(function(g){
-        return '<div class="year-row">'+
-          '<div class="year-name">'+esc(g.name)+'</div>'+
-          '<div class="year-bar"><div class="year-fill" style="width:'+((g.minutes/top)*100).toFixed(1)+'%"></div></div>'+
-          '<div class="year-v"><b>'+hours(g.minutes)+' h</b><s>'+hours(g.totalMinutes)+' h total</s></div>'+
-        '</div>';
-      }).join("");
-    }
   }
 
   function load(){

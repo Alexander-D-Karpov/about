@@ -8,9 +8,34 @@ import (
 	"time"
 )
 
-// How long a fetched year summary stays valid. Completed years never change; the current year is
-// only published once Steam finishes it, so there is no benefit to polling often.
-const steamYearReviewTTL = 7 * 24 * time.Hour
+const (
+	// A summary for the current year is final: that year has ended and its figures never change,
+	// so there is nothing to re-check often.
+	steamYearReviewTTL = 30 * 24 * time.Hour
+	// While the newest summary we hold is for an earlier year, a newer one may be published at
+	// any time, so re-check daily and roll over on its own.
+	steamYearReviewStaleTTL = 24 * time.Hour
+)
+
+// steamYearReviewCandidates lists the years worth asking for, newest first. Steam publishes a
+// year's summary only after it ends, so the current year is usually empty and the previous one is
+// the newest available. Deriving this from the clock is what makes the page roll over on its own.
+func steamYearReviewCandidates(now int) []int {
+	return []int{now, now - 1}
+}
+
+// steamYearReviewFresh reports whether a cached summary can be reused.
+func steamYearReviewFresh(cached steamYearReview, now int, at time.Time) bool {
+	if cached.Year <= 0 || len(cached.Playtime) == 0 {
+		return false
+	}
+	age := time.Since(time.Unix(cached.FetchedAt, 0))
+	if cached.Year >= now {
+		return age < steamYearReviewTTL
+	}
+	// An older year: keep looking for a newer one.
+	return age < steamYearReviewStaleTTL
+}
 
 type steamYearReviewResponse struct {
 	Response struct {
@@ -85,13 +110,13 @@ func (a *steamAPI) YearInReview(ctx context.Context, steamID string, year int) (
 // refreshYearReview fetches the most recent year Steam has data for. The current year is only
 // published after it ends, so this falls back to the previous one and labels it accordingly.
 func (p *SteamPlugin) refreshYearReview(ctx context.Context, steamID string) {
-	if cached := p.store.YearReview(); cached.Year > 0 &&
-		time.Since(time.Unix(cached.FetchedAt, 0)) < steamYearReviewTTL {
+	now := time.Now().Year()
+	cached := p.store.YearReview()
+	if steamYearReviewFresh(cached, now, time.Now()) {
 		return
 	}
 
-	now := time.Now().Year()
-	for _, year := range []int{now, now - 1} {
+	for _, year := range steamYearReviewCandidates(now) {
 		playtime, ok, err := p.api.YearInReview(ctx, steamID, year)
 		if err != nil {
 			log.Printf("[Steam] year in review %d failed: %v", year, err)
@@ -110,5 +135,10 @@ func (p *SteamPlugin) refreshYearReview(ctx context.Context, steamID string) {
 		return
 	}
 
+	if cached.Year > 0 {
+		// Keep serving what we already have rather than blanking the page.
+		log.Printf("[Steam] no newer year in review published, keeping %d", cached.Year)
+		return
+	}
 	log.Printf("[Steam] no published year in review available yet")
 }

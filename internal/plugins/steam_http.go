@@ -208,7 +208,6 @@ func steamAchPercent(g SteamGame, ach map[int]steamAchEntry) float64 {
 
 // libraryStats builds the header summary for the page.
 func (p *SteamPlugin) libraryStats(games []SteamGame, year steamYearPlaytime, firstSeen map[int]int64, ach map[int]steamAchEntry) map[string]interface{} {
-	yearly := year.Minutes
 	var totalMinutes, played int
 	for _, g := range games {
 		totalMinutes += g.PlaytimeAll
@@ -218,31 +217,6 @@ func (p *SteamPlugin) libraryStats(games []SteamGame, year steamYearPlaytime, fi
 	}
 
 	unlocked, totalAch, perfect, enriched := p.achievementSummary()
-
-	// Top played this year.
-	type yearEntry struct {
-		AppID        int    `json:"appid"`
-		Name         string `json:"name"`
-		Img          string `json:"img"`
-		Minutes      int    `json:"minutes"`
-		TotalMinutes int    `json:"totalMinutes"`
-	}
-	var topYear []yearEntry
-	for _, g := range games {
-		if m := yearly[g.AppID]; m > 0 {
-			topYear = append(topYear, yearEntry{
-				AppID:        g.AppID,
-				Name:         g.Name,
-				Img:          steamHeaderImage(g.AppID),
-				Minutes:      m,
-				TotalMinutes: g.PlaytimeAll,
-			})
-		}
-	}
-	sort.Slice(topYear, func(i, j int) bool { return topYear[i].Minutes > topYear[j].Minutes })
-	if len(topYear) > 5 {
-		topYear = topYear[:5]
-	}
 
 	summary := p.snapshotSummary()
 	current := map[string]interface{}{"playing": false}
@@ -276,7 +250,6 @@ func (p *SteamPlugin) libraryStats(games []SteamGame, year steamYearPlaytime, fi
 		"perfectGames":         perfect,
 		"gamesEnriched":        enriched,
 		"pendingEnrichment":    p.store.PendingCount(),
-		"topThisYear":          topYear,
 		"yearSnapshotAt":       snapshotUnix,
 		"year":                 year.Year,
 		"yearFromSteam":        year.FromSteam,

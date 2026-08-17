@@ -435,3 +435,52 @@ func TestSteamYearReviewExcludesHiddenAndUnowned(t *testing.T) {
 		t.Fatalf("expected only the visible owned game, got %v", got.Minutes)
 	}
 }
+
+// The year shown must follow the clock, so 2027 surfaces 2026 with no code change.
+func TestSteamYearReviewCandidatesFollowTheClock(t *testing.T) {
+	for _, now := range []int{2026, 2027, 2031} {
+		got := steamYearReviewCandidates(now)
+		if len(got) != 2 || got[0] != now || got[1] != now-1 {
+			t.Fatalf("candidates for %d = %v, want [%d %d]", now, got, now, now-1)
+		}
+	}
+}
+
+// A summary for an earlier year must go stale quickly, so a newly published one is picked up.
+func TestSteamYearReviewFreshness(t *testing.T) {
+	pt := map[int]int{1: 10}
+	now := 2027
+
+	cases := []struct {
+		name  string
+		entry steamYearReview
+		want  bool
+	}{
+		{"current year, just fetched", steamYearReview{Year: 2027, Playtime: pt, FetchedAt: time.Now().Unix()}, true},
+		{"current year, a week old", steamYearReview{Year: 2027, Playtime: pt, FetchedAt: time.Now().Add(-7 * 24 * time.Hour).Unix()}, true},
+		{"older year, an hour old", steamYearReview{Year: 2026, Playtime: pt, FetchedAt: time.Now().Add(-time.Hour).Unix()}, true},
+		{"older year, two days old", steamYearReview{Year: 2026, Playtime: pt, FetchedAt: time.Now().Add(-48 * time.Hour).Unix()}, false},
+		{"empty", steamYearReview{}, false},
+		{"year but no games", steamYearReview{Year: 2026, FetchedAt: time.Now().Unix()}, false},
+	}
+	for _, c := range cases {
+		if got := steamYearReviewFresh(c.entry, now, time.Now()); got != c.want {
+			t.Errorf("%s: fresh = %v, want %v", c.name, got, c.want)
+		}
+	}
+}
+
+// Whatever year the store holds is the year reported, with nothing pinned to a particular year.
+func TestSteamYearReportedFollowsStoredData(t *testing.T) {
+	p := newTestSteamPlugin(t, map[string]interface{}{"steamid": "123"})
+	games := []SteamGame{{AppID: 1, PlaytimeAll: 600}}
+	p.store.SetGames(games)
+	p.applyLibrary(games)
+
+	for _, year := range []int{2026, 2031} {
+		p.store.SetYearReview(steamYearReview{Year: year, Playtime: map[int]int{1: 120}, FetchedAt: time.Now().Unix()})
+		if got := p.playtimeForYear(); got.Year != year || !got.FromSteam {
+			t.Fatalf("stored year %d reported as %+v", year, got)
+		}
+	}
+}
