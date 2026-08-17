@@ -98,8 +98,8 @@ select.sort:focus{outline:2px solid var(--steam-dim)}
 /* rarest achievements, per game, under the bar */
 .rare{display:flex;flex-wrap:wrap;gap:6px;margin-top:9px}
 .rare-i{display:flex;align-items:center;gap:6px;background:var(--panel-2);border-radius:3px;padding:4px 8px 4px 4px;max-width:100%}
-.rare-i img{width:26px;height:26px;border-radius:2px;flex-shrink:0;background:var(--panel)}
-.rare-i .ph{width:26px;height:26px;border-radius:2px;flex-shrink:0;background:var(--panel);display:flex;align-items:center;justify-content:center;font-size:10px;color:var(--fg-3)}
+.rare-i > img{width:26px;height:26px;border-radius:2px;flex-shrink:0;background:var(--panel)}
+.rare-i > .ph{width:26px;height:26px;border-radius:2px;flex-shrink:0;background:var(--panel);display:flex;align-items:center;justify-content:center;font-size:10px;color:var(--fg-3)}
 .rare-n{font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:170px}
 .rare-p{font-size:11.5px;font-family:var(--mono);font-variant-numeric:tabular-nums;flex-shrink:0}
 
@@ -108,16 +108,25 @@ select.sort:focus{outline:2px solid var(--steam-dim)}
 /* hovering a badge enlarges it and reveals the description in a real tooltip */
 .rare-i{position:relative;transition:transform .12s ease,background .12s ease;cursor:default}
 .rare-i:hover{transform:scale(1.06);background:#22262e;z-index:5}
-.rare-i:hover img,.rare-i:hover .ph{width:34px;height:34px}
-.rare-i img,.rare-i .ph{transition:width .12s ease,height .12s ease}
+.rare-i:hover > img,.rare-i:hover > .ph{width:34px;height:34px}
+.rare-i > img,.rare-i > .ph{transition:width .12s ease,height .12s ease}
 .tip{
   position:absolute;bottom:calc(100% + 8px);left:50%;transform:translateX(-50%) translateY(4px);
-  width:max-content;max-width:280px;padding:9px 11px;border-radius:5px;
+  display:flex;gap:12px;align-items:flex-start;
+  width:max-content;max-width:360px;padding:11px 13px;border-radius:6px;
   background:#0c0d10;border:1px solid var(--edge);box-shadow:0 8px 22px rgba(0,0,0,.6);
   opacity:0;visibility:hidden;transition:opacity .12s ease,transform .12s ease;
   pointer-events:none;z-index:40;text-align:left;white-space:normal;
 }
 .rare-i:hover .tip{opacity:1;visibility:visible;transform:translateX(-50%) translateY(0)}
+/* the large achievement art shown beside the text in the tooltip */
+.tip-img{width:64px;height:64px;border-radius:4px;flex-shrink:0;background:var(--panel-2);object-fit:cover}
+.tip > .ph{
+  width:64px;height:64px;border-radius:4px;flex-shrink:0;background:var(--panel-2);
+  display:flex;align-items:center;justify-content:center;font-size:22px;color:var(--fg-3);
+}
+.tip-b{min-width:0;flex:1}
+
 /* block, or the three lines run together inside the inline badge */
 .tip-n{display:block;font-size:13px;font-weight:600;margin-bottom:4px;color:var(--fg);line-height:1.3}
 .tip-d{display:block;font-size:12px;color:var(--fg-2);line-height:1.45}
@@ -224,23 +233,54 @@ select.sort:focus{outline:2px solid var(--steam-dim)}
 
   // Walk the banner fallbacks; the library icon is contained rather than stretched, and a real
   // placeholder is used if nothing resolves, so a row never shows a blurry or empty box.
+  // Banner resolution, best first:
+  //   1. header/capsule art derivable from the appid
+  //   2. ask the server for the real header — newer titles keep it under a content-hashed path
+  //      that cannot be guessed, and waiting for the background worker would leave a gap
+  //   3. library_hero, wide key art but not a header crop
+  //   4. the 32px library icon, contained rather than stretched
+  //   5. a letter placeholder
   function attachArt(box, g){
-    var srcs = [g.img].concat(g.imgFallbacks||[]);
-    if(g.iconUrl) srcs.push(g.iconUrl);
-    var i = 0;
+    var all  = [g.img].concat(g.imgFallbacks || []);
+    var hero = all.filter(function(u){ return u.indexOf("library_hero") >= 0; });
+    var srcs = all.filter(function(u){ return u.indexOf("library_hero") < 0; });
+
+    var i = 0, stage = 0;
     var img = document.createElement("img");
     img.alt = g.name;
     img.loading = "lazy";
     img.decoding = "async";
-    img.addEventListener("error", function(){
-      i++;
-      if(i < srcs.length){
-        img.src = srcs[i];
-        img.classList.toggle("icon-only", g.iconUrl && srcs[i] === g.iconUrl);
+
+    function placeholder(){
+      box.innerHTML = '<div class="ph">'+esc((g.name||"?").charAt(0).toUpperCase())+'</div>';
+    }
+
+    function next(){
+      if(stage === 0){
+        i++;
+        if(i < srcs.length){ img.src = srcs[i]; return; }
+        stage = 1;
+      }
+      if(stage === 1){
+        stage = 2;
+        fetch("/api/steam/art?appid="+g.appid)
+          .then(function(r){ return r.json(); })
+          .then(function(d){ if(d && d.img){ img.src = d.img; } else { next(); } })
+          .catch(next);
         return;
       }
-      box.innerHTML = '<div class="ph">'+esc((g.name||"?").charAt(0).toUpperCase())+'</div>';
-    });
+      if(stage === 2){
+        stage = 3;
+        if(hero.length){ img.src = hero[0]; return; }
+      }
+      if(stage === 3){
+        stage = 4;
+        if(g.iconUrl){ img.classList.add("icon-only"); img.src = g.iconUrl; return; }
+      }
+      placeholder();
+    }
+
+    img.addEventListener("error", next);
     img.src = srcs[0];
     box.appendChild(img);
   }
@@ -275,14 +315,21 @@ select.sort:focus{outline:2px solid var(--steam-dim)}
         ? '<img alt="" loading="lazy" data-srcs="'+esc(JSON.stringify(srcs))+'">'
         : '<div class="ph">&#9733;</div>';
       var colour = rarityColor(a.globalPercent);
+      // The tooltip repeats the art at a readable size beside the text.
+      var big = srcs.length
+        ? '<img class="tip-img" alt="" loading="lazy" data-srcs="'+esc(JSON.stringify(srcs))+'">'
+        : '<span class="ph">&#9733;</span>';
       return '<span class="rare-i">'+
         ic+
         '<span class="rare-n">'+esc(a.name)+'</span>'+
         '<span class="rare-p" style="color:'+colour+'">'+a.globalPercent.toFixed(1)+'%</span>'+
         '<span class="tip">'+
-          '<span class="tip-n">'+esc(a.name)+'</span>'+
-          (a.description ? '<span class="tip-d">'+esc(a.description)+'</span>' : '<span class="tip-d">No description.</span>')+
-          '<span class="tip-p" style="color:'+colour+'">'+a.globalPercent.toFixed(1)+'% of players unlocked this</span>'+
+          big+
+          '<span class="tip-b">'+
+            '<span class="tip-n">'+esc(a.name)+'</span>'+
+            '<span class="tip-d">'+(a.description ? esc(a.description) : "No description.")+'</span>'+
+            '<span class="tip-p" style="color:'+colour+'">'+a.globalPercent.toFixed(1)+'% of players unlocked this</span>'+
+          '</span>'+
         '</span>'+
       '</span>';
     }).join("")+'</div>';
@@ -491,6 +538,24 @@ select.sort:focus{outline:2px solid var(--steam-dim)}
     state.filter = b.dataset.f;
     reset();
   });
+
+  // Seed from the URL so a filtered view can be linked to directly.
+  (function(){
+    var p = new URLSearchParams(location.search);
+    var q = p.get("q"), sort = p.get("sort"), filter = p.get("filter");
+    if(q){ state.q = q; document.getElementById("q").value = q; }
+    if(sort && document.querySelector('#sort option[value="'+sort+'"]')){
+      state.sort = sort; document.getElementById("sort").value = sort;
+    }
+    if(filter){
+      var chip = document.querySelector('.chip[data-f="'+filter+'"]');
+      if(chip){
+        state.filter = filter;
+        document.querySelectorAll(".chip").forEach(function(c){ c.setAttribute("aria-pressed","false"); });
+        chip.setAttribute("aria-pressed","true");
+      }
+    }
+  })();
 
   if("IntersectionObserver" in window){
     new IntersectionObserver(function(es){ if(es[0].isIntersecting) load(); }, {rootMargin:"500px"})

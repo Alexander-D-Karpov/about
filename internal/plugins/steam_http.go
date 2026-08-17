@@ -317,6 +317,48 @@ func (p *SteamPlugin) HandleAchievementsAPI(w http.ResponseWriter, r *http.Reque
 	})
 }
 
+// HandleArtAPI resolves a game's real banner on demand. The background worker gets there
+// eventually, but a row on screen should not have to wait for it — without this, games whose art
+// lives under a content-hashed path fall back to a stretched 32px icon.
+func (p *SteamPlugin) HandleArtAPI(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-cache")
+
+	appID, err := strconv.Atoi(r.URL.Query().Get("appid"))
+	if err != nil || appID <= 0 {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{"img": ""})
+		return
+	}
+	if _, ok := p.gameByID(appID); !ok {
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(map[string]interface{}{"img": ""})
+		return
+	}
+
+	if header := p.store.AppHeaders()[appID]; header != "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{"img": header})
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
+	defer cancel()
+
+	info, err := p.api.AppInfo(ctx, appID)
+	if err != nil || info.Header == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{"img": ""})
+		return
+	}
+
+	verdict := "game"
+	if !steamIsGame(info) {
+		verdict = "software"
+	}
+	p.store.SetAppInfo(appID, verdict, info.Header)
+
+	json.NewEncoder(w).Encode(map[string]interface{}{"img": info.Header})
+}
+
 // HandleRarestAPI serves the library-wide rarest unlocked achievements.
 func (p *SteamPlugin) HandleRarestAPI(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")

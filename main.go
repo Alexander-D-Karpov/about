@@ -164,6 +164,7 @@ func main() {
 			r.HandleFunc("/api/steam/games", steam.HandleGamesAPI).Methods("GET")
 			r.HandleFunc("/api/steam/achievements", steam.HandleAchievementsAPI).Methods("GET")
 			r.HandleFunc("/api/steam/rarest", steam.HandleRarestAPI).Methods("GET")
+			r.HandleFunc("/api/steam/art", steam.HandleArtAPI).Methods("GET")
 
 			steamTmpl, err := template.ParseFS(templateFiles, "templates/steam.html")
 			if err != nil {
