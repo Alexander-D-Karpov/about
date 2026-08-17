@@ -111,7 +111,7 @@ const steamSectionTemplate = `
 
 		<div class="steam-actions">
 			{{if .HasLibrary}}
-			<a href="/steam" class="view-steam-btn steam-all-games-btn">View all games ({{.LibraryCount}}) &rarr;</a>
+			<a href="/steam" class="steam-all-games-btn">View all games <span class="steam-count">{{.LibraryCount}}</span></a>
 			{{end}}
 			{{if .PlayerSummary}}
 			<a href="{{.PlayerSummary.ProfileURL}}" target="_blank" rel="noopener" class="view-profile-btn">

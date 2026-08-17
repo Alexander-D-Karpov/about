@@ -256,19 +256,56 @@
     }
 }
 
-/* Actions row: "View all games" sits beside the profile link. */
+/* Actions row: the two links are peers, so they share the quiet bordered style
+   already used by the profile link rather than a filled slab. */
 .steam-section .steam-actions {
     display: flex;
     flex-wrap: wrap;
+    justify-content: center;
+    align-items: center;
     gap: 8px;
-    margin-top: 12px;
-}
-
-.steam-section .steam-actions > a {
-    flex: 1 1 auto;
-    text-align: center;
+    margin-top: 14px;
 }
 
 .steam-section .steam-all-games-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 8px 14px;
+    background: transparent;
+    color: var(--ink);
+    border: 1px solid color-mix(in oklch, var(--accent) 40%, var(--edge-0));
+    border-radius: 6px;
+    text-decoration: none;
+    font-size: 12px;
+    font-weight: 600;
     white-space: nowrap;
+    transition: all .15s ease;
+}
+
+/* Only the accent-tinted count marks this as the primary of the two. */
+.steam-section .steam-all-games-btn .steam-count {
+    font-variant-numeric: tabular-nums;
+    font-size: 11px;
+    padding: 1px 6px;
+    border-radius: 99px;
+    background: color-mix(in oklch, var(--accent) 18%, transparent);
+    color: var(--accent);
+}
+
+.steam-section .steam-all-games-btn:hover {
+    border-color: var(--accent);
+    color: var(--ink);
+}
+
+@media (prefers-color-scheme: light) {
+    .steam-section .steam-all-games-btn {
+        background: transparent;
+        border: 1px solid color-mix(in oklch, var(--accent) 40%, var(--edge-1));
+        color: var(--ink);
+    }
+
+    .steam-section .steam-all-games-btn:hover {
+        border-color: var(--accent);
+    }
 }
