@@ -232,6 +232,47 @@ func TestSteamFlexFloatAcceptsStringAndNumber(t *testing.T) {
 	}
 }
 
+func TestSteamTokenStateLifecycle(t *testing.T) {
+	p := newTestSteamPlugin(t, map[string]interface{}{"steamid": "123"})
+
+	if got := p.AdminStatus()["tokenState"]; got != "not set" {
+		t.Fatalf("expected 'not set' with no token, got %q", got)
+	}
+
+	// A freshly saved token has not been exercised yet; it must not be called expired.
+	p.SetAccessToken("some-token")
+	if got := p.AdminStatus()["tokenState"]; got != "not checked yet" {
+		t.Fatalf("expected 'not checked yet' for a fresh token, got %q", got)
+	}
+
+	// A sync tried it and it failed.
+	p.store.MarkTokenChecked()
+	p.store.SetFamilyValid(false)
+	if got := p.AdminStatus()["tokenState"]; got != "expired" {
+		t.Fatalf("expected 'expired' after a failed check, got %q", got)
+	}
+
+	// A sync tried it and it worked.
+	p.store.SetFamilyValid(true)
+	if got := p.AdminStatus()["tokenState"]; got != "valid" {
+		t.Fatalf("expected 'valid' after a successful check, got %q", got)
+	}
+
+	// Replacing the token resets verification.
+	p.SetAccessToken("another-token")
+	if got := p.AdminStatus()["tokenState"]; got != "not checked yet" {
+		t.Fatalf("replacing the token must reset verification, got %q", got)
+	}
+
+	p.SetAccessToken("")
+	if got := p.AdminStatus()["tokenState"]; got != "not set" {
+		t.Fatalf("expected 'not set' after clearing, got %q", got)
+	}
+	if p.HasAccessToken() {
+		t.Fatalf("HasAccessToken should be false after clearing")
+	}
+}
+
 func TestSteamRarestOrdersByGlobalRarity(t *testing.T) {
 	p := newTestSteamPlugin(t, map[string]interface{}{"steamid": "123"})
 	games := []SteamGame{{AppID: 1, Name: "A"}, {AppID: 2, Name: "B"}}

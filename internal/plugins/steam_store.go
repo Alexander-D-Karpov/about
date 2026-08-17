@@ -34,6 +34,9 @@ type steamLibraryFile struct {
 	PendingAch   []int                 `json:"pending_ach"`
 	FamilyValid  bool                  `json:"family_valid"`
 	LastFullSync int64                 `json:"last_full_sync"`
+	// TokenCheckedAt is zero until a sync has actually tried the current token, which lets the
+	// admin page say "not checked yet" instead of wrongly calling a fresh token expired.
+	TokenCheckedAt int64 `json:"token_checked_at"`
 }
 
 // SteamStore is the crash-safe side-car for the Steam library. It lives beside config.json rather
@@ -338,5 +341,28 @@ func (s *SteamStore) SetFamilyValid(v bool) {
 		s.data.FamilyValid = v
 		s.dirty = true
 	}
+	s.mu.Unlock()
+}
+
+// TokenChecked reports whether a sync has tried the current token yet.
+func (s *SteamStore) TokenChecked() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.data.TokenCheckedAt > 0
+}
+
+// MarkTokenChecked records that a sync exercised the current token.
+func (s *SteamStore) MarkTokenChecked() {
+	s.mu.Lock()
+	s.data.TokenCheckedAt = time.Now().Unix()
+	s.dirty = true
+	s.mu.Unlock()
+}
+
+// ResetTokenCheck forgets the previous verification, for when the token changes.
+func (s *SteamStore) ResetTokenCheck() {
+	s.mu.Lock()
+	s.data.TokenCheckedAt = 0
+	s.dirty = true
 	s.mu.Unlock()
 }

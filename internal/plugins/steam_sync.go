@@ -241,6 +241,7 @@ func (p *SteamPlugin) fullSync(ctx context.Context, steamID string) {
 	familyCount := 0
 	if token != "" {
 		family, groupID, ferr := p.api.fetchFamilyGames(ctx, token, steamID)
+		p.store.MarkTokenChecked()
 		switch {
 		case ferr == errSteamTokenInvalid:
 			p.store.SetFamilyValid(false)
@@ -456,9 +457,12 @@ func (p *SteamPlugin) syncStatus() map[string]interface{} {
 
 	tokenState := "not set"
 	if p.accessToken() != "" {
-		if p.store.FamilyValid() {
+		switch {
+		case p.store.FamilyValid():
 			tokenState = "valid"
-		} else {
+		case !p.store.TokenChecked():
+			tokenState = "not checked yet"
+		default:
 			tokenState = "expired"
 		}
 	}

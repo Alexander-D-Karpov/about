@@ -63,7 +63,10 @@ func (p *SteamPlugin) SetHiddenGames(appIDs []int) {
 func (p *SteamPlugin) SetAccessToken(token string) {
 	token = strings.TrimSpace(token)
 	p.setAccessToken(token)
-	p.store.SetFamilyValid(false) // revalidated on the next full sync
+	// The new token has not been exercised yet, so drop both the validity flag and the
+	// "we checked it" marker; the next full sync decides.
+	p.store.SetFamilyValid(false)
+	p.store.ResetTokenCheck()
 	p.store.Flush()
 }
 

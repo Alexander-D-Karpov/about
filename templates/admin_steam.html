@@ -18,7 +18,12 @@
   .card-box h2{margin:0 0 4px;font-size:15px}
   .card-box p.hint{margin:0 0 14px;font-size:12.5px;opacity:.7;line-height:1.5}
   .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
-  .row input[type=password],.row input[type=text]{flex:1 1 260px;min-width:0}
+  .row input[type=password],.row input[type=text]{
+    flex:1 1 260px;min-width:0;padding:9px 12px;border-radius:8px;
+    border:1px solid var(--edge-1);background:var(--bg-3,rgba(255,255,255,.04));
+    color:inherit;font-family:inherit;font-size:14px;
+  }
+  .row input::placeholder{color:currentColor;opacity:.45}
   .game-list{max-height:560px;overflow:auto;border:1px solid var(--edge-1);border-radius:8px}
   .game-row{display:flex;align-items:center;gap:11px;padding:8px 12px;border-bottom:1px solid var(--edge-1)}
   .game-row:last-child{border-bottom:none}
@@ -98,6 +103,7 @@
   function pill(state){
     if(state === "valid") return '<span class="pill ok">valid</span>';
     if(state === "expired") return '<span class="pill warn">expired</span>';
+    if(state === "not checked yet") return '<span class="pill warn">not checked yet</span>';
     return '<span class="pill off">not set</span>';
   }
 
