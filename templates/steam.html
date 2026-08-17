@@ -132,6 +132,12 @@ select.sort:focus{outline:2px solid var(--steam-dim)}
 
 @media (max-width:720px){
   .wrap{padding:18px 12px 60px}
+  /* Anchor tooltips to the whole badge row rather than the badge, so a badge near either edge
+     cannot push its tooltip off the viewport. */
+  .rare{position:relative}
+  .rare-i{position:static}
+  .tip{left:0;right:0;transform:translateY(4px);width:auto;max-width:none}
+  .rare-i:hover .tip{transform:translateY(0)}
   .row{flex-direction:column;gap:11px}
   .art{flex:0 0 auto;width:100%;aspect-ratio:460/215}
   .art img.icon-only{padding:30px}
@@ -159,7 +165,7 @@ select.sort:focus{outline:2px solid var(--steam-dim)}
       <select class="sort" id="sort" aria-label="Sort by">
         <option value="playtime">Most played</option>
         <option value="recent">Recently played</option>
-        <option value="year" id="opt-year">Most played this year</option>
+        <option value="year">Most played this year</option>
         <option value="added">Recently added</option>
         <option value="ach">Achievement completion</option>
       </select>
@@ -354,7 +360,7 @@ select.sort:focus{outline:2px solid var(--steam-dim)}
     if(state.sort === "recent"){
       extra = '<div class="col"><div class="col-l">Last 2 weeks</div>'+
               '<div class="col-v">'+hours(g.playtime2w)+' hours</div></div>';
-    } else if(state.sort === "year" || g.playtimeYear){
+    } else if(state.sort === "year"){
       extra = '<div class="col"><div class="col-l">'+(state.year || "This year")+'</div>'+
               '<div class="col-v">'+hours(g.playtimeYear)+' hours</div></div>';
     }
@@ -441,9 +447,6 @@ select.sort:focus{outline:2px solid var(--steam-dim)}
         '<div class="now">'+(c.gameImage ? '<img src="'+esc(c.gameImage)+'" alt="">' : '')+
         '<div><div class="now-l">Now playing</div><div class="now-n">'+esc(c.gameName)+'</div></div></div>';
     }
-
-    var optYear = document.getElementById("opt-year");
-    if(optYear && s.year) optYear.textContent = "Most played in " + s.year;
 
   }
 

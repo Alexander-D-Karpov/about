@@ -33,6 +33,15 @@ type steamYearReview struct {
 	FetchedAt int64       `json:"fetched_at"`
 }
 
+// steamYearHistory holds every published year summary. Together with each game's first-played
+// date it lets the current year be derived by subtraction, for games whose whole history falls
+// inside the published range.
+type steamYearHistory struct {
+	Years       map[int]map[int]int `json:"years"`
+	FirstPlayed map[int]int64       `json:"first_played"`
+	FetchedAt   int64               `json:"fetched_at"`
+}
+
 type steamLibraryFile struct {
 	Version      int                   `json:"version"`
 	Games        []SteamGame           `json:"games"`
@@ -41,6 +50,7 @@ type steamLibraryFile struct {
 	Achievements map[int]steamAchEntry `json:"achievements"`
 	YearSnapshot steamYearSnapshot     `json:"year_snapshot"`
 	YearReview   steamYearReview       `json:"year_review"`
+	YearHistory  steamYearHistory      `json:"year_history"`
 	PendingAch   []int                 `json:"pending_ach"`
 	FamilyValid  bool                  `json:"family_valid"`
 	LastFullSync int64                 `json:"last_full_sync"`
@@ -120,6 +130,12 @@ func (s *SteamStore) load() {
 	if s.data.YearReview.Playtime == nil {
 		s.data.YearReview.Playtime = make(map[int]int)
 	}
+	if s.data.YearHistory.Years == nil {
+		s.data.YearHistory.Years = make(map[int]map[int]int)
+	}
+	if s.data.YearHistory.FirstPlayed == nil {
+		s.data.YearHistory.FirstPlayed = make(map[int]int64)
+	}
 	if s.data.TypesVersion != steamTypesVersion {
 		// The rules for what counts as a game changed; drop the verdicts (not the achievements)
 		// and let the worker re-resolve them.
@@ -140,6 +156,7 @@ func (s *SteamStore) reset() {
 		AppTypes:     make(map[int]string),
 		AppHeaders:   make(map[int]string),
 		YearReview:   steamYearReview{Playtime: make(map[int]int)},
+		YearHistory:  steamYearHistory{Years: make(map[int]map[int]int), FirstPlayed: make(map[int]int64)},
 		TypesVersion: steamTypesVersion,
 	}
 }
@@ -438,6 +455,36 @@ func (s *SteamStore) YearReview() steamYearReview {
 		out.Playtime[k] = v
 	}
 	return out
+}
+
+// YearHistory returns a copy of every published year summary.
+func (s *SteamStore) YearHistory() steamYearHistory {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := steamYearHistory{
+		FetchedAt:   s.data.YearHistory.FetchedAt,
+		Years:       make(map[int]map[int]int, len(s.data.YearHistory.Years)),
+		FirstPlayed: make(map[int]int64, len(s.data.YearHistory.FirstPlayed)),
+	}
+	for year, games := range s.data.YearHistory.Years {
+		cp := make(map[int]int, len(games))
+		for k, v := range games {
+			cp[k] = v
+		}
+		out.Years[year] = cp
+	}
+	for k, v := range s.data.YearHistory.FirstPlayed {
+		out.FirstPlayed[k] = v
+	}
+	return out
+}
+
+func (s *SteamStore) SetYearHistory(h steamYearHistory) {
+	s.mu.Lock()
+	s.data.YearHistory = h
+	s.dirty = true
+	s.mu.Unlock()
+	s.Flush()
 }
 
 func (s *SteamStore) SetYearReview(r steamYearReview) {

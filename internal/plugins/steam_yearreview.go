@@ -9,33 +9,14 @@ import (
 )
 
 const (
-	// A summary for the current year is final: that year has ended and its figures never change,
-	// so there is nothing to re-check often.
-	steamYearReviewTTL = 30 * 24 * time.Hour
-	// While the newest summary we hold is for an earlier year, a newer one may be published at
-	// any time, so re-check daily and roll over on its own.
-	steamYearReviewStaleTTL = 24 * time.Hour
+	// A year summary never changes once published, so the history is refreshed rarely. The window
+	// is short enough that a newly published year is still picked up within a day.
+	steamYearHistoryTTL = 24 * time.Hour
+	// How far back to look for published summaries, and how many consecutive empty years to accept
+	// before concluding there is nothing older.
+	steamYearHistoryMaxYears = 8
+	steamYearHistoryMaxGaps  = 2
 )
-
-// steamYearReviewCandidates lists the years worth asking for, newest first. Steam publishes a
-// year's summary only after it ends, so the current year is usually empty and the previous one is
-// the newest available. Deriving this from the clock is what makes the page roll over on its own.
-func steamYearReviewCandidates(now int) []int {
-	return []int{now, now - 1}
-}
-
-// steamYearReviewFresh reports whether a cached summary can be reused.
-func steamYearReviewFresh(cached steamYearReview, now int, at time.Time) bool {
-	if cached.Year <= 0 || len(cached.Playtime) == 0 {
-		return false
-	}
-	age := time.Since(time.Unix(cached.FetchedAt, 0))
-	if cached.Year >= now {
-		return age < steamYearReviewTTL
-	}
-	// An older year: keep looking for a newer one.
-	return age < steamYearReviewStaleTTL
-}
 
 type steamYearReviewResponse struct {
 	Response struct {
@@ -51,94 +32,141 @@ type steamYearReviewResponse struct {
 					Stats struct {
 						TotalPlaytimeSeconds int64 `json:"total_playtime_seconds"`
 					} `json:"stats"`
+					RtimeFirstPlayed int64 `json:"rtime_first_played"`
 				} `json:"games"`
 				// Every game played that year, as a share of the year's total playtime.
 				GameSummary []struct {
 					AppID                     int   `json:"appid"`
 					TotalPlaytimePercentageX1 int64 `json:"total_playtime_percentagex100"`
+					RtimeFirstPlayedLifetime  int64 `json:"rtime_first_played_lifetime"`
 				} `json:"game_summary"`
 			} `json:"playtime_stats"`
 		} `json:"stats"`
 	} `json:"response"`
 }
 
-// YearInReview returns per-game playtime in minutes for one year, or ok=false when Steam has not
-// published that year yet. This is the only public source of per-year playtime: GetOwnedGames only
-// exposes all-time and last-two-weeks totals.
+// YearInReview returns per-game playtime in minutes for one year plus each game's first-played
+// time, or ok=false when Steam has not published that year. This is the only public source of
+// per-year playtime: GetOwnedGames exposes all-time and last-two-weeks totals only.
 //
 // It needs no access token, but it does need a public profile.
-func (a *steamAPI) YearInReview(ctx context.Context, steamID string, year int) (map[int]int, bool, error) {
+func (a *steamAPI) YearInReview(ctx context.Context, steamID string, year int) (minutes map[int]int, firstPlayed map[int]int64, ok bool, err error) {
 	var resp steamYearReviewResponse
 	q := url.Values{
 		"steamid": {steamID},
 		"year":    {fmt.Sprintf("%d", year)},
 	}
 	if err := a.get(ctx, "/ISaleFeatureService/GetUserYearInReview/v1/", q, &resp); err != nil {
-		return nil, false, err
+		return nil, nil, false, err
 	}
 
 	stats := resp.Response.Stats.PlaytimeStats
 	total := stats.TotalStats.TotalPlaytimeSeconds
 	if total <= 0 {
-		return nil, false, nil // year not published yet, or nothing played
+		return nil, nil, false, nil // year not published yet, or nothing played
 	}
 
-	out := make(map[int]int, len(stats.GameSummary))
+	minutes = make(map[int]int, len(stats.GameSummary))
+	firstPlayed = make(map[int]int64, len(stats.GameSummary))
 
-	// Percentages cover the whole year; they are approximate but complete.
+	// Percentages cover the whole year; approximate but complete.
 	for _, g := range stats.GameSummary {
-		if g.AppID == 0 || g.TotalPlaytimePercentageX1 <= 0 {
+		if g.AppID == 0 {
 			continue
 		}
-		seconds := float64(total) * (float64(g.TotalPlaytimePercentageX1) / 10000.0)
-		if mins := int(seconds / 60); mins > 0 {
-			out[g.AppID] = mins
+		if g.TotalPlaytimePercentageX1 > 0 {
+			seconds := float64(total) * (float64(g.TotalPlaytimePercentageX1) / 10000.0)
+			if mins := int(seconds / 60); mins > 0 {
+				minutes[g.AppID] = mins
+			}
+		}
+		if g.RtimeFirstPlayedLifetime > 0 {
+			firstPlayed[g.AppID] = g.RtimeFirstPlayedLifetime
 		}
 	}
 
 	// Exact figures win wherever Steam gives them.
 	for _, g := range stats.Games {
-		if g.AppID == 0 || g.Stats.TotalPlaytimeSeconds <= 0 {
+		if g.AppID == 0 {
 			continue
 		}
-		out[g.AppID] = int(g.Stats.TotalPlaytimeSeconds / 60)
+		if g.Stats.TotalPlaytimeSeconds > 0 {
+			minutes[g.AppID] = int(g.Stats.TotalPlaytimeSeconds / 60)
+		}
+		if g.RtimeFirstPlayed > 0 {
+			if cur, seen := firstPlayed[g.AppID]; !seen || g.RtimeFirstPlayed < cur {
+				firstPlayed[g.AppID] = g.RtimeFirstPlayed
+			}
+		}
 	}
 
-	return out, len(out) > 0, nil
+	return minutes, firstPlayed, len(minutes) > 0, nil
 }
 
-// refreshYearReview fetches the most recent year Steam has data for. The current year is only
-// published after it ends, so this falls back to the previous one and labels it accordingly.
-func (p *SteamPlugin) refreshYearReview(ctx context.Context, steamID string) {
-	now := time.Now().Year()
-	cached := p.store.YearReview()
-	if steamYearReviewFresh(cached, now, time.Now()) {
+// steamYearHistoryFresh reports whether the cached history can be reused.
+func steamYearHistoryFresh(h steamYearHistory) bool {
+	return len(h.Years) > 0 && time.Since(time.Unix(h.FetchedAt, 0)) < steamYearHistoryTTL
+}
+
+// refreshYearHistory collects every published year summary, walking back from the current year.
+// Steam publishes a year only once it has ended, and older years eventually stop being served, so
+// the range is discovered rather than assumed.
+func (p *SteamPlugin) refreshYearHistory(ctx context.Context, steamID string) {
+	if steamYearHistoryFresh(p.store.YearHistory()) {
 		return
 	}
 
-	for _, year := range steamYearReviewCandidates(now) {
-		playtime, ok, err := p.api.YearInReview(ctx, steamID, year)
+	now := time.Now().Year()
+	years := make(map[int]map[int]int)
+	firstPlayed := make(map[int]int64)
+	gaps := 0
+
+	for i := 0; i < steamYearHistoryMaxYears; i++ {
+		year := now - i
+
+		minutes, first, ok, err := p.api.YearInReview(ctx, steamID, year)
 		if err != nil {
 			log.Printf("[Steam] year in review %d failed: %v", year, err)
-			continue
-		}
-		if !ok {
-			continue // Steam has not published this year yet
+			gaps++
+		} else if !ok {
+			gaps++
+		} else {
+			years[year] = minutes
+			for appID, ts := range first {
+				if cur, seen := firstPlayed[appID]; !seen || ts < cur {
+					firstPlayed[appID] = ts
+				}
+			}
+			gaps = 0
 		}
 
-		p.store.SetYearReview(steamYearReview{
-			Year:      year,
-			Playtime:  playtime,
-			FetchedAt: time.Now().Unix(),
-		})
-		log.Printf("[Steam] year in review %d: %d games with playtime", year, len(playtime))
+		// Two misses in a row means we have walked off the end of what Steam serves. The current
+		// year is expected to be missing, so it never counts towards that.
+		if gaps >= steamYearHistoryMaxGaps && year < now {
+			break
+		}
+	}
+
+	if len(years) == 0 {
+		log.Printf("[Steam] no published year in review available")
 		return
 	}
 
-	if cached.Year > 0 {
-		// Keep serving what we already have rather than blanking the page.
-		log.Printf("[Steam] no newer year in review published, keeping %d", cached.Year)
-		return
+	p.store.SetYearHistory(steamYearHistory{
+		Years:       years,
+		FirstPlayed: firstPlayed,
+		FetchedAt:   time.Now().Unix(),
+	})
+
+	earliest, latest := 0, 0
+	for y := range years {
+		if earliest == 0 || y < earliest {
+			earliest = y
+		}
+		if y > latest {
+			latest = y
+		}
 	}
-	log.Printf("[Steam] no published year in review available yet")
+	log.Printf("[Steam] year history: %d..%d (%d years, %d games with a first-played date)",
+		earliest, latest, len(years), len(firstPlayed))
 }

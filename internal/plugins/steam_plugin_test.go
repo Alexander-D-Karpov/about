@@ -378,109 +378,142 @@ func TestSteamNormalizeIconsUpgradesCachedEntries(t *testing.T) {
 	}
 }
 
-// Steam only publishes a year's playtime once that year has ended, so the snapshot delta (which is
-// zero until playtime accrues) must give way to Steam's real figures as soon as they exist.
-func TestSteamYearReviewPreferredOverSnapshot(t *testing.T) {
+// yearHistory builds a store history covering the given completed years.
+func setYearHistory(p *SteamPlugin, firstPlayed map[int]int64, years map[int]map[int]int) {
+	p.store.SetYearHistory(steamYearHistory{
+		Years:       years,
+		FirstPlayed: firstPlayed,
+		FetchedAt:   time.Now().Unix(),
+	})
+}
+
+// Steam never publishes the current year, but it does publish the completed ones. For a game whose
+// whole history sits inside those years, the leftover of its all-time total is this year's play.
+func TestSteamCurrentYearBySubtraction(t *testing.T) {
 	p := newTestSteamPlugin(t, map[string]interface{}{"steamid": "123"})
-	games := []SteamGame{{AppID: 1, Name: "A", PlaytimeAll: 600}, {AppID: 2, Name: "B", PlaytimeAll: 300}}
+	now := time.Now().Year()
+
+	games := []SteamGame{
+		{AppID: 1, Name: "Covered", PlaytimeAll: 600},  // 300 accounted for -> 300 this year
+		{AppID: 2, Name: "Finished", PlaytimeAll: 120}, // fully accounted for -> nothing this year
+	}
 	p.store.SetGames(games)
 	p.applyLibrary(games)
 
-	// Snapshot taken today: every delta is zero, which is why this could never show anything.
-	p.store.SetYearSnapshot(steamYearSnapshot{
-		Year:     time.Now().Year(),
-		Playtime: map[int]int{1: 600, 2: 300},
-		TakenAt:  time.Now().Unix(),
-	})
-	if got := p.playtimeForYear(); len(got.Minutes) != 0 || got.FromSteam {
-		t.Fatalf("expected no figures from a same-day snapshot, got %+v", got)
-	}
-
-	p.store.SetYearReview(steamYearReview{
-		Year:      time.Now().Year() - 1,
-		Playtime:  map[int]int{1: 240, 2: 60},
-		FetchedAt: time.Now().Unix(),
-	})
+	firstOfRange := time.Date(now-2, time.June, 1, 0, 0, 0, 0, time.UTC).Unix()
+	setYearHistory(p,
+		map[int]int64{1: firstOfRange, 2: firstOfRange},
+		map[int]map[int]int{
+			now - 2: {1: 100, 2: 20},
+			now - 1: {1: 200, 2: 100},
+		})
 
 	got := p.playtimeForYear()
-	if !got.FromSteam {
-		t.Fatalf("Steam's published figures should win over the snapshot")
+	if !got.FromSteam || got.Year != now {
+		t.Fatalf("expected Steam-derived figures for %d, got %+v", now, got)
 	}
-	if got.Year != time.Now().Year()-1 {
-		t.Fatalf("year should follow the published data, got %d", got.Year)
+	if got.Minutes[1] != 300 {
+		t.Fatalf("appid 1: expected 300 minutes this year, got %d", got.Minutes[1])
 	}
-	if got.Minutes[1] != 240 || got.Minutes[2] != 60 {
-		t.Fatalf("unexpected minutes: %v", got.Minutes)
+	if _, ok := got.Minutes[2]; ok {
+		t.Fatalf("appid 2 is fully accounted for, so it should have no time this year")
 	}
 }
 
-// Games hidden or no longer owned must not appear in the year figures.
-func TestSteamYearReviewExcludesHiddenAndUnowned(t *testing.T) {
-	p := newTestSteamPlugin(t, map[string]interface{}{
-		"steamid":     "123",
-		"hiddenGames": []interface{}{float64(2)},
-	})
-	games := []SteamGame{{AppID: 1, PlaytimeAll: 600}, {AppID: 2, PlaytimeAll: 300}}
+// A game first played before the published range has earlier playtime Steam never reported, so
+// subtracting would wildly overstate this year. It must be left out instead.
+func TestSteamCurrentYearSkipsGamesOlderThanTheData(t *testing.T) {
+	p := newTestSteamPlugin(t, map[string]interface{}{"steamid": "123"})
+	now := time.Now().Year()
+
+	games := []SteamGame{{AppID: 1, Name: "Old favourite", PlaytimeAll: 30000}}
 	p.store.SetGames(games)
 	p.applyLibrary(games)
 
-	p.store.SetYearReview(steamYearReview{
-		Year:      2025,
-		Playtime:  map[int]int{1: 240, 2: 60, 999: 120}, // 2 is hidden, 999 is not owned
-		FetchedAt: time.Now().Unix(),
-	})
+	setYearHistory(p,
+		map[int]int64{1: time.Date(now-9, time.March, 1, 0, 0, 0, 0, time.UTC).Unix()},
+		map[int]map[int]int{now - 1: {1: 60}})
 
-	got := p.playtimeForYear()
-	if len(got.Minutes) != 1 || got.Minutes[1] != 240 {
-		t.Fatalf("expected only the visible owned game, got %v", got.Minutes)
+	if got := p.playtimeForYear(); len(got.Minutes) != 0 {
+		t.Fatalf("a game predating the published range must not be derived: %v", got.Minutes)
 	}
 }
 
-// The year shown must follow the clock, so 2027 surfaces 2026 with no code change.
-func TestSteamYearReviewCandidatesFollowTheClock(t *testing.T) {
-	for _, now := range []int{2026, 2027, 2031} {
-		got := steamYearReviewCandidates(now)
-		if len(got) != 2 || got[0] != now || got[1] != now-1 {
-			t.Fatalf("candidates for %d = %v, want [%d %d]", now, got, now, now-1)
-		}
-	}
-}
-
-// A summary for an earlier year must go stale quickly, so a newly published one is picked up.
-func TestSteamYearReviewFreshness(t *testing.T) {
-	pt := map[int]int{1: 10}
-	now := 2027
-
-	cases := []struct {
-		name  string
-		entry steamYearReview
-		want  bool
-	}{
-		{"current year, just fetched", steamYearReview{Year: 2027, Playtime: pt, FetchedAt: time.Now().Unix()}, true},
-		{"current year, a week old", steamYearReview{Year: 2027, Playtime: pt, FetchedAt: time.Now().Add(-7 * 24 * time.Hour).Unix()}, true},
-		{"older year, an hour old", steamYearReview{Year: 2026, Playtime: pt, FetchedAt: time.Now().Add(-time.Hour).Unix()}, true},
-		{"older year, two days old", steamYearReview{Year: 2026, Playtime: pt, FetchedAt: time.Now().Add(-48 * time.Hour).Unix()}, false},
-		{"empty", steamYearReview{}, false},
-		{"year but no games", steamYearReview{Year: 2026, FetchedAt: time.Now().Unix()}, false},
-	}
-	for _, c := range cases {
-		if got := steamYearReviewFresh(c.entry, now, time.Now()); got != c.want {
-			t.Errorf("%s: fresh = %v, want %v", c.name, got, c.want)
-		}
-	}
-}
-
-// Whatever year the store holds is the year reported, with nothing pinned to a particular year.
-func TestSteamYearReportedFollowsStoredData(t *testing.T) {
+// Once Steam publishes the current year, use those figures directly rather than subtracting.
+func TestSteamCurrentYearUsesPublishedFiguresWhenAvailable(t *testing.T) {
 	p := newTestSteamPlugin(t, map[string]interface{}{"steamid": "123"})
+	now := time.Now().Year()
+
 	games := []SteamGame{{AppID: 1, PlaytimeAll: 600}}
 	p.store.SetGames(games)
 	p.applyLibrary(games)
 
-	for _, year := range []int{2026, 2031} {
-		p.store.SetYearReview(steamYearReview{Year: year, Playtime: map[int]int{1: 120}, FetchedAt: time.Now().Unix()})
-		if got := p.playtimeForYear(); got.Year != year || !got.FromSteam {
-			t.Fatalf("stored year %d reported as %+v", year, got)
-		}
+	setYearHistory(p,
+		map[int]int64{1: time.Date(now-1, time.January, 2, 0, 0, 0, 0, time.UTC).Unix()},
+		map[int]map[int]int{
+			now - 1: {1: 200},
+			now:     {1: 45}, // published: trust it over 600-200
+		})
+
+	if got := p.playtimeForYear(); got.Minutes[1] != 45 {
+		t.Fatalf("expected the published 45 minutes, got %d", got.Minutes[1])
+	}
+}
+
+func TestSteamCurrentYearExcludesHiddenGames(t *testing.T) {
+	p := newTestSteamPlugin(t, map[string]interface{}{
+		"steamid":     "123",
+		"hiddenGames": []interface{}{float64(2)},
+	})
+	now := time.Now().Year()
+
+	games := []SteamGame{{AppID: 1, PlaytimeAll: 600}, {AppID: 2, PlaytimeAll: 600}}
+	p.store.SetGames(games)
+	p.applyLibrary(games)
+
+	first := time.Date(now-1, time.January, 2, 0, 0, 0, 0, time.UTC).Unix()
+	setYearHistory(p, map[int]int64{1: first, 2: first}, map[int]map[int]int{now - 1: {1: 100, 2: 100}})
+
+	got := p.playtimeForYear()
+	if _, ok := got.Minutes[2]; ok {
+		t.Fatalf("hidden game leaked into the year figures: %v", got.Minutes)
+	}
+	if got.Minutes[1] != 500 {
+		t.Fatalf("expected 500 minutes for the visible game, got %d", got.Minutes[1])
+	}
+}
+
+// With nothing published, fall back to our own snapshot rather than showing nothing at all.
+func TestSteamCurrentYearFallsBackToSnapshot(t *testing.T) {
+	p := newTestSteamPlugin(t, map[string]interface{}{"steamid": "123"})
+	games := []SteamGame{{AppID: 1, PlaytimeAll: 300}}
+	p.store.SetGames(games)
+	p.applyLibrary(games)
+
+	p.store.SetYearSnapshot(steamYearSnapshot{
+		Year:     time.Now().Year(),
+		Playtime: map[int]int{1: 200},
+		TakenAt:  time.Now().Add(-24 * time.Hour).Unix(),
+	})
+
+	got := p.playtimeForYear()
+	if got.FromSteam {
+		t.Fatalf("no published data, so this should not claim to come from Steam")
+	}
+	if got.Minutes[1] != 100 {
+		t.Fatalf("expected the snapshot delta of 100, got %d", got.Minutes[1])
+	}
+}
+
+func TestSteamYearHistoryFreshness(t *testing.T) {
+	pt := map[int]map[int]int{2025: {1: 10}}
+	if !steamYearHistoryFresh(steamYearHistory{Years: pt, FetchedAt: time.Now().Unix()}) {
+		t.Fatal("a just-fetched history should be fresh")
+	}
+	if steamYearHistoryFresh(steamYearHistory{Years: pt, FetchedAt: time.Now().Add(-48 * time.Hour).Unix()}) {
+		t.Fatal("a two-day-old history should be refetched, so a new year is picked up")
+	}
+	if steamYearHistoryFresh(steamYearHistory{}) {
+		t.Fatal("an empty history is never fresh")
 	}
 }

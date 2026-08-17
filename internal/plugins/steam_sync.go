@@ -273,7 +273,7 @@ func (p *SteamPlugin) syncCycle(ctx context.Context) {
 	p.refreshLive(ctx, steamID)
 
 	// Cheap and TTL-guarded, so it runs on the normal cycle rather than only on the daily sync.
-	p.refreshYearReview(ctx, steamID)
+	p.refreshYearHistory(ctx, steamID)
 
 	if time.Since(p.store.LastFullSync()) >= steamFullSyncInterval {
 		p.fullSync(ctx, steamID)
@@ -534,32 +534,73 @@ func (p *SteamPlugin) captureYearSnapshot(games []SteamGame) {
 type steamYearPlaytime struct {
 	Minutes map[int]int
 	Year    int
-	// FromSteam is true for Steam's own published figures, false for our own tracking.
+	// FromSteam is true when derived from Steam's published summaries, false for our own tracking.
 	FromSteam bool
+	// Covered is how many games Steam's data can account for; the rest have earlier playtime we
+	// cannot see.
+	Covered int
 	// TrackedSince is only meaningful for our own tracking.
 	TrackedSince time.Time
 }
 
-// playtimeForYear prefers Steam's published year in review, which is the only real source of
-// per-year playtime. Steam only publishes a year once it has ended, so until then this falls back
-// to the difference from our own new-year snapshot.
+// playtimeForYear works out how much of each game was played in the current year.
+//
+// Steam only publishes a year's summary after it ends, so the current year is never served
+// directly. What it does publish is every completed year, plus each game's first-played date. When
+// a game was first played inside the published range, all of its playtime is accounted for by
+// those years, and the remainder of its all-time total is exactly this year's playtime.
+//
+// Games first played before the published range keep an unknown amount of earlier playtime, so
+// they cannot be derived this way and fall back to our own snapshot.
 func (p *SteamPlugin) playtimeForYear() steamYearPlaytime {
-	if review := p.store.YearReview(); review.Year > 0 && len(review.Playtime) > 0 {
-		hidden := p.hiddenSet()
-		owned := make(map[int]bool)
-		for _, g := range p.snapshotGames() {
-			owned[g.AppID] = true
-		}
+	hist := p.store.YearHistory()
+	if len(hist.Years) > 0 {
+		now := time.Now().Year()
 
-		out := make(map[int]int, len(review.Playtime))
-		for appID, mins := range review.Playtime {
-			if hidden[appID] || !owned[appID] || mins <= 0 {
+		earliest := 0
+		for y := range hist.Years {
+			if earliest == 0 || y < earliest {
+				earliest = y
+			}
+		}
+		// Anything first played before the earliest published year has playtime we cannot see.
+		cutoff := time.Date(earliest, time.January, 1, 0, 0, 0, 0, time.UTC).Unix()
+
+		hidden := p.hiddenSet()
+		out := make(map[int]int)
+		covered := 0
+
+		for _, g := range p.snapshotGames() {
+			if hidden[g.AppID] {
 				continue
 			}
-			out[appID] = mins
+
+			// If Steam has already published the current year, use it directly.
+			if mins, ok := hist.Years[now][g.AppID]; ok && mins > 0 {
+				out[g.AppID] = mins
+				covered++
+				continue
+			}
+
+			first, known := hist.FirstPlayed[g.AppID]
+			if !known || first < cutoff {
+				continue // earlier playtime is invisible, so subtraction would overstate
+			}
+
+			accounted := 0
+			for year, games := range hist.Years {
+				if year < now {
+					accounted += games[g.AppID]
+				}
+			}
+			covered++
+			if rem := g.PlaytimeAll - accounted; rem > 0 {
+				out[g.AppID] = rem
+			}
 		}
-		if len(out) > 0 {
-			return steamYearPlaytime{Minutes: out, Year: review.Year, FromSteam: true}
+
+		if covered > 0 {
+			return steamYearPlaytime{Minutes: out, Year: now, FromSteam: true, Covered: covered}
 		}
 	}
 
