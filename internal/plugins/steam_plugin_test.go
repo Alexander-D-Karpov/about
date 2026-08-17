@@ -393,9 +393,10 @@ func TestSteamCurrentYearBySubtraction(t *testing.T) {
 	p := newTestSteamPlugin(t, map[string]interface{}{"steamid": "123"})
 	now := time.Now().Year()
 
+	played := time.Now().Unix()
 	games := []SteamGame{
-		{AppID: 1, Name: "Covered", PlaytimeAll: 600},  // 300 accounted for -> 300 this year
-		{AppID: 2, Name: "Finished", PlaytimeAll: 120}, // fully accounted for -> nothing this year
+		{AppID: 1, Name: "Covered", PlaytimeAll: 600, LastPlayed: played},  // 300 accounted -> 300 this year
+		{AppID: 2, Name: "Finished", PlaytimeAll: 120, LastPlayed: played}, // fully accounted -> nothing
 	}
 	p.store.SetGames(games)
 	p.applyLibrary(games)
@@ -444,7 +445,7 @@ func TestSteamCurrentYearUsesPublishedFiguresWhenAvailable(t *testing.T) {
 	p := newTestSteamPlugin(t, map[string]interface{}{"steamid": "123"})
 	now := time.Now().Year()
 
-	games := []SteamGame{{AppID: 1, PlaytimeAll: 600}}
+	games := []SteamGame{{AppID: 1, PlaytimeAll: 600, LastPlayed: time.Now().Unix()}}
 	p.store.SetGames(games)
 	p.applyLibrary(games)
 
@@ -467,7 +468,11 @@ func TestSteamCurrentYearExcludesHiddenGames(t *testing.T) {
 	})
 	now := time.Now().Year()
 
-	games := []SteamGame{{AppID: 1, PlaytimeAll: 600}, {AppID: 2, PlaytimeAll: 600}}
+	played := time.Now().Unix()
+	games := []SteamGame{
+		{AppID: 1, PlaytimeAll: 600, LastPlayed: played},
+		{AppID: 2, PlaytimeAll: 600, LastPlayed: played},
+	}
 	p.store.SetGames(games)
 	p.applyLibrary(games)
 
@@ -515,5 +520,37 @@ func TestSteamYearHistoryFreshness(t *testing.T) {
 	}
 	if steamYearHistoryFresh(steamYearHistory{}) {
 		t.Fatal("an empty history is never fresh")
+	}
+}
+
+// Steam's yearly summaries do not always add up to a game's all-time total. Without a last-played
+// gate the entire shortfall lands on the current year, which claimed 31.9h of 2026 for a game last
+// touched in January 2024.
+func TestSteamCurrentYearIgnoresGamesNotPlayedThisYear(t *testing.T) {
+	p := newTestSteamPlugin(t, map[string]interface{}{"steamid": "123"})
+	now := time.Now().Year()
+
+	lastYearEnd := time.Date(now-1, time.March, 3, 0, 0, 0, 0, time.UTC).Unix()
+	games := []SteamGame{
+		// All-time 600, but the published years only account for 400: the 200 shortfall must not
+		// be treated as this year's play, because it was last played long ago.
+		{AppID: 1, Name: "Shelved", PlaytimeAll: 600, LastPlayed: lastYearEnd},
+		// Genuinely played this year.
+		{AppID: 2, Name: "Active", PlaytimeAll: 600, LastPlayed: time.Now().Unix()},
+	}
+	p.store.SetGames(games)
+	p.applyLibrary(games)
+
+	first := time.Date(now-2, time.February, 1, 0, 0, 0, 0, time.UTC).Unix()
+	setYearHistory(p,
+		map[int]int64{1: first, 2: first},
+		map[int]map[int]int{now - 2: {1: 200, 2: 200}, now - 1: {1: 200, 2: 200}})
+
+	got := p.playtimeForYear()
+	if mins, ok := got.Minutes[1]; ok {
+		t.Fatalf("a game last played in a previous year must report nothing this year, got %d", mins)
+	}
+	if got.Minutes[2] != 200 {
+		t.Fatalf("the game played this year should report 200 minutes, got %d", got.Minutes[2])
 	}
 }

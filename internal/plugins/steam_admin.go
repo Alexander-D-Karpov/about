@@ -78,6 +78,8 @@ func (p *SteamPlugin) HasAccessToken() bool {
 // ForceFullSync clears the daily-sync marker so the next cycle re-pulls the whole library.
 func (p *SteamPlugin) ForceFullSync() {
 	p.store.ClearFullSync()
+	// Also rediscover which years Steam serves: profile privacy may have changed.
+	p.store.ClearYearHistory()
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {

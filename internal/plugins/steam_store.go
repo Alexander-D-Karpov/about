@@ -479,6 +479,16 @@ func (s *SteamStore) YearHistory() steamYearHistory {
 	return out
 }
 
+// ClearYearHistory forces the published-year range to be rediscovered, for when profile privacy
+// changes and years that were hidden become visible.
+func (s *SteamStore) ClearYearHistory() {
+	s.mu.Lock()
+	s.data.YearHistory = steamYearHistory{Years: make(map[int]map[int]int), FirstPlayed: make(map[int]int64)}
+	s.dirty = true
+	s.mu.Unlock()
+	s.Flush()
+}
+
 func (s *SteamStore) SetYearHistory(h steamYearHistory) {
 	s.mu.Lock()
 	s.data.YearHistory = h

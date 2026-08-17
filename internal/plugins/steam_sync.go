@@ -565,6 +565,7 @@ func (p *SteamPlugin) playtimeForYear() steamYearPlaytime {
 		}
 		// Anything first played before the earliest published year has playtime we cannot see.
 		cutoff := time.Date(earliest, time.January, 1, 0, 0, 0, 0, time.UTC).Unix()
+		yearStart := time.Date(now, time.January, 1, 0, 0, 0, 0, time.UTC).Unix()
 
 		hidden := p.hiddenSet()
 		out := make(map[int]int)
@@ -579,6 +580,13 @@ func (p *SteamPlugin) playtimeForYear() steamYearPlaytime {
 			if mins, ok := hist.Years[now][g.AppID]; ok && mins > 0 {
 				out[g.AppID] = mins
 				covered++
+				continue
+			}
+
+			// A game not touched since last year cannot have playtime this year. This matters:
+			// Steam's yearly summaries do not always add up to the all-time total, and without
+			// this the entire shortfall would be misattributed to the current year.
+			if g.LastPlayed < yearStart {
 				continue
 			}
 
