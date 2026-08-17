@@ -21,6 +21,8 @@ type SteamGame struct {
 	AcquiredAt int64 `json:"rt_time_acquired,omitempty"`
 	// Source is "" for owned games and "family" for shared-library games.
 	Source string `json:"source,omitempty"`
+	// Type is the resolved store type ("game", "software", ...); empty until looked up.
+	Type string `json:"app_type,omitempty"`
 }
 
 type SteamCurrentGame struct {
@@ -169,6 +171,7 @@ type SteamRarestAchievement struct {
 	Name          string  `json:"name"`
 	Description   string  `json:"description"`
 	Icon          string  `json:"icon"`
+	IconGray      string  `json:"iconGray,omitempty"`
 	GlobalPercent float64 `json:"globalPercent"`
 	UnlockedAt    int64   `json:"unlockedAt"`
 }

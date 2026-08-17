@@ -262,16 +262,24 @@
     display: flex;
     flex-wrap: wrap;
     justify-content: center;
-    align-items: center;
+    align-items: stretch;
     gap: 8px;
     margin-top: 14px;
+}
+
+/* Both actions share one box so they line up regardless of the count pill. */
+.steam-section .steam-actions > a {
+    min-height: 34px;
+    line-height: 1;
+    box-sizing: border-box;
 }
 
 .steam-section .steam-all-games-btn {
     display: inline-flex;
     align-items: center;
+    justify-content: center;
     gap: 7px;
-    padding: 8px 14px;
+    padding: 0 14px;
     background: transparent;
     color: var(--ink);
     border: 1px solid color-mix(in oklch, var(--accent) 40%, var(--edge-0));
@@ -287,10 +295,17 @@
 .steam-section .steam-all-games-btn .steam-count {
     font-variant-numeric: tabular-nums;
     font-size: 11px;
-    padding: 1px 6px;
+    line-height: 18px;
+    padding: 0 7px;
     border-radius: 99px;
     background: color-mix(in oklch, var(--accent) 18%, transparent);
     color: var(--accent);
+}
+
+/* The profile link is the sibling action, so it gets the same box. */
+.steam-section .steam-actions .view-profile-btn {
+    padding: 0 14px;
+    justify-content: center;
 }
 
 .steam-section .steam-all-games-btn:hover {

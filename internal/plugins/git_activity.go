@@ -56,6 +56,33 @@ type GitActivity struct {
 	dayStore   *GitDayStore
 	prefetchMu sync.Mutex
 	dayClient  *http.Client
+
+	// Set when a provider reports a secondary rate limit; prefetching pauses until it passes
+	// instead of hammering the API and filling the log with 403s.
+	backoffMu    sync.Mutex
+	backoffUntil time.Time
+}
+
+// gitSecondaryBackoff is how long to stop prefetching after hitting a rate limit.
+const gitSecondaryBackoff = 20 * time.Minute
+
+func (g *GitActivity) rateLimitedUntil() (time.Time, bool) {
+	g.backoffMu.Lock()
+	defer g.backoffMu.Unlock()
+	if time.Now().Before(g.backoffUntil) {
+		return g.backoffUntil, true
+	}
+	return time.Time{}, false
+}
+
+func (g *GitActivity) startRateLimitBackoff() {
+	g.backoffMu.Lock()
+	defer g.backoffMu.Unlock()
+	if time.Now().Before(g.backoffUntil) {
+		return // already backing off; don't extend it repeatedly
+	}
+	g.backoffUntil = time.Now().Add(gitSecondaryBackoff)
+	log.Printf("[Git] rate limited, pausing day-detail prefetch for %s", gitSecondaryBackoff)
 }
 
 type GitDayDetailer interface {
@@ -903,8 +930,11 @@ func gitDateIsFinal(date string) bool {
 	return date < time.Now().AddDate(0, 0, -1).Format("2006-01-02")
 }
 
-func (g *GitActivity) fetchDayFromProviders(ctx context.Context, date string, providers []GitProvider) []GitActivityItem {
+// fetchDayFromProviders returns the day's items and whether a provider was rate limited, so
+// callers can stop early rather than repeating a request that cannot succeed yet.
+func (g *GitActivity) fetchDayFromProviders(ctx context.Context, date string, providers []GitProvider) ([]GitActivityItem, bool) {
 	var out []GitActivityItem
+	limited := false
 	for _, p := range providers {
 		dd, ok := p.(GitDayDetailer)
 		if !ok {
@@ -914,13 +944,18 @@ func (g *GitActivity) fetchDayFromProviders(ctx context.Context, date string, pr
 		items, err := dd.FetchDayDetails(fctx, date)
 		cancel()
 		if err != nil {
+			if gitIsRateLimited(err) {
+				limited = true
+				g.startRateLimitBackoff()
+				continue
+			}
 			log.Printf("[Git] day details fetch failed for %s (%s): %v", p.Key(), date, err)
 			continue
 		}
 		out = append(out, items...)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Time.After(out[j].Time) })
-	return out
+	return out, limited
 }
 
 func (g *GitActivity) ensureDayDetails(ctx context.Context, date string) gitDayEntry {
@@ -932,7 +967,7 @@ func (g *GitActivity) ensureDayDetails(ctx context.Context, date string) gitDayE
 	g.mu.RLock()
 	providers := append([]GitProvider(nil), g.providers...)
 	g.mu.RUnlock()
-	items := g.fetchDayFromProviders(ctx, date, providers)
+	items, _ := g.fetchDayFromProviders(ctx, date, providers)
 	private := 0
 	public := make([]GitActivityItem, 0, len(items))
 	for _, it := range items {
@@ -972,6 +1007,12 @@ func (g *GitActivity) PrefetchDayDetails(maxDays int) {
 	}
 	defer g.prefetchMu.Unlock()
 
+	if until, limited := g.rateLimitedUntil(); limited {
+		log.Printf("[Git] skipping day-detail prefetch, rate limited for another %s",
+			time.Until(until).Round(time.Second))
+		return
+	}
+
 	g.mu.RLock()
 	dates := make([]string, 0, len(g.calendar))
 	for date, day := range g.calendar {
@@ -1006,10 +1047,18 @@ func (g *GitActivity) PrefetchDayDetails(maxDays int) {
 	start := time.Now()
 	log.Printf("[Git] prefetching day details for %d day(s)...", len(pending))
 
+	done := 0
 	for i, date := range pending {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
-		items := g.fetchDayFromProviders(ctx, date, providers)
+		items, limited := g.fetchDayFromProviders(ctx, date, providers)
 		cancel()
+
+		if limited {
+			// Every remaining day would fail the same way; stop and try again after the backoff.
+			log.Printf("[Git] day-detail prefetch stopped early after %d/%d days (rate limited)", done, len(pending))
+			g.dayStore.Flush()
+			return
+		}
 
 		private := 0
 		public := make([]GitActivityItem, 0, len(items))
@@ -1021,6 +1070,7 @@ func (g *GitActivity) PrefetchDayDetails(maxDays int) {
 			public = append(public, it)
 		}
 		g.dayStore.Set(date, public, private)
+		done++
 
 		if i%20 == 0 && i > 0 {
 			g.dayStore.Flush()
@@ -1178,7 +1228,7 @@ func (g *GitActivity) RefreshToday() {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
-	items := g.fetchDayFromProviders(ctx, today, providers)
+	items, _ := g.fetchDayFromProviders(ctx, today, providers)
 	private := 0
 	public := make([]GitActivityItem, 0, len(items))
 	for _, it := range items {

@@ -15,10 +15,13 @@ const (
 	steamFullSyncInterval = 24 * time.Hour
 	// Minimum gap between the cheap player-summary/recent-games refreshes.
 	steamCheapSyncInterval = 90 * time.Second
-	// Games enriched with achievements per background cycle, and the pause between each, so we
-	// never hammer the API.
-	steamEnrichPerCycle = 40
-	steamEnrichDelay    = 750 * time.Millisecond
+	// Pacing for the achievement worker. It runs continuously until the queue drains rather than
+	// a fixed slice per cycle, which previously capped it at ~40 games per 15 minutes.
+	steamEnrichDelay = 120 * time.Millisecond
+	// Pacing for app-type lookups. The store endpoint throttles much harder than the Web API.
+	steamTypeDelay      = 1200 * time.Millisecond
+	steamTypeCooldown   = 10 * time.Minute
+	steamWorkerIdleWait = 30 * time.Second
 )
 
 // UpdateData returns immediately. PreloadData runs before the HTTP server starts and passes a
@@ -42,7 +45,7 @@ func (p *SteamPlugin) UpdateData(_ context.Context) error {
 		// Detached from the caller so the manager's per-plugin timeout cannot kill a sync midway.
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 		defer cancel()
-		p.syncCycle(ctx, false)
+		p.syncCycle(ctx)
 	}()
 
 	return nil
@@ -51,7 +54,164 @@ func (p *SteamPlugin) UpdateData(_ context.Context) error {
 func (p *SteamPlugin) startBackground() {
 	p.bgStarted.Do(func() {
 		go p.backgroundLoop()
+		go p.enrichmentWorker()
+		go p.appTypeWorker()
 	})
+}
+
+// enrichmentWorker drains the achievement queue continuously, so a large library fills in over
+// minutes instead of hours. It idles cheaply when there is nothing to do.
+func (p *SteamPlugin) enrichmentWorker() {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("[Steam] achievement worker panic recovered: %v", r)
+			time.Sleep(time.Minute)
+			go p.enrichmentWorker()
+		}
+	}()
+
+	if p.apiKey == "" {
+		return
+	}
+	time.Sleep(20 * time.Second) // let the first library sync land
+
+	for {
+		steamID := p.steamID()
+		if steamID == "" || p.store.PendingCount() == 0 {
+			time.Sleep(steamWorkerIdleWait)
+			continue
+		}
+
+		total := p.store.PendingCount()
+		log.Printf("[Steam] achievement enrichment starting (%d games queued)", total)
+		start := time.Now()
+		done, failed := 0, 0
+
+		for {
+			batch := p.store.PopPending(25)
+			if len(batch) == 0 {
+				break
+			}
+			for _, appID := range batch {
+				game, ok := p.gameByID(appID)
+				if !ok {
+					continue
+				}
+				ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+				entry, err := p.buildAchievementEntry(ctx, steamID, game)
+				cancel()
+				if err != nil {
+					failed++
+				} else {
+					p.store.SetAchievement(appID, entry)
+					done++
+				}
+				if (done+failed)%25 == 0 {
+					fmt.Fprintf(os.Stderr, "\r[Steam] Enriching achievements: %d/%d games processed", done+failed, total)
+				}
+				time.Sleep(steamEnrichDelay)
+			}
+			p.store.Flush()
+		}
+
+		fmt.Fprintf(os.Stderr, "\r[Steam] Enriching achievements: %d/%d games processed\n", done+failed, total)
+		p.store.Flush()
+		log.Printf("[Steam] achievement enrichment done in %v (%d enriched, %d failed)",
+			time.Since(start).Round(time.Second), done, failed)
+
+		if p.invalidateCache != nil {
+			p.invalidateCache()
+		}
+	}
+}
+
+// appTypeWorker resolves whether each app is a game or something else (software, tool, DLC, demo).
+// The store endpoint throttles aggressively, so it goes slowly and backs off hard on 429.
+func (p *SteamPlugin) appTypeWorker() {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("[Steam] app-type worker panic recovered: %v", r)
+			time.Sleep(time.Minute)
+			go p.appTypeWorker()
+		}
+	}()
+
+	time.Sleep(45 * time.Second)
+
+	for {
+		if p.store.PendingTypeCount() == 0 {
+			time.Sleep(steamWorkerIdleWait)
+			continue
+		}
+
+		total := p.store.PendingTypeCount()
+		log.Printf("[Steam] app-type lookup starting (%d apps queued)", total)
+		start := time.Now()
+		resolved, nonGames := 0, 0
+
+		for {
+			batch := p.store.PopPendingTypes(20)
+			if len(batch) == 0 {
+				break
+			}
+			throttled := false
+			for _, appID := range batch {
+				ctx, cancel := context.WithTimeout(context.Background(), 40*time.Second)
+				info, err := p.api.AppInfo(ctx, appID)
+				cancel()
+
+				if err == errSteamRateLimited {
+					p.store.RequeueType(appID) // retry after the cooldown
+					throttled = true
+					break
+				}
+				if err != nil {
+					continue
+				}
+				if info.Type != "" {
+					p.store.SetAppInfo(appID, info.Type, info.Header)
+					resolved++
+					if info.Type != "game" {
+						nonGames++
+					}
+				}
+				time.Sleep(steamTypeDelay)
+			}
+			p.store.Flush()
+			if throttled {
+				log.Printf("[Steam] app-type lookup throttled, pausing %s (%d resolved so far)", steamTypeCooldown, resolved)
+				time.Sleep(steamTypeCooldown)
+			}
+		}
+
+		p.store.Flush()
+		log.Printf("[Steam] app info lookup done in %v (%d resolved, %d not games)",
+			time.Since(start).Round(time.Second), resolved, nonGames)
+
+		if resolved > 0 {
+			games, _ := p.store.Games()
+			p.applyLibrary(games)
+			if p.invalidateCache != nil {
+				p.invalidateCache()
+			}
+		}
+	}
+}
+
+// queueTypeLookup queues apps whose type we have not resolved yet.
+func (p *SteamPlugin) queueTypeLookup(games []SteamGame) {
+	known := p.store.AppTypes()
+	ids := make([]int, 0, len(games))
+	for _, g := range games {
+		if _, ok := known[g.AppID]; !ok {
+			ids = append(ids, g.AppID)
+		}
+	}
+	if len(ids) == 0 {
+		return
+	}
+	p.store.SetPendingTypes(ids)
+	log.Printf("[Steam] queued %d apps for type lookup", len(ids))
 }
 
 // backgroundLoop owns the daily full sync and the achievement trickle, independent of visitor
@@ -77,7 +237,7 @@ func (p *SteamPlugin) backgroundLoop() {
 	run := func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
 		defer cancel()
-		p.syncCycle(ctx, true)
+		p.syncCycle(ctx)
 	}
 
 	run()
@@ -88,9 +248,9 @@ func (p *SteamPlugin) backgroundLoop() {
 	}
 }
 
-// syncCycle does the cheap refresh always, the full library sync at most daily, and (when allowed)
-// a bounded slice of the resumable achievement queue.
-func (p *SteamPlugin) syncCycle(ctx context.Context, allowEnrich bool) {
+// syncCycle does the cheap refresh always and the full library sync at most daily. Achievement and
+// app-type enrichment run in their own workers.
+func (p *SteamPlugin) syncCycle(ctx context.Context) {
 	steamID := p.steamID()
 	if steamID == "" {
 		log.Printf("[Steam] steamid not configured, skipping sync")
@@ -101,10 +261,6 @@ func (p *SteamPlugin) syncCycle(ctx context.Context, allowEnrich bool) {
 
 	if time.Since(p.store.LastFullSync()) >= steamFullSyncInterval {
 		p.fullSync(ctx, steamID)
-	}
-
-	if allowEnrich {
-		p.enrichAchievements(ctx, steamID, steamEnrichPerCycle)
 	}
 }
 
@@ -251,18 +407,30 @@ func (p *SteamPlugin) fullSync(ctx context.Context, steamID string) {
 			log.Printf("[Steam] family library failed: %v", ferr)
 		default:
 			p.store.SetFamilyValid(true)
-			ownedIDs := make(map[int]bool, len(merged))
-			for _, g := range merged {
-				ownedIDs[g.AppID] = true
+
+			ownedIdx := make(map[int]int, len(merged))
+			for i, g := range merged {
+				ownedIdx[g.AppID] = i
 			}
+
+			acquired := 0
 			for _, g := range family {
-				if ownedIDs[g.AppID] {
+				if i, own := ownedIdx[g.AppID]; own {
+					// Our own game: the only thing worth taking is the real purchase date.
+					if g.AcquiredAt > 0 {
+						merged[i].AcquiredAt = g.AcquiredAt
+						acquired++
+					}
+					continue
+				}
+				if g.Source != "family" {
 					continue
 				}
 				merged = append(merged, g)
 				familyCount++
 			}
-			log.Printf("[Steam] family library: %d shared apps merged (group=%s)", familyCount, groupID)
+			log.Printf("[Steam] family library: %d shared apps merged, %d purchase dates resolved (group=%s)",
+				familyCount, acquired, groupID)
 		}
 	} else {
 		p.store.SetFamilyValid(false)
@@ -296,6 +464,7 @@ func (p *SteamPlugin) fullSync(ctx context.Context, steamID string) {
 	p.applyLibrary(merged)
 	p.captureYearSnapshot(merged)
 	p.queueEnrichment(merged)
+	p.queueTypeLookup(merged)
 	p.store.MarkFullSync()
 
 	hidden := len(merged) - len(p.snapshotGames())
@@ -391,55 +560,6 @@ func (p *SteamPlugin) queueEnrichment(games []SteamGame) {
 	if len(ids) > 0 {
 		log.Printf("[Steam] queued %d games for achievement enrichment", len(ids))
 	}
-}
-
-// enrichAchievements drains up to max entries from the persisted queue. Progress is flushed in
-// batches, so an interrupt resumes here rather than restarting.
-func (p *SteamPlugin) enrichAchievements(ctx context.Context, steamID string, max int) {
-	remaining := p.store.PendingCount()
-	if remaining == 0 {
-		return
-	}
-
-	batch := p.store.PopPending(max)
-	if len(batch) == 0 {
-		return
-	}
-
-	total := len(batch)
-	done := 0
-	for _, appID := range batch {
-		if ctx.Err() != nil {
-			break
-		}
-
-		game, ok := p.gameByID(appID)
-		if !ok {
-			continue
-		}
-
-		entry, err := p.buildAchievementEntry(ctx, steamID, game)
-		if err != nil {
-			log.Printf("[Steam] achievement enrichment failed for %d (%s): %v", appID, game.Name, err)
-			continue
-		}
-		p.store.SetAchievement(appID, entry)
-		done++
-
-		fmt.Fprintf(os.Stderr, "\r[Steam] Enriching achievements: %d/%d games processed", done, total)
-
-		select {
-		case <-ctx.Done():
-		case <-time.After(steamEnrichDelay):
-		}
-	}
-
-	if done > 0 {
-		fmt.Fprintf(os.Stderr, "\r[Steam] Enriching achievements: %d/%d games processed\n", done, total)
-	}
-	p.store.Flush()
-
-	log.Printf("[Steam] achievements: %d/%d games enriched, %d pending", done, total, p.store.PendingCount())
 }
 
 // syncStatus reports what the admin page shows.

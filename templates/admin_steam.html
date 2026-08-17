@@ -16,7 +16,12 @@
   .pill.off{background:rgba(139,148,158,.16);color:#8b949e}
   .card-box{border:1px solid var(--edge-1);border-radius:10px;padding:16px;margin-bottom:20px}
   .card-box h2{margin:0 0 4px;font-size:15px}
-  .card-box p.hint{margin:0 0 14px;font-size:12.5px;opacity:.7;line-height:1.5}
+  .card-box p.hint{margin:0 0 10px;font-size:12.5px;opacity:.7;line-height:1.55}
+  .card-box p.hint:last-of-type{margin-bottom:14px}
+  .card-box code{
+    font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace;font-size:11.5px;
+    padding:1px 5px;border-radius:4px;background:rgba(127,127,127,.16);
+  }
   .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
   .row input[type=password],.row input[type=text]{
     flex:1 1 260px;min-width:0;padding:9px 12px;border-radius:8px;
@@ -62,9 +67,16 @@
     <h2>Family library access token</h2>
     <p class="hint">
       Steam Family shared games need a logged-in session token, which is separate from the API key and
-      expires after a few hours or days. While it is valid, shared games are merged into the library.
-      When it expires, the library falls back to your own games automatically.
-      The stored token is never displayed.
+      expires after a few hours or days. While it is valid, shared games are merged into the library and
+      Steam also returns real purchase dates for your own games. When it expires, the library falls back
+      to your own games automatically. The stored token is never displayed.
+    </p>
+    <p class="hint">
+      <b>Where to get it:</b> sign in to Steam in your browser, then open
+      <code>https://store.steampowered.com/pointssummary/ajaxgetasyncconfig</code> &mdash; it returns
+      <code>{"webapi_token":"…"}</code>. Paste that token value here.
+      It is issued from your <code>steamLoginSecure</code> cookie, so it only works while that session
+      stays signed in.
     </p>
     <div class="row">
       <input type="password" id="token" placeholder="{{if .HasToken}}Token stored — leave blank to keep it{{else}}Paste access token{{end}}" autocomplete="off">

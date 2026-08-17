@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -213,6 +214,79 @@ func (a *steamAPI) SchemaForGame(ctx context.Context, appID int) (map[string]ste
 		out[ach.Name] = ach
 	}
 	return out, nil
+}
+
+// errSteamRateLimited signals the store API is throttling us, so the caller should pause.
+var errSteamRateLimited = fmt.Errorf("steam store API rate limited")
+
+// steamAppInfo is what one appdetails lookup gives us: what the app is, and where its real art
+// lives. Newer titles keep their art under a content-hashed path that cannot be derived from the
+// appid, so this is the only way to get a correct banner for them.
+type steamAppInfo struct {
+	Type   string
+	Header string
+}
+
+// AppInfo resolves an app's type ("game", "dlc", "software", "tool", "demo", "music") and its
+// header image. GetOwnedGames returns software and tools alongside games without distinguishing
+// them, and does not expose art paths at all.
+func (a *steamAPI) AppInfo(ctx context.Context, appID int) (steamAppInfo, error) {
+	endpoint := fmt.Sprintf(
+		"https://store.steampowered.com/api/appdetails?appids=%d&filters=basic&l=english", appID)
+
+	reqCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(reqCtx, "GET", endpoint, nil)
+	if err != nil {
+		return steamAppInfo{}, err
+	}
+	req.Header.Set("User-Agent", "AboutPage/1.0 (about.akarpov.ru)")
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := a.client.Do(req)
+	if err != nil {
+		return steamAppInfo{}, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode == http.StatusForbidden {
+		io.Copy(io.Discard, io.LimitReader(resp.Body, 1024))
+		return steamAppInfo{}, errSteamRateLimited
+	}
+	if resp.StatusCode != http.StatusOK {
+		io.Copy(io.Discard, io.LimitReader(resp.Body, 1024))
+		return steamAppInfo{}, &steamHTTPError{Status: resp.StatusCode, URL: "appdetails"}
+	}
+
+	// Shape: {"<appid>":{"success":true,"data":{"type":"game","header_image":"..."}}}
+	var payload map[string]struct {
+		Success bool `json:"success"`
+		Data    struct {
+			Type        string `json:"type"`
+			HeaderImage string `json:"header_image"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		return steamAppInfo{}, err
+	}
+
+	entry, ok := payload[strconv.Itoa(appID)]
+	if !ok || !entry.Success {
+		// Delisted or region-locked apps report success=false; treat them as unknown rather than
+		// guessing, so they are not silently dropped from the library.
+		return steamAppInfo{}, nil
+	}
+
+	header := strings.TrimSpace(entry.Data.HeaderImage)
+	if i := strings.IndexByte(header, '?'); i >= 0 {
+		header = header[:i] // drop the cache-busting timestamp
+	}
+
+	return steamAppInfo{
+		Type:   strings.ToLower(strings.TrimSpace(entry.Data.Type)),
+		Header: header,
+	}, nil
 }
 
 // asSteamHTTPError is a tiny stand-in for errors.As that avoids importing errors just for one call.

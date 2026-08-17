@@ -34,6 +34,14 @@ type steamLibraryFile struct {
 	PendingAch   []int                 `json:"pending_ach"`
 	FamilyValid  bool                  `json:"family_valid"`
 	LastFullSync int64                 `json:"last_full_sync"`
+	// AppTypes maps appid -> store type ("game", "dlc", "software", "tool", "demo", ...).
+	// GetOwnedGames does not say what an app is, so this is resolved separately and cached
+	// forever; only "game" entries are shown.
+	AppTypes map[int]string `json:"app_types"`
+	// AppHeaders holds real banner URLs for apps whose art lives under a content-hashed path
+	// that cannot be derived from the appid.
+	AppHeaders  map[int]string `json:"app_headers"`
+	PendingType []int          `json:"pending_type"`
 	// TokenCheckedAt is zero until a sync has actually tried the current token, which lets the
 	// admin page say "not checked yet" instead of wrongly calling a fresh token expired.
 	TokenCheckedAt int64 `json:"token_checked_at"`
@@ -90,6 +98,12 @@ func (s *SteamStore) load() {
 	if s.data.YearSnapshot.Playtime == nil {
 		s.data.YearSnapshot.Playtime = make(map[int]int)
 	}
+	if s.data.AppTypes == nil {
+		s.data.AppTypes = make(map[int]string)
+	}
+	if s.data.AppHeaders == nil {
+		s.data.AppHeaders = make(map[int]string)
+	}
 }
 
 func (s *SteamStore) reset() {
@@ -98,6 +112,8 @@ func (s *SteamStore) reset() {
 		FirstSeen:    make(map[int]int64),
 		Achievements: make(map[int]steamAchEntry),
 		YearSnapshot: steamYearSnapshot{Playtime: make(map[int]int)},
+		AppTypes:     make(map[int]string),
+		AppHeaders:   make(map[int]string),
 	}
 }
 
@@ -273,6 +289,86 @@ func (s *SteamStore) PopPending(n int) []int {
 	out := make([]int, n)
 	copy(out, s.data.PendingAch[:n])
 	s.data.PendingAch = s.data.PendingAch[n:]
+	s.dirty = true
+	return out
+}
+
+// --- app types (games vs software/dlc/tools) ---
+
+func (s *SteamStore) AppTypes() map[int]string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make(map[int]string, len(s.data.AppTypes))
+	for k, v := range s.data.AppTypes {
+		out[k] = v
+	}
+	return out
+}
+
+// AppHeaders returns cached banner URLs keyed by appid.
+func (s *SteamStore) AppHeaders() map[int]string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make(map[int]string, len(s.data.AppHeaders))
+	for k, v := range s.data.AppHeaders {
+		out[k] = v
+	}
+	return out
+}
+
+func (s *SteamStore) SetAppInfo(appID int, t, header string) {
+	s.mu.Lock()
+	s.data.AppTypes[appID] = t
+	if header != "" {
+		s.data.AppHeaders[appID] = header
+	}
+	s.dirty = true
+	s.pending++
+	flush := s.pending >= steamAchFlushEvery
+	if flush {
+		s.pending = 0
+	}
+	s.mu.Unlock()
+	if flush {
+		s.Flush()
+	}
+}
+
+func (s *SteamStore) SetPendingTypes(appIDs []int) {
+	s.mu.Lock()
+	s.data.PendingType = make([]int, len(appIDs))
+	copy(s.data.PendingType, appIDs)
+	s.dirty = true
+	s.mu.Unlock()
+	s.Flush()
+}
+
+func (s *SteamStore) PendingTypeCount() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.data.PendingType)
+}
+
+// RequeueType puts an appid back at the head of the queue, for when the API throttles us.
+func (s *SteamStore) RequeueType(appID int) {
+	s.mu.Lock()
+	s.data.PendingType = append([]int{appID}, s.data.PendingType...)
+	s.dirty = true
+	s.mu.Unlock()
+}
+
+func (s *SteamStore) PopPendingTypes(n int) []int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if n > len(s.data.PendingType) {
+		n = len(s.data.PendingType)
+	}
+	if n <= 0 {
+		return nil
+	}
+	out := make([]int, n)
+	copy(out, s.data.PendingType[:n])
+	s.data.PendingType = s.data.PendingType[n:]
 	s.dirty = true
 	return out
 }

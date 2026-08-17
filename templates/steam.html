@@ -7,182 +7,125 @@
 <link rel="icon" type="image/x-icon" href="/favicon.ico">
 <style>
 :root{
-  --bg:#0a0c10; --bg-2:#12161c; --card:#161b22; --hover:#1c2128;
-  --fg:#e6edf3; --fg-2:#8b949e; --fg-3:#6e7681;
-  --steam:#66c0f4; --green:#3fb950; --purple:#a371f7; --gold:#ffd166; --red:#f85149;
-  --edge:rgba(240,246,252,.10); --edge-2:rgba(240,246,252,.06);
+  --bg:#0a0a0b; --panel:#141519; --panel-2:#191b20; --row:#16181d; --row-hover:#1c1f26;
+  --fg:#e8eaed; --fg-2:#9aa0a6; --fg-3:#6e737a;
+  --steam:#66c0f4; --steam-dim:#417a9b; --green:#5ba32b; --gold:#ffc83d; --purple:#a371f7;
+  --edge:rgba(255,255,255,.07);
   --mono:ui-monospace,"JetBrains Mono","SF Mono",SFMono-Regular,Menlo,Consolas,monospace;
   --sans:system-ui,-apple-system,"Segoe UI",Inter,Roboto,Helvetica,Arial,sans-serif;
-  --r:10px;
 }
 *{box-sizing:border-box}
 html,body{margin:0;padding:0}
-body{
-  background:var(--bg); color:var(--fg); font-family:var(--sans);
-  font-size:15px; line-height:1.5; -webkit-font-smoothing:antialiased;
-}
+body{background:var(--bg);color:var(--fg);font-family:var(--sans);font-size:14px;line-height:1.5;-webkit-font-smoothing:antialiased}
 a{color:inherit}
-.wrap{max-width:1320px;margin:0 auto;padding:28px 20px 80px}
+.wrap{max-width:1180px;margin:0 auto;padding:26px 18px 80px}
 
-/* ---------- header ---------- */
-.top{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:26px}
-.back{
-  font-family:var(--mono);font-size:12px;color:var(--fg-2);text-decoration:none;
-  border:1px solid var(--edge);border-radius:99px;padding:6px 13px;transition:.18s;
-}
-.back:hover{color:var(--fg);border-color:var(--steam);background:var(--hover)}
-h1{
-  font-size:clamp(22px,3.6vw,32px);margin:0;font-weight:700;letter-spacing:-.02em;
-}
-.title-mark{color:var(--steam)}
+/* header */
+.top{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:22px}
+.back{font-size:12px;color:var(--fg-2);text-decoration:none;border:1px solid var(--edge);border-radius:4px;padding:6px 12px}
+.back:hover{color:var(--fg);background:var(--panel-2)}
+h1{font-size:clamp(20px,3vw,28px);margin:0;font-weight:600;letter-spacing:-.01em}
+h1 span{color:var(--steam)}
 
-/* stat row: data reads as telemetry, so tabular monospace */
-.stats{
-  display:flex;flex-wrap:wrap;gap:0;margin-bottom:26px;
-  border:1px solid var(--edge);border-radius:var(--r);overflow:hidden;background:var(--bg-2);
-}
-.stat{flex:1 1 150px;padding:14px 16px;border-right:1px solid var(--edge-2);min-width:0}
-.stat:last-child{border-right:none}
-.stat-v{
-  font-family:var(--mono);font-size:clamp(17px,2.4vw,23px);font-weight:600;
-  font-variant-numeric:tabular-nums;letter-spacing:-.02em;line-height:1.2;
-}
-.stat-l{font-size:11px;color:var(--fg-3);text-transform:uppercase;letter-spacing:.09em;margin-top:4px}
+/* Steam-style stat block */
+.stats{display:flex;flex-wrap:wrap;background:var(--panel);border-radius:4px;padding:18px 8px;margin-bottom:22px}
+.stat{flex:1 1 150px;padding:4px 16px;min-width:0}
+.stat-v{font-size:clamp(20px,2.6vw,28px);font-weight:300;letter-spacing:-.01em;line-height:1.15;font-variant-numeric:tabular-nums}
+.stat-l{font-size:12px;color:var(--fg-3);margin-top:3px}
 
-/* ---------- now playing ---------- */
-.now{
-  display:flex;gap:16px;align-items:center;padding:14px;margin-bottom:26px;
-  border:1px solid rgba(63,185,80,.35);border-radius:var(--r);
-  background:linear-gradient(90deg,rgba(63,185,80,.10),transparent 60%);
-}
-.now img{width:132px;height:62px;object-fit:cover;border-radius:6px;flex-shrink:0}
-.now-l{font-family:var(--mono);font-size:11px;color:var(--green);text-transform:uppercase;letter-spacing:.09em}
-.now-n{font-size:17px;font-weight:600;margin-top:2px}
-.dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--green);margin-right:7px;animation:pulse 2s infinite}
-@keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+/* now playing */
+.now{display:flex;gap:14px;align-items:center;padding:12px;margin-bottom:22px;background:var(--panel);border-left:3px solid var(--green);border-radius:4px}
+.now img{width:120px;height:56px;object-fit:cover;border-radius:2px;flex-shrink:0}
+.now-l{font-size:11px;color:var(--green);text-transform:uppercase;letter-spacing:.08em}
+.now-n{font-size:16px;font-weight:600;margin-top:1px}
 
-/* ---------- section headings ---------- */
-.sec{margin-bottom:30px}
-.sec-h{
-  display:flex;align-items:baseline;gap:10px;margin-bottom:13px;
-  font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:.11em;color:var(--fg-2);
-}
-.sec-h::after{content:"";flex:1;height:1px;background:var(--edge-2)}
-.sec-note{font-family:var(--mono);font-size:10px;color:var(--fg-3);text-transform:none;letter-spacing:.03em}
+/* sections */
+.sec{margin-bottom:24px}
+.sec-h{display:flex;align-items:baseline;gap:10px;margin-bottom:12px;font-size:12px;text-transform:uppercase;letter-spacing:.1em;color:var(--fg-2)}
+.sec-h::after{content:"";flex:1;height:1px;background:var(--edge)}
+.sec-note{font-size:10px;color:var(--fg-3);text-transform:none;letter-spacing:.02em}
 
-/* ---------- rarest achievements strip ---------- */
-.rare-strip{display:flex;gap:10px;overflow-x:auto;padding-bottom:6px;scrollbar-width:thin}
-.rare{
-  flex:0 0 auto;width:198px;display:flex;gap:10px;align-items:center;padding:9px;
-  background:var(--card);border:1px solid var(--edge);border-radius:var(--r);
-}
-.rare img{width:38px;height:38px;border-radius:6px;flex-shrink:0;background:var(--bg-2)}
-.rare-b{min-width:0}
-.rare-n{font-size:12.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.rare-g{font-size:11px;color:var(--fg-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.rare-p{font-family:var(--mono);font-size:11px;font-weight:600;font-variant-numeric:tabular-nums}
-
-/* ---------- top this year ---------- */
-.year-list{display:flex;flex-direction:column;gap:9px}
+/* top this year */
+.year-list{display:flex;flex-direction:column;gap:8px}
 .year-row{display:flex;align-items:center;gap:12px}
-.year-name{flex:0 0 auto;width:min(210px,38vw);font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.year-bar{flex:1;height:8px;background:var(--bg-2);border-radius:99px;overflow:hidden}
-.year-fill{height:100%;background:linear-gradient(90deg,var(--steam),var(--purple));border-radius:99px}
-.year-h{font-family:var(--mono);font-size:12px;color:var(--fg-2);font-variant-numeric:tabular-nums;flex:0 0 auto;width:58px;text-align:right}
+.year-name{flex:0 0 auto;width:min(220px,36vw);font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.year-bar{flex:1;height:6px;background:var(--panel-2);border-radius:2px;overflow:hidden}
+.year-fill{height:100%;background:var(--steam);border-radius:2px}
+.year-v{flex:0 0 auto;width:120px;text-align:right;font-family:var(--mono);font-variant-numeric:tabular-nums}
+.year-v b{font-size:13px;font-weight:600}
+.year-v s{font-size:10px;color:var(--fg-3);text-decoration:none;margin-left:6px}
 
-/* ---------- controls ---------- */
-.controls{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:18px}
-.search{
-  flex:1 1 230px;min-width:0;background:var(--bg-2);border:1px solid var(--edge);color:var(--fg);
-  padding:9px 13px;border-radius:8px;font-family:var(--sans);font-size:14px;
-}
-.search:focus{outline:2px solid var(--steam);outline-offset:1px;border-color:transparent}
-select.sort{
-  background:var(--bg-2);border:1px solid var(--edge);color:var(--fg);
-  padding:9px 11px;border-radius:8px;font-size:13.5px;font-family:var(--sans);cursor:pointer;
-}
-select.sort:focus{outline:2px solid var(--steam);outline-offset:1px}
-.chips{display:flex;gap:7px;flex-wrap:wrap}
-.chip{
-  background:transparent;border:1px solid var(--edge);color:var(--fg-2);
-  padding:7px 13px;border-radius:99px;font-size:12.5px;cursor:pointer;
-  font-family:var(--mono);letter-spacing:.02em;transition:.16s;
-}
-.chip:hover{color:var(--fg);border-color:var(--fg-3)}
-.chip[aria-pressed="true"]{background:var(--steam);border-color:var(--steam);color:#04131f;font-weight:600}
+/* controls */
+.controls{display:flex;gap:9px;flex-wrap:wrap;align-items:center;margin-bottom:14px}
+.search{flex:1 1 220px;min-width:0;background:var(--panel-2);border:1px solid var(--edge);color:var(--fg);padding:8px 12px;border-radius:3px;font-family:var(--sans);font-size:13px}
+.search:focus{outline:2px solid var(--steam-dim);outline-offset:0}
+select.sort{background:var(--panel-2);border:1px solid var(--edge);color:var(--fg);padding:8px 10px;border-radius:3px;font-size:13px;font-family:var(--sans);cursor:pointer}
+select.sort:focus{outline:2px solid var(--steam-dim)}
+.chips{display:flex;gap:6px;flex-wrap:wrap}
+.chip{background:transparent;border:1px solid var(--edge);color:var(--fg-2);padding:7px 13px;border-radius:3px;font-size:12px;cursor:pointer;font-family:var(--sans)}
+.chip:hover{color:var(--fg);background:var(--panel-2)}
+.chip[aria-pressed="true"]{background:var(--steam-dim);border-color:var(--steam-dim);color:#fff}
 .chip:focus-visible,.back:focus-visible{outline:2px solid var(--steam);outline-offset:2px}
 
-/* ---------- grid + cards ---------- */
-.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(238px,1fr));gap:15px}
-.card{
-  background:var(--card);border:1px solid var(--edge);border-radius:var(--r);
-  overflow:hidden;display:flex;flex-direction:column;
-  opacity:0;transform:translateY(8px);transition:opacity .32s ease,transform .32s ease;
-}
-.card.in{opacity:1;transform:none}
-.card:hover{border-color:rgba(102,192,244,.42)}
-.shot{position:relative;aspect-ratio:460/215;background:var(--bg-2);overflow:hidden}
-.shot img{width:100%;height:100%;object-fit:cover;display:block;transition:transform .35s ease}
-.card:hover .shot img{transform:scale(1.035)}
-.badge{
-  position:absolute;top:8px;right:8px;font-family:var(--mono);font-size:10px;
-  background:rgba(10,12,16,.82);border:1px solid var(--edge);color:var(--purple);
-  padding:2px 7px;border-radius:99px;backdrop-filter:blur(3px);
-}
-.body{padding:12px 13px 13px;display:flex;flex-direction:column;gap:9px;flex:1}
-.name{font-size:14px;font-weight:600;line-height:1.3}
+/* ---- Steam-style rows ---- */
+.list{display:flex;flex-direction:column;gap:8px}
+.row{display:flex;gap:16px;padding:12px;background:var(--row);border-radius:4px;align-items:flex-start}
+.row:hover{background:var(--row-hover)}
+.art{flex:0 0 231px;width:231px;aspect-ratio:231/107;background:var(--panel-2);border-radius:2px;overflow:hidden;display:block;position:relative}
+.art img{width:100%;height:100%;object-fit:cover;display:block}
+/* the tiny library icon is the last resort: contain it instead of stretching it */
+.art img.icon-only{object-fit:contain;padding:22px;image-rendering:auto}
+.art .ph{width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:26px;font-weight:600;color:var(--fg-3)}
+.body{flex:1;min-width:0}
+.name{font-size:16px;font-weight:600;line-height:1.25;margin-bottom:9px}
+.name a{text-decoration:none}
+.name a:hover{color:var(--steam)}
+.tag{font-size:10px;padding:1px 6px;border-radius:2px;background:rgba(163,113,247,.18);color:var(--purple);margin-left:7px;vertical-align:middle}
 
-/* SIGNATURE: the playtime spine — length encodes hours vs the most-played game */
-.spine{height:2px;background:var(--edge-2);border-radius:2px;overflow:hidden}
-.spine i{display:block;height:100%;background:var(--steam);border-radius:2px}
+.cols{display:flex;gap:24px;flex-wrap:wrap;align-items:flex-start}
+.col{min-width:0}
+/* keep the meta columns from stretching when the achievement column is tall */
+.col:not(.col-ach){flex:0 0 auto}
+.col-l{font-size:10px;text-transform:uppercase;letter-spacing:.07em;color:var(--fg-3);margin-bottom:3px;white-space:nowrap}
+.col-v{font-size:13px;font-family:var(--mono);font-variant-numeric:tabular-nums}
+.col-ach{flex:1 1 240px;min-width:210px}
+.ach-head{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+.ach-n{font-size:12px;font-family:var(--mono);font-variant-numeric:tabular-nums;color:var(--fg-2)}
+.ach-bar{height:6px;background:var(--panel-2);border-radius:2px;overflow:hidden;margin-top:5px}
+.ach-fill{height:100%;background:var(--steam);border-radius:2px}
+.ach-none{font-size:12px;color:var(--fg-3)}
 
-.meta{display:grid;grid-template-columns:1fr 1fr;gap:5px 10px;font-family:var(--mono);font-size:11px;color:var(--fg-3)}
-.meta b{color:var(--fg-2);font-weight:600;font-variant-numeric:tabular-nums}
-.hours{font-family:var(--mono);font-size:15px;font-weight:600;font-variant-numeric:tabular-nums;letter-spacing:-.01em}
-.hours span{font-size:11px;color:var(--fg-3);font-weight:400}
-.acts{display:flex;gap:7px;margin-top:auto;padding-top:2px}
-.btn{
-  flex:1 1 auto;text-align:center;text-decoration:none;font-size:12px;padding:7px 6px;border-radius:7px;
-  border:1px solid var(--edge);color:var(--fg-2);background:transparent;cursor:pointer;
-  font-family:var(--sans);transition:.16s;white-space:nowrap;
-}
-.btn:hover{background:var(--hover);color:var(--fg);border-color:var(--fg-3)}
-.btn-p{border-color:rgba(102,192,244,.4);color:var(--steam)}
-.btn-p:hover{background:rgba(102,192,244,.12);border-color:var(--steam)}
+/* rarest achievements, per game, under the bar */
+.rare{display:flex;flex-wrap:wrap;gap:6px;margin-top:9px}
+.rare-i{display:flex;align-items:center;gap:6px;background:var(--panel-2);border-radius:3px;padding:4px 8px 4px 4px;max-width:100%}
+.rare-i img{width:22px;height:22px;border-radius:2px;flex-shrink:0;background:var(--panel)}
+.rare-i .ph{width:22px;height:22px;border-radius:2px;flex-shrink:0;background:var(--panel);display:flex;align-items:center;justify-content:center;font-size:10px;color:var(--fg-3)}
+.rare-n{font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:170px}
+.rare-p{font-size:10.5px;font-family:var(--mono);font-variant-numeric:tabular-nums;flex-shrink:0}
+
+.acts{margin-top:12px}
+.row{transition:background .12s ease}
+.btn{display:inline-block;font-size:12px;padding:6px 12px;border-radius:3px;border:1px solid var(--edge);color:var(--fg-2);background:transparent;text-decoration:none;cursor:pointer;font-family:var(--sans)}
+.btn:hover{background:var(--panel-2);color:var(--fg)}
 .btn:focus-visible{outline:2px solid var(--steam);outline-offset:2px}
 
-/* achievements panel */
-.ach{border-top:1px solid var(--edge-2);padding-top:10px;display:flex;flex-direction:column;gap:8px}
-.ach-top{display:flex;justify-content:space-between;font-family:var(--mono);font-size:11px;color:var(--fg-2)}
-.ach-bar{height:5px;background:var(--bg-2);border-radius:99px;overflow:hidden}
-.ach-fill{height:100%;background:linear-gradient(90deg,var(--steam),var(--green));border-radius:99px}
-.ach-list{display:flex;flex-direction:column;gap:7px}
-.ach-i{display:flex;gap:8px;align-items:center}
-.ach-i img{width:26px;height:26px;border-radius:4px;flex-shrink:0;background:var(--bg-2)}
-.ach-n{font-size:11.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.ach-p{font-family:var(--mono);font-size:10.5px;font-variant-numeric:tabular-nums;flex-shrink:0}
-
-/* states */
-.msg{padding:44px 20px;text-align:center;color:var(--fg-3);font-family:var(--mono);font-size:13px}
-.sentinel{height:1px}
-.spinner{
-  width:20px;height:20px;margin:22px auto;border:2px solid var(--edge);
-  border-top-color:var(--steam);border-radius:50%;animation:spin .8s linear infinite;
-}
+.msg{padding:40px 20px;text-align:center;color:var(--fg-3);font-size:13px}
+.spinner{width:18px;height:18px;margin:22px auto;border:2px solid var(--edge);border-top-color:var(--steam);border-radius:50%;animation:spin .8s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
 .hide{display:none !important}
+.sentinel{height:1px}
 
-@media (max-width:560px){
-  .wrap{padding:20px 14px 60px}
-  .stat{flex:1 1 50%;border-right:none;border-bottom:1px solid var(--edge-2)}
-  .now img{width:96px;height:46px}
+@media (max-width:720px){
+  .wrap{padding:18px 12px 60px}
+  .row{flex-direction:column;gap:11px}
+  .art{flex:0 0 auto;width:100%;aspect-ratio:460/215}
+  .art img.icon-only{padding:30px}
+  .stat{flex:1 1 50%}
   .year-name{width:40vw}
-  .grid{grid-template-columns:repeat(auto-fill,minmax(min(100%,215px),1fr));gap:12px}
+  .year-v{width:100px}
+  .cols{gap:18px}
 }
-@media (prefers-reduced-motion:reduce){
-  *{animation-duration:.01ms !important;transition-duration:.01ms !important}
-  .card{opacity:1;transform:none}
-}
+@media (prefers-reduced-motion:reduce){*{animation-duration:.01ms !important;transition-duration:.01ms !important}}
 </style>
 </head>
 <body>
@@ -190,16 +133,11 @@ select.sort:focus{outline:2px solid var(--steam);outline-offset:1px}
 
   <div class="top">
     <a class="back" href="/">&larr; back</a>
-    <h1>Steam <span class="title-mark">library</span></h1>
+    <h1>Steam <span>library</span></h1>
   </div>
 
   <div class="stats" id="stats"></div>
   <div id="now"></div>
-
-  <section class="sec hide" id="rare-sec">
-    <div class="sec-h">Rarest unlocks <span class="sec-note" id="rare-note"></span></div>
-    <div class="rare-strip" id="rare"></div>
-  </section>
 
   <section class="sec hide" id="year-sec">
     <div class="sec-h">Most played <span id="year-label"></span> <span class="sec-note" id="year-note"></span></div>
@@ -208,25 +146,22 @@ select.sort:focus{outline:2px solid var(--steam);outline-offset:1px}
 
   <section class="sec">
     <div class="controls">
-      <input class="search" id="q" type="search" placeholder="Search games" aria-label="Search games">
+      <input class="search" id="q" type="search" placeholder="Find a game" aria-label="Find a game">
       <select class="sort" id="sort" aria-label="Sort by">
         <option value="playtime">Most played</option>
         <option value="recent">Recently played</option>
         <option value="year">Most played this year</option>
         <option value="added">Recently added</option>
-        <option value="ach">Achievement %</option>
-        <option value="name">Name</option>
+        <option value="ach">Achievement completion</option>
       </select>
       <div class="chips" id="chips">
         <button class="chip" data-f="all" aria-pressed="true">All</button>
         <button class="chip" data-f="played" aria-pressed="false">Played</button>
         <button class="chip" data-f="unplayed" aria-pressed="false">Unplayed</button>
-        <button class="chip" data-f="stats" aria-pressed="false">Achievements</button>
-        <button class="chip" data-f="family" aria-pressed="false">Family</button>
       </div>
     </div>
 
-    <div class="grid" id="grid"></div>
+    <div class="list" id="list"></div>
     <div class="spinner hide" id="spin"></div>
     <div class="msg hide" id="msg"></div>
     <div class="sentinel" id="sentinel"></div>
@@ -238,151 +173,200 @@ select.sort:focus{outline:2px solid var(--steam);outline-offset:1px}
 (function(){
   "use strict";
 
-  var PAGE = 40;
-  var state = { offset:0, q:"", sort:"playtime", filter:"all", loading:false, hasMore:true, max:0, seeded:false };
+  var PAGE = 30;
+  var state = {offset:0, q:"", sort:"playtime", filter:"all", loading:false, hasMore:true, seeded:false};
 
-  var grid = document.getElementById("grid");
+  var list = document.getElementById("list");
   var spin = document.getElementById("spin");
   var msg  = document.getElementById("msg");
 
-  function h(mins){
-    var v = (mins||0)/60;
-    if(v >= 100) return Math.round(v).toLocaleString();
-    if(v >= 10)  return v.toFixed(1);
-    if(v > 0)    return v.toFixed(1);
+  function esc(s){
+    return String(s==null?"":s).replace(/[&<>"']/g,function(c){
+      return {"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c];
+    });
+  }
+  function hours(mins){
+    var v=(mins||0)/60;
+    if(v>=100) return Math.round(v).toLocaleString();
+    if(v>0) return v.toFixed(1);
     return "0";
   }
   function when(ts){
     if(!ts) return "never";
-    var d = new Date(ts*1000);
-    return d.toLocaleDateString(undefined,{month:"short", year:"numeric"});
+    return new Date(ts*1000).toLocaleDateString(undefined,{month:"short",day:"numeric",year:"numeric"});
+  }
+  function monthYear(ts){
+    if(!ts) return "unknown";
+    return new Date(ts*1000).toLocaleDateString(undefined,{month:"short",year:"numeric"});
   }
   function rarityColor(p){
-    if(p < 1)  return "var(--gold)";
-    if(p < 5)  return "var(--purple)";
-    if(p < 15) return "var(--steam)";
+    if(p<1) return "var(--gold)";
+    if(p<5) return "var(--purple)";
+    if(p<15) return "var(--steam)";
     return "var(--fg-3)";
   }
-  function esc(s){
-    return String(s==null?"":s).replace(/[&<>"']/g, function(c){
-      return {"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c];
+
+  // Walk the banner fallbacks; the library icon is contained rather than stretched, and a real
+  // placeholder is used if nothing resolves, so a row never shows a blurry or empty box.
+  function attachArt(box, g){
+    var srcs = [g.img].concat(g.imgFallbacks||[]);
+    if(g.iconUrl) srcs.push(g.iconUrl);
+    var i = 0;
+    var img = document.createElement("img");
+    img.alt = g.name;
+    img.loading = "lazy";
+    img.decoding = "async";
+    img.addEventListener("error", function(){
+      i++;
+      if(i < srcs.length){
+        img.src = srcs[i];
+        img.classList.toggle("icon-only", g.iconUrl && srcs[i] === g.iconUrl);
+        return;
+      }
+      box.innerHTML = '<div class="ph">'+esc((g.name||"?").charAt(0).toUpperCase())+'</div>';
     });
+    img.src = srcs[0];
+    box.appendChild(img);
   }
 
-  // Walk the fallback chain: header -> library capsule -> icon -> initial placeholder.
-  function attachImage(img, sources, name){
+  // A handful of games (Factorio among them) reference achievement art Steam no longer serves,
+  // so try the grey variant before settling on a placeholder rather than showing a broken box.
+  function achIconChain(a){
+    var out = [];
+    if(a.icon) out.push(a.icon);
+    if(a.iconGray && a.iconGray !== a.icon) out.push(a.iconGray);
+    return out;
+  }
+
+  function bindIconFallback(img, srcs){
     var i = 0;
     img.addEventListener("error", function(){
       i++;
-      if(i < sources.length){ img.src = sources[i]; return; }
-      img.removeAttribute("src");
-      img.parentNode.style.display = "flex";
-      img.parentNode.style.alignItems = "center";
-      img.parentNode.style.justifyContent = "center";
-      img.parentNode.innerHTML = '<span style="font:600 30px var(--sans);color:var(--fg-3)">'+esc((name||"?").charAt(0).toUpperCase())+'</span>';
+      if(i < srcs.length){ img.src = srcs[i]; return; }
+      var ph = document.createElement("div");
+      ph.className = "ph";
+      ph.textContent = "★";
+      img.replaceWith(ph);
     });
-    img.src = sources[0];
+    img.src = srcs[0];
   }
 
-  var io = ("IntersectionObserver" in window) ? new IntersectionObserver(function(es){
-    es.forEach(function(e){ if(e.isIntersecting){ e.target.classList.add("in"); io.unobserve(e.target); } });
-  }, {rootMargin:"60px"}) : null;
+  function rarestHTML(rarest){
+    if(!rarest || !rarest.length) return "";
+    return '<div class="rare">'+rarest.map(function(a){
+      var srcs = achIconChain(a);
+      var ic = srcs.length
+        ? '<img alt="" loading="lazy" data-srcs="'+esc(JSON.stringify(srcs))+'">'
+        : '<div class="ph">&#9733;</div>';
+      return '<span class="rare-i" title="'+esc(a.name)+' — '+a.globalPercent.toFixed(1)+'% of players">'+
+        ic+
+        '<span class="rare-n">'+esc(a.name)+'</span>'+
+        '<span class="rare-p" style="color:'+rarityColor(a.globalPercent)+'">'+a.globalPercent.toFixed(1)+'%</span>'+
+      '</span>';
+    }).join("")+'</div>';
+  }
 
-  function card(g){
+  // Wire up the icon chains after the markup lands.
+  function hydrateIcons(scope){
+    scope.querySelectorAll("img[data-srcs]").forEach(function(img){
+      var srcs;
+      try { srcs = JSON.parse(img.dataset.srcs); } catch(e){ return; }
+      img.removeAttribute("data-srcs");
+      bindIconFallback(img, srcs);
+    });
+  }
+
+  function achHTML(g){
+    if(!g.hasStats) return '<div class="col-l">Achievements</div><div class="ach-none">none</div>';
+    if(!g.achLoaded) return '<div class="col-l">Achievements</div><div class="ach-none js-ach-pending">loading…</div>';
+    if(!g.achTotal)  return '<div class="col-l">Achievements</div><div class="ach-none">none</div>';
+    return '<div class="ach-head"><div class="col-l">Achievements</div>'+
+             '<span class="ach-n">'+g.achAchieved+' / '+g.achTotal+'</span></div>'+
+           '<div class="ach-bar"><div class="ach-fill" style="width:'+g.achPercent.toFixed(1)+'%"></div></div>'+
+           rarestHTML(g.rarest);
+  }
+
+  function row(g){
     var el = document.createElement("article");
-    el.className = "card";
-
-    var pct = state.max > 0 ? Math.max(1.5, (g.playtimeForever/state.max)*100) : 0;
-    var added = g.addedAt ? when(g.addedAt) : "unknown";
-    var addedLabel = g.addedIsFirstSeen ? "in library since" : "added";
+    el.className = "row";
+    el.dataset.appid = g.appid;
 
     el.innerHTML =
-      '<div class="shot">'+
-        (g.source === "family" ? '<span class="badge">family</span>' : '')+
-        '<img alt="" loading="lazy" decoding="async">'+
-      '</div>'+
+      '<a class="art" href="'+esc(g.storeUrl)+'" target="_blank" rel="noopener" aria-label="'+esc(g.name)+' on Steam"></a>'+
       '<div class="body">'+
-        '<div class="name">'+esc(g.name)+'</div>'+
-        (pct>0 ? '<div class="spine"><i style="width:'+pct.toFixed(2)+'%"></i></div>' : '')+
-        '<div class="hours">'+h(g.playtimeForever)+'<span> h total</span></div>'+
-        '<div class="meta">'+
-          '<div>'+addedLabel+'<br><b>'+added+'</b></div>'+
-          '<div>last played<br><b>'+when(g.lastPlayed)+'</b></div>'+
-          (g.playtime2w ? '<div>last 2 weeks<br><b>'+h(g.playtime2w)+' h</b></div>' : '')+
-          (g.playtimeYear ? '<div>this year<br><b>'+h(g.playtimeYear)+' h</b></div>' : '')+
+        '<div class="name"><a href="'+esc(g.storeUrl)+'" target="_blank" rel="noopener">'+esc(g.name)+'</a>'+
+          (g.source==="family" ? '<span class="tag">family</span>' : '')+
         '</div>'+
-        '<div class="ach-slot"></div>'+
-        '<div class="acts">'+
-          '<a class="btn btn-p" href="'+esc(g.storeUrl)+'" target="_blank" rel="noopener">View on Steam</a>'+
-          (g.hasStats ? '<button class="btn js-ach" aria-expanded="false">Achievements</button>' : '')+
+        '<div class="cols">'+
+          '<div class="col"><div class="col-l">Total played</div><div class="col-v">'+hours(g.playtimeForever)+' hours</div></div>'+
+          '<div class="col"><div class="col-l">Last played</div><div class="col-v">'+when(g.lastPlayed)+'</div></div>'+
+          '<div class="col"><div class="col-l">'+(g.addedIsFirstSeen?"In library since":"Added")+'</div>'+
+            '<div class="col-v">'+monthYear(g.addedAt)+'</div></div>'+
+          (g.playtimeYear ? '<div class="col"><div class="col-l">This year</div><div class="col-v">'+hours(g.playtimeYear)+' hours</div></div>' : '')+
+          '<div class="col col-ach js-ach">'+achHTML(g)+'</div>'+
         '</div>'+
+        '<div class="acts"><a class="btn" href="'+esc(g.storeUrl)+'" target="_blank" rel="noopener">View on Steam</a></div>'+
       '</div>';
 
-    var img = el.querySelector(".shot img");
-    img.alt = g.name;
-    attachImage(img, [g.img].concat(g.imgFallbacks||[]), g.name);
+    attachArt(el.querySelector(".art"), g);
+    hydrateIcons(el);
 
-    var btn = el.querySelector(".js-ach");
-    if(btn) btn.addEventListener("click", function(){ toggleAch(btn, el, g); });
-
-    if(io) io.observe(el); else el.classList.add("in");
+    // Rows whose achievements are not cached yet fill in when they scroll into view, so the
+    // visible part of the list resolves first instead of waiting on the whole library.
+    if(g.hasStats && !g.achLoaded) achQueue.observe(el);
     return el;
   }
 
-  function toggleAch(btn, el, g){
-    var slot = el.querySelector(".ach-slot");
-    if(btn.getAttribute("aria-expanded") === "true"){
-      slot.innerHTML = "";
-      btn.setAttribute("aria-expanded","false");
-      btn.textContent = "Achievements";
-      return;
-    }
-    btn.setAttribute("aria-expanded","true");
-    btn.textContent = "Hide";
-    slot.innerHTML = '<div class="ach"><div class="ach-top"><span>loading…</span></div></div>';
-
-    fetch("/api/steam/achievements?appid="+g.appid)
-      .then(function(r){ return r.json(); })
-      .then(function(d){
-        if(!d.available){
-          slot.innerHTML = '<div class="ach"><div class="ach-top"><span>No achievement data</span></div></div>';
-          return;
-        }
-        var rows = (d.rarest||[]).map(function(a){
-          return '<div class="ach-i">'+
-            (a.icon ? '<img src="'+esc(a.icon)+'" alt="" loading="lazy">' : '<img alt="">')+
-            '<div style="min-width:0;flex:1"><div class="ach-n">'+esc(a.name)+'</div></div>'+
-            '<div class="ach-p" style="color:'+rarityColor(a.globalPercent)+'">'+a.globalPercent.toFixed(1)+'%</div>'+
-          '</div>';
-        }).join("");
-
-        slot.innerHTML =
-          '<div class="ach">'+
-            '<div class="ach-top"><span>'+d.achieved+' / '+d.total+' unlocked</span><span>'+d.percent.toFixed(0)+'%</span></div>'+
-            '<div class="ach-bar"><div class="ach-fill" style="width:'+d.percent.toFixed(1)+'%"></div></div>'+
-            (rows ? '<div class="ach-list">'+rows+'</div>' : '')+
-          '</div>';
-      })
-      .catch(function(){
-        slot.innerHTML = '<div class="ach"><div class="ach-top"><span>Couldn\'t load achievements</span></div></div>';
+  var achQueue = (function(){
+    var io = ("IntersectionObserver" in window) ? new IntersectionObserver(function(entries){
+      entries.forEach(function(e){
+        if(!e.isIntersecting) return;
+        io.unobserve(e.target);
+        fetchAch(e.target);
       });
-  }
+    }, {rootMargin:"200px"}) : null;
+
+    function fetchAch(el){
+      var id = el.dataset.appid;
+      var slot = el.querySelector(".js-ach");
+      fetch("/api/steam/achievements?appid="+id)
+        .then(function(r){ return r.json(); })
+        .then(function(d){
+          if(!d.available || !d.total){
+            slot.innerHTML = '<div class="col-l">Achievements</div><div class="ach-none">none</div>';
+            return;
+          }
+          slot.innerHTML =
+            '<div class="ach-head"><div class="col-l">Achievements</div>'+
+              '<span class="ach-n">'+d.achieved+' / '+d.total+'</span></div>'+
+            '<div class="ach-bar"><div class="ach-fill" style="width:'+d.percent.toFixed(1)+'%"></div></div>'+
+            rarestHTML(d.rarest);
+          hydrateIcons(slot);
+        })
+        .catch(function(){
+          slot.innerHTML = '<div class="col-l">Achievements</div><div class="ach-none">unavailable</div>';
+        });
+    }
+
+    return {
+      observe: function(el){ if(io) io.observe(el); else fetchAch(el); }
+    };
+  })();
 
   function renderStats(s){
     if(state.seeded) return;
     state.seeded = true;
 
-    // Achievement totals only cover games scanned so far, so say that rather than imply completeness.
-    var scanned = s.pendingEnrichment > 0
-      ? "achievements · " + s.gamesEnriched + " of " + (s.gamesEnriched + s.pendingEnrichment) + " games scanned"
+    var achLabel = s.pendingEnrichment > 0
+      ? "achievements · scanning " + s.gamesEnriched + " of " + (s.gamesEnriched + s.pendingEnrichment)
       : "achievements";
 
     var tiles = [
       [s.totalGames.toLocaleString(), "games"],
       [Math.round(s.totalPlaytimeHours).toLocaleString(), "hours played"],
       [s.playedGames.toLocaleString(), "played"],
-      [s.achievementsUnlocked.toLocaleString(), scanned],
-      [s.perfectGames.toLocaleString(), "100% games"]
+      [s.achievementsUnlocked.toLocaleString() + ' <span style="font-size:.55em;color:var(--fg-3)">/ ' + s.achievementsTotal.toLocaleString() + '</span>', achLabel],
+      [s.perfectGames.toLocaleString(), "100% complete"]
     ];
     document.getElementById("stats").innerHTML = tiles.map(function(t){
       return '<div class="stat"><div class="stat-v">'+t[0]+'</div><div class="stat-l">'+t[1]+'</div></div>';
@@ -391,27 +375,8 @@ select.sort:focus{outline:2px solid var(--steam);outline-offset:1px}
     var c = s.current || {};
     if(c.playing){
       document.getElementById("now").innerHTML =
-        '<div class="now">'+
-          (c.gameImage ? '<img src="'+esc(c.gameImage)+'" alt="">' : '')+
-          '<div><div class="now-l"><span class="dot"></span>now playing</div>'+
-          '<div class="now-n">'+esc(c.gameName)+'</div></div>'+
-        '</div>';
-    }
-
-    var rare = s.rarest || [];
-    if(rare.length){
-      document.getElementById("rare-sec").classList.remove("hide");
-      document.getElementById("rare-note").textContent = "by global unlock rate";
-      document.getElementById("rare").innerHTML = rare.map(function(a){
-        return '<div class="rare">'+
-          (a.icon ? '<img src="'+esc(a.icon)+'" alt="" loading="lazy">' : '<img alt="">')+
-          '<div class="rare-b">'+
-            '<div class="rare-n">'+esc(a.name)+'</div>'+
-            '<div class="rare-g">'+esc(a.gameName)+'</div>'+
-            '<div class="rare-p" style="color:'+rarityColor(a.globalPercent)+'">'+a.globalPercent.toFixed(1)+'% of players</div>'+
-          '</div>'+
-        '</div>';
-      }).join("");
+        '<div class="now">'+(c.gameImage ? '<img src="'+esc(c.gameImage)+'" alt="">' : '')+
+        '<div><div class="now-l">Now playing</div><div class="now-n">'+esc(c.gameName)+'</div></div></div>';
     }
 
     var yr = s.topThisYear || [];
@@ -427,7 +392,7 @@ select.sort:focus{outline:2px solid var(--steam);outline-offset:1px}
         return '<div class="year-row">'+
           '<div class="year-name">'+esc(g.name)+'</div>'+
           '<div class="year-bar"><div class="year-fill" style="width:'+((g.minutes/top)*100).toFixed(1)+'%"></div></div>'+
-          '<div class="year-h">'+h(g.minutes)+' h</div>'+
+          '<div class="year-v"><b>'+hours(g.minutes)+' h</b><s>'+hours(g.totalMinutes)+' h total</s></div>'+
         '</div>';
       }).join("");
     }
@@ -447,14 +412,9 @@ select.sort:focus{outline:2px solid var(--steam);outline-offset:1px}
     fetch(url).then(function(r){ return r.json(); }).then(function(d){
       if(d.stats) renderStats(d.stats);
 
-      // Anchor the spine scale once, to the most-played game in the library.
-      if(!state.max && state.sort === "playtime" && !state.q && state.filter === "all" && d.games.length){
-        state.max = d.games[0].playtimeForever || 0;
-      }
-
       var frag = document.createDocumentFragment();
-      d.games.forEach(function(g){ frag.appendChild(card(g)); });
-      grid.appendChild(frag);
+      d.games.forEach(function(g){ frag.appendChild(row(g)); });
+      list.appendChild(frag);
 
       state.offset += d.games.length;
       state.hasMore = d.hasMore;
@@ -476,7 +436,7 @@ select.sort:focus{outline:2px solid var(--steam);outline-offset:1px}
 
   function reset(){
     state.offset = 0; state.hasMore = true;
-    grid.innerHTML = "";
+    list.innerHTML = "";
     load();
   }
 
@@ -499,9 +459,8 @@ select.sort:focus{outline:2px solid var(--steam);outline-offset:1px}
   });
 
   if("IntersectionObserver" in window){
-    new IntersectionObserver(function(es){
-      if(es[0].isIntersecting) load();
-    }, {rootMargin:"400px"}).observe(document.getElementById("sentinel"));
+    new IntersectionObserver(function(es){ if(es[0].isIntersecting) load(); }, {rootMargin:"500px"})
+      .observe(document.getElementById("sentinel"));
   } else {
     window.addEventListener("scroll", function(){
       if(window.innerHeight + window.scrollY >= document.body.offsetHeight - 500) load();

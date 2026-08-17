@@ -157,12 +157,19 @@ func (p *SteamPlugin) setAccessToken(token string) {
 // refreshes the derived top-games slice.
 func (p *SteamPlugin) applyLibrary(games []SteamGame) {
 	hidden := p.hiddenSet()
+	types := p.store.AppTypes()
 
 	visible := make([]SteamGame, 0, len(games))
 	for _, g := range games {
 		if hidden[g.AppID] {
 			continue
 		}
+		// Only actual games. Apps whose type we have not resolved yet stay visible so the list
+		// is never mysteriously short while the lookup is still running.
+		if t, ok := types[g.AppID]; ok && t != "game" {
+			continue
+		}
+		g.Type = types[g.AppID]
 		visible = append(visible, g)
 	}
 
@@ -230,8 +237,16 @@ func steamHeaderImage(appID int) string {
 	return fmt.Sprintf("https://cdn.cloudflare.steamstatic.com/steam/apps/%d/header.jpg", appID)
 }
 
-func steamCapsuleImage(appID int) string {
-	return fmt.Sprintf("https://cdn.cloudflare.steamstatic.com/steam/apps/%d/library_600x900.jpg", appID)
+// steamBannerFallbacks lists progressively less ideal banner art for one app. Everything here has
+// the same wide aspect as header.jpg, so a fallback never renders stretched or blurry; the tiny
+// library icon is deliberately excluded and handled separately by the page.
+func steamBannerFallbacks(appID int) []string {
+	return []string{
+		fmt.Sprintf("https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/%d/header.jpg", appID),
+		fmt.Sprintf("https://cdn.cloudflare.steamstatic.com/steam/apps/%d/capsule_616x353.jpg", appID),
+		fmt.Sprintf("https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/%d/capsule_616x353.jpg", appID),
+		fmt.Sprintf("https://cdn.cloudflare.steamstatic.com/steam/apps/%d/capsule_231x87.jpg", appID),
+	}
 }
 
 func steamIconImage(appID int, iconHash string) string {

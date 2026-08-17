@@ -197,6 +197,17 @@ func gitSleep(ctx context.Context, d time.Duration) error {
 	}
 }
 
+// gitSecondaryLimitCooldown is how long to treat a host as blocked after a secondary rate limit.
+// GitHub asks for at least a minute; the extra margin keeps background prefetching well clear.
+const gitSecondaryLimitCooldown = 5 * time.Minute
+
+func gitBodyIsSecondaryLimit(body []byte) bool {
+	msg := strings.ToLower(string(body))
+	return strings.Contains(msg, "secondary rate limit") ||
+		strings.Contains(msg, "abuse detection") ||
+		strings.Contains(msg, "exceeded a secondary")
+}
+
 func gitRateLimitReset(resp *http.Response) (time.Time, bool) {
 	if resp.StatusCode != http.StatusForbidden && resp.StatusCode != http.StatusTooManyRequests {
 		return time.Time{}, false
@@ -273,7 +284,18 @@ func gitDoJSON(ctx context.Context, client *http.Client, method, endpoint string
 	}
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		snippet, _ := io.ReadAll(io.LimitReader(resp.Body, 256))
+		snippet, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+
+		// GitHub reports secondary rate limits as a 403 whose reason is only in the body: there is
+		// no Retry-After and the primary quota still has room, so the header checks above miss it.
+		// Without this the caller keeps retrying a request that cannot succeed.
+		if (resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusTooManyRequests) &&
+			gitBodyIsSecondaryLimit(snippet) {
+			until := time.Now().Add(gitSecondaryLimitCooldown)
+			gitGateSet(host, until)
+			return &gitRateLimitError{Host: host, Until: until}
+		}
+
 		return fmt.Errorf("%s %s: status %d: %s", method, endpoint, resp.StatusCode, string(snippet))
 	}
 	if out == nil {

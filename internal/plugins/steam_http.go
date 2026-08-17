@@ -25,12 +25,21 @@ type steamGameDTO struct {
 	AddedAt          int64    `json:"addedAt"`
 	AddedIsFirstSeen bool     `json:"addedIsFirstSeen"`
 	HasStats         bool     `json:"hasStats"`
-	AchPercent       *float64 `json:"achPercent,omitempty"`
 	Source           string   `json:"source,omitempty"`
 	StoreURL         string   `json:"storeUrl"`
+
+	// Achievements are served inline from cache so rows render complete on first paint. When
+	// AchLoaded is false the page fetches them for that row on demand.
+	AchLoaded   bool                     `json:"achLoaded"`
+	AchAchieved int                      `json:"achAchieved"`
+	AchTotal    int                      `json:"achTotal"`
+	AchPercent  float64                  `json:"achPercent"`
+	Rarest      []SteamRarestAchievement `json:"rarest,omitempty"`
+	// IconURL is the small library icon, used only as a last-resort banner.
+	IconURL string `json:"iconUrl,omitempty"`
 }
 
-func (p *SteamPlugin) toDTO(g SteamGame, firstSeen map[int]int64, yearly map[int]int, ach map[int]steamAchEntry) steamGameDTO {
+func (p *SteamPlugin) toDTO(g SteamGame, firstSeen map[int]int64, yearly map[int]int, ach map[int]steamAchEntry, headers map[int]string) steamGameDTO {
 	dto := steamGameDTO{
 		AppID:           g.AppID,
 		Name:            g.Name,
@@ -44,11 +53,15 @@ func (p *SteamPlugin) toDTO(g SteamGame, firstSeen map[int]int64, yearly map[int
 		StoreURL:        "https://store.steampowered.com/app/" + strconv.Itoa(g.AppID) + "/",
 	}
 
-	fallbacks := []string{steamCapsuleImage(g.AppID)}
-	if icon := steamIconImage(g.AppID, g.ImgIconURL); icon != "" {
-		fallbacks = append(fallbacks, icon)
+	// A cached header from the store wins: newer titles keep their art under a content-hashed
+	// path that the appid-derived URLs cannot reach.
+	fallbacks := steamBannerFallbacks(g.AppID)
+	if header := headers[g.AppID]; header != "" && header != dto.Img {
+		fallbacks = append([]string{dto.Img}, fallbacks...)
+		dto.Img = header
 	}
 	dto.ImgFallbacks = fallbacks
+	dto.IconURL = steamIconImage(g.AppID, g.ImgIconURL)
 
 	// Real acquisition date when Steam gives us one (family library), else our first-seen stamp.
 	if g.AcquiredAt > 0 {
@@ -58,9 +71,14 @@ func (p *SteamPlugin) toDTO(g SteamGame, firstSeen map[int]int64, yearly map[int
 		dto.AddedIsFirstSeen = true
 	}
 
-	if entry, ok := ach[g.AppID]; ok && entry.Available && entry.Total > 0 {
-		pct := entry.Percent
-		dto.AchPercent = &pct
+	if entry, ok := ach[g.AppID]; ok {
+		dto.AchLoaded = true
+		if entry.Available {
+			dto.AchAchieved = entry.Achieved
+			dto.AchTotal = entry.Total
+			dto.AchPercent = entry.Percent
+			dto.Rarest = entry.Rarest
+		}
 	}
 
 	return dto
@@ -89,6 +107,7 @@ func (p *SteamPlugin) HandleGamesAPI(w http.ResponseWriter, r *http.Request) {
 	firstSeen := p.store.FirstSeenAll()
 	yearly, snapshotAt := p.playtimeThisYear()
 	ach := p.store.AllAchievements()
+	headers := p.store.AppHeaders()
 
 	filtered := make([]SteamGame, 0, len(games))
 	for _, g := range games {
@@ -119,13 +138,16 @@ func (p *SteamPlugin) HandleGamesAPI(w http.ResponseWriter, r *http.Request) {
 	switch sortBy {
 	case "recent":
 		sort.SliceStable(filtered, func(i, j int) bool { return filtered[i].LastPlayed > filtered[j].LastPlayed })
-	case "name":
-		sort.SliceStable(filtered, func(i, j int) bool {
-			return strings.ToLower(filtered[i].Name) < strings.ToLower(filtered[j].Name)
-		})
 	case "added":
+		// Without a family token every game shares the same first-seen stamp, and a stable sort
+		// would just leave them in playtime order. Fall back to appid, which tracks roughly when
+		// a title appeared on Steam, so the ordering is at least about recency rather than hours.
 		sort.SliceStable(filtered, func(i, j int) bool {
-			return steamAddedAt(filtered[i], firstSeen) > steamAddedAt(filtered[j], firstSeen)
+			ai, aj := steamAddedAt(filtered[i], firstSeen), steamAddedAt(filtered[j], firstSeen)
+			if ai != aj {
+				return ai > aj
+			}
+			return filtered[i].AppID > filtered[j].AppID
 		})
 	case "ach":
 		sort.SliceStable(filtered, func(i, j int) bool {
@@ -149,7 +171,7 @@ func (p *SteamPlugin) HandleGamesAPI(w http.ResponseWriter, r *http.Request) {
 
 	out := make([]steamGameDTO, 0, len(page))
 	for _, g := range page {
-		out = append(out, p.toDTO(g, firstSeen, yearly, ach))
+		out = append(out, p.toDTO(g, firstSeen, yearly, ach, headers))
 	}
 
 	resp := map[string]interface{}{
@@ -194,15 +216,22 @@ func (p *SteamPlugin) libraryStats(games []SteamGame, yearly map[int]int, snapsh
 
 	// Top played this year.
 	type yearEntry struct {
-		AppID   int    `json:"appid"`
-		Name    string `json:"name"`
-		Img     string `json:"img"`
-		Minutes int    `json:"minutes"`
+		AppID        int    `json:"appid"`
+		Name         string `json:"name"`
+		Img          string `json:"img"`
+		Minutes      int    `json:"minutes"`
+		TotalMinutes int    `json:"totalMinutes"`
 	}
 	var topYear []yearEntry
 	for _, g := range games {
 		if m := yearly[g.AppID]; m > 0 {
-			topYear = append(topYear, yearEntry{AppID: g.AppID, Name: g.Name, Img: steamHeaderImage(g.AppID), Minutes: m})
+			topYear = append(topYear, yearEntry{
+				AppID:        g.AppID,
+				Name:         g.Name,
+				Img:          steamHeaderImage(g.AppID),
+				Minutes:      m,
+				TotalMinutes: g.PlaytimeAll,
+			})
 		}
 	}
 	sort.Slice(topYear, func(i, j int) bool { return topYear[i].Minutes > topYear[j].Minutes })
@@ -246,7 +275,6 @@ func (p *SteamPlugin) libraryStats(games []SteamGame, yearly map[int]int, snapsh
 		"yearSnapshotAt":       snapshotUnix,
 		"year":                 time.Now().Year(),
 		"current":              current,
-		"rarest":               p.rarestAcrossLibrary(12),
 	}
 }
 

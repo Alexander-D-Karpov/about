@@ -48,11 +48,13 @@ func (a *steamAPI) sharedLibraryApps(ctx context.Context, token, groupID, steamI
 		return nil, errSteamTokenInvalid
 	}
 	var resp steamSharedLibraryResponse
+	// include_own=true matters beyond family sharing: this is the only endpoint that reports
+	// rt_time_acquired, so it is where real "date added" values for our own games come from.
 	q := url.Values{
 		"access_token":     {token},
 		"family_groupid":   {groupID},
 		"steamid":          {steamID},
-		"include_own":      {"false"},
+		"include_own":      {"true"},
 		"include_free":     {"true"},
 		"include_excluded": {"false"},
 	}
@@ -89,12 +91,21 @@ func (a *steamAPI) fetchFamilyGames(ctx context.Context, token, steamID string) 
 		if app.AppID == 0 || app.ExcludeReason != 0 {
 			continue
 		}
+		// Apps we own ourselves come back too (include_own=true); they are not "family shared",
+		// we only want their acquisition date.
+		source := "family"
+		for _, owner := range app.OwnerSteamIDs {
+			if owner == steamID {
+				source = ""
+				break
+			}
+		}
 		games = append(games, SteamGame{
 			AppID:      app.AppID,
 			Name:       app.Name,
 			LastPlayed: app.RtLastPlayed,
 			AcquiredAt: app.RtTimeAcquired,
-			Source:     "family",
+			Source:     source,
 		})
 	}
 	return games, groupID, nil

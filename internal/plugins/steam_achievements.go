@@ -73,7 +73,13 @@ func (p *SteamPlugin) buildAchievementEntry(ctx context.Context, steamID string,
 			if s.Description != "" {
 				r.Description = s.Description
 			}
+			// Some games ship an achievement with only the grey (locked) art, and a few have art
+			// Steam itself no longer serves, so keep both and let the page fall through.
 			r.Icon = s.Icon
+			r.IconGray = s.IconGray
+			if r.Icon == "" {
+				r.Icon = s.IconGray
+			}
 		}
 		if r.Name == "" {
 			r.Name = a.APIName
