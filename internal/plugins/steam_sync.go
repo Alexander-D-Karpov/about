@@ -169,11 +169,15 @@ func (p *SteamPlugin) appTypeWorker() {
 					continue
 				}
 				if info.Type != "" {
-					p.store.SetAppInfo(appID, info.Type, info.Header)
-					resolved++
-					if info.Type != "game" {
+					// Store the verdict, not the raw type: Steam labels plenty of software
+					// as "game" and only the genres give it away.
+					verdict := "game"
+					if !steamIsGame(info) {
+						verdict = "software"
 						nonGames++
 					}
+					p.store.SetAppInfo(appID, verdict, info.Header)
+					resolved++
 				}
 				time.Sleep(steamTypeDelay)
 			}
@@ -198,20 +202,29 @@ func (p *SteamPlugin) appTypeWorker() {
 	}
 }
 
-// queueTypeLookup queues apps whose type we have not resolved yet.
+// queueTypeLookup queues apps whose classification we have not resolved yet, most-played first so
+// the games actually visible at the top of the list get their real art and verdict soonest.
 func (p *SteamPlugin) queueTypeLookup(games []SteamGame) {
 	known := p.store.AppTypes()
-	ids := make([]int, 0, len(games))
+
+	pending := make([]SteamGame, 0, len(games))
 	for _, g := range games {
 		if _, ok := known[g.AppID]; !ok {
-			ids = append(ids, g.AppID)
+			pending = append(pending, g)
 		}
 	}
-	if len(ids) == 0 {
+	if len(pending) == 0 {
 		return
 	}
+
+	sort.Slice(pending, func(i, j int) bool { return pending[i].PlaytimeAll > pending[j].PlaytimeAll })
+
+	ids := make([]int, 0, len(pending))
+	for _, g := range pending {
+		ids = append(ids, g.AppID)
+	}
 	p.store.SetPendingTypes(ids)
-	log.Printf("[Steam] queued %d apps for type lookup", len(ids))
+	log.Printf("[Steam] queued %d apps for classification (most played first)", len(ids))
 }
 
 // backgroundLoop owns the daily full sync and the achievement trickle, independent of visitor

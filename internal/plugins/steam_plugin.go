@@ -246,6 +246,9 @@ func steamBannerFallbacks(appID int) []string {
 		fmt.Sprintf("https://cdn.cloudflare.steamstatic.com/steam/apps/%d/capsule_616x353.jpg", appID),
 		fmt.Sprintf("https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/%d/capsule_616x353.jpg", appID),
 		fmt.Sprintf("https://cdn.cloudflare.steamstatic.com/steam/apps/%d/capsule_231x87.jpg", appID),
+		// Wide key art. Not a header crop, but far better than falling through to a 32px icon.
+		fmt.Sprintf("https://cdn.cloudflare.steamstatic.com/steam/apps/%d/library_hero.jpg", appID),
+		fmt.Sprintf("https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/%d/library_hero.jpg", appID),
 	}
 }
 

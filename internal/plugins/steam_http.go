@@ -77,7 +77,7 @@ func (p *SteamPlugin) toDTO(g SteamGame, firstSeen map[int]int64, yearly map[int
 			dto.AchAchieved = entry.Achieved
 			dto.AchTotal = entry.Total
 			dto.AchPercent = entry.Percent
-			dto.Rarest = entry.Rarest
+			dto.Rarest = steamNormalizeIcons(entry.Rarest)
 		}
 	}
 
@@ -139,11 +139,14 @@ func (p *SteamPlugin) HandleGamesAPI(w http.ResponseWriter, r *http.Request) {
 	case "recent":
 		sort.SliceStable(filtered, func(i, j int) bool { return filtered[i].LastPlayed > filtered[j].LastPlayed })
 	case "added":
-		// Without a family token every game shares the same first-seen stamp, and a stable sort
-		// would just leave them in playtime order. Fall back to appid, which tracks roughly when
-		// a title appeared on Steam, so the ordering is at least about recency rather than hours.
+		// Sort on the exact acquisition timestamp. Games with no real date (no family token yet)
+		// all share one first-seen stamp, so they tie-break by appid rather than by playtime.
 		sort.SliceStable(filtered, func(i, j int) bool {
 			ai, aj := steamAddedAt(filtered[i], firstSeen), steamAddedAt(filtered[j], firstSeen)
+			realI, realJ := filtered[i].AcquiredAt > 0, filtered[j].AcquiredAt > 0
+			if realI != realJ {
+				return realI // known purchase dates rank above guessed ones
+			}
 			if ai != aj {
 				return ai > aj
 			}
@@ -310,7 +313,7 @@ func (p *SteamPlugin) HandleAchievementsAPI(w http.ResponseWriter, r *http.Reque
 		"achieved":  entry.Achieved,
 		"total":     entry.Total,
 		"percent":   entry.Percent,
-		"rarest":    entry.Rarest,
+		"rarest":    steamNormalizeIcons(entry.Rarest),
 	})
 }
 

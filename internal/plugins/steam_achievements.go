@@ -4,10 +4,57 @@ import (
 	"context"
 	"log"
 	"sort"
+	"strings"
 )
 
 // steamRarestPerGame caps how many rarest achievements we keep per game.
 const steamRarestPerGame = 3
+
+// Steam moved achievement art to a "community_assets" path but GetSchemaForGame still hands out
+// the legacy one, which 404s for some titles (Factorio among them). The hash is unchanged, so
+// rewriting the prefix recovers the icon.
+var steamLegacyIconPrefixes = []string{
+	"https://steamcdn-a.akamaihd.net/steamcommunity/public/images/apps/",
+	"https://cdn.cloudflare.steamstatic.com/steamcommunity/public/images/apps/",
+	"https://media.steampowered.com/steamcommunity/public/images/apps/",
+	"https://cdn.akamai.steamstatic.com/steamcommunity/public/images/apps/",
+}
+
+const steamAssetIconPrefix = "https://shared.akamai.steamstatic.com/community_assets/images/apps/"
+
+// steamModernIconURL rewrites a legacy achievement icon URL to the current asset path.
+// It returns "" when the URL is not a legacy one.
+func steamModernIconURL(raw string) string {
+	for _, prefix := range steamLegacyIconPrefixes {
+		if strings.HasPrefix(raw, prefix) {
+			return steamAssetIconPrefix + strings.TrimPrefix(raw, prefix)
+		}
+	}
+	return ""
+}
+
+// steamNormalizeIcons upgrades icon URLs on the way out. Applying this when serving (rather than
+// only when fetching) means entries cached before the path change are corrected too, without
+// having to discard and re-fetch the whole achievement cache.
+func steamNormalizeIcons(in []SteamRarestAchievement) []SteamRarestAchievement {
+	if len(in) == 0 {
+		return in
+	}
+	out := make([]SteamRarestAchievement, len(in))
+	copy(out, in)
+	for i := range out {
+		if modern := steamModernIconURL(out[i].Icon); modern != "" {
+			if out[i].IconGray == "" {
+				out[i].IconGray = out[i].Icon
+			}
+			out[i].Icon = modern
+		}
+		if modern := steamModernIconURL(out[i].IconGray); modern != "" && out[i].IconGray == out[i].Icon {
+			out[i].IconGray = modern
+		}
+	}
+	return out
+}
 
 // buildAchievementEntry joins the player's unlocked achievements with global rarity percentages and
 // the game schema (for display names and icon URLs), producing the cached entry for one game.
@@ -73,12 +120,18 @@ func (p *SteamPlugin) buildAchievementEntry(ctx context.Context, steamID string,
 			if s.Description != "" {
 				r.Description = s.Description
 			}
-			// Some games ship an achievement with only the grey (locked) art, and a few have art
-			// Steam itself no longer serves, so keep both and let the page fall through.
-			r.Icon = s.Icon
-			r.IconGray = s.IconGray
-			if r.Icon == "" {
-				r.Icon = s.IconGray
+			// Prefer the current asset path; keep the schema's own URL as the fallback, and the
+			// grey art after that for games that only ship the locked variant.
+			icon, gray := s.Icon, s.IconGray
+			if icon == "" {
+				icon = gray
+			}
+			if modern := steamModernIconURL(icon); modern != "" {
+				r.Icon = modern
+				r.IconGray = icon
+			} else {
+				r.Icon = icon
+				r.IconGray = gray
 			}
 		}
 		if r.Name == "" {
@@ -144,7 +197,7 @@ func (p *SteamPlugin) rarestAcrossLibrary(limit int) []SteamRarestAchievement {
 		if hidden[appID] || !entry.Available {
 			continue
 		}
-		all = append(all, entry.Rarest...)
+		all = append(all, steamNormalizeIcons(entry.Rarest)...)
 	}
 
 	sort.Slice(all, func(i, j int) bool {

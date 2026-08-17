@@ -225,6 +225,48 @@ var errSteamRateLimited = fmt.Errorf("steam store API rate limited")
 type steamAppInfo struct {
 	Type   string
 	Header string
+	Genres []string
+}
+
+// steamSoftwareGenres are the Steam genres that mark an app as software rather than a game.
+// The appdetails "type" field cannot be used for this: Steam reports Blender and Wallpaper
+// Engine as type "game".
+var steamSoftwareGenres = map[string]bool{
+	"animation & modeling":  true,
+	"audio production":      true,
+	"design & illustration": true,
+	"education":             true,
+	"game development":      true,
+	"photo editing":         true,
+	"software training":     true,
+	"utilities":             true,
+	"video production":      true,
+	"web publishing":        true,
+	"accounting":            true,
+	"movie":                 true,
+	"documentary":           true,
+	"episodic":              true,
+	"short":                 true,
+	"tutorial":              true,
+}
+
+// steamNonGameTypes are appdetails types that are never a game in their own right.
+var steamNonGameTypes = map[string]bool{
+	"dlc": true, "demo": true, "music": true, "video": true,
+	"advertising": true, "mod": true, "series": true, "episode": true,
+}
+
+// steamIsGame decides whether an app belongs in the library listing.
+func steamIsGame(info steamAppInfo) bool {
+	if info.Type != "" && steamNonGameTypes[info.Type] {
+		return false
+	}
+	for _, g := range info.Genres {
+		if steamSoftwareGenres[strings.ToLower(strings.TrimSpace(g))] {
+			return false
+		}
+	}
+	return true
 }
 
 // AppInfo resolves an app's type ("game", "dlc", "software", "tool", "demo", "music") and its
@@ -232,7 +274,7 @@ type steamAppInfo struct {
 // them, and does not expose art paths at all.
 func (a *steamAPI) AppInfo(ctx context.Context, appID int) (steamAppInfo, error) {
 	endpoint := fmt.Sprintf(
-		"https://store.steampowered.com/api/appdetails?appids=%d&filters=basic&l=english", appID)
+		"https://store.steampowered.com/api/appdetails?appids=%d&filters=basic,genres&l=english", appID)
 
 	reqCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
@@ -265,6 +307,9 @@ func (a *steamAPI) AppInfo(ctx context.Context, appID int) (steamAppInfo, error)
 		Data    struct {
 			Type        string `json:"type"`
 			HeaderImage string `json:"header_image"`
+			Genres      []struct {
+				Description string `json:"description"`
+			} `json:"genres"`
 		} `json:"data"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
@@ -283,9 +328,15 @@ func (a *steamAPI) AppInfo(ctx context.Context, appID int) (steamAppInfo, error)
 		header = header[:i] // drop the cache-busting timestamp
 	}
 
+	genres := make([]string, 0, len(entry.Data.Genres))
+	for _, g := range entry.Data.Genres {
+		genres = append(genres, g.Description)
+	}
+
 	return steamAppInfo{
 		Type:   strings.ToLower(strings.TrimSpace(entry.Data.Type)),
 		Header: header,
+		Genres: genres,
 	}, nil
 }
 

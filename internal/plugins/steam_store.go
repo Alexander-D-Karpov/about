@@ -11,6 +11,8 @@ import (
 
 const (
 	steamLibraryVersion = 1
+	// Bump when the game/software classification rules change.
+	steamTypesVersion = 2
 	// How long a cached per-game achievement entry stays valid.
 	steamAchTTL = 7 * 24 * time.Hour
 	// Enriched games buffered before the store is flushed to disk. Bounds how much work an
@@ -42,6 +44,9 @@ type steamLibraryFile struct {
 	// that cannot be derived from the appid.
 	AppHeaders  map[int]string `json:"app_headers"`
 	PendingType []int          `json:"pending_type"`
+	// TypesVersion lets the classification be redone without discarding the far more expensive
+	// achievement cache, which a full store version bump would throw away.
+	TypesVersion int `json:"types_version"`
 	// TokenCheckedAt is zero until a sync has actually tried the current token, which lets the
 	// admin page say "not checked yet" instead of wrongly calling a fresh token expired.
 	TokenCheckedAt int64 `json:"token_checked_at"`
@@ -104,6 +109,15 @@ func (s *SteamStore) load() {
 	if s.data.AppHeaders == nil {
 		s.data.AppHeaders = make(map[int]string)
 	}
+	if s.data.TypesVersion != steamTypesVersion {
+		// The rules for what counts as a game changed; drop the verdicts (not the achievements)
+		// and let the worker re-resolve them.
+		log.Printf("[Steam] app classification version %d != %d, re-resolving %d apps",
+			s.data.TypesVersion, steamTypesVersion, len(s.data.AppTypes))
+		s.data.AppTypes = make(map[int]string)
+		s.data.TypesVersion = steamTypesVersion
+		s.dirty = true
+	}
 }
 
 func (s *SteamStore) reset() {
@@ -114,6 +128,7 @@ func (s *SteamStore) reset() {
 		YearSnapshot: steamYearSnapshot{Playtime: make(map[int]int)},
 		AppTypes:     make(map[int]string),
 		AppHeaders:   make(map[int]string),
+		TypesVersion: steamTypesVersion,
 	}
 }
 

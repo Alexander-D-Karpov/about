@@ -16,7 +16,7 @@
 }
 *{box-sizing:border-box}
 html,body{margin:0;padding:0}
-body{background:var(--bg);color:var(--fg);font-family:var(--sans);font-size:14px;line-height:1.5;-webkit-font-smoothing:antialiased}
+body{background:var(--bg);color:var(--fg);font-family:var(--sans);font-size:15px;line-height:1.5;-webkit-font-smoothing:antialiased}
 a{color:inherit}
 .wrap{max-width:1180px;margin:0 auto;padding:26px 18px 80px}
 
@@ -31,7 +31,7 @@ h1 span{color:var(--steam)}
 .stats{display:flex;flex-wrap:wrap;background:var(--panel);border-radius:4px;padding:18px 8px;margin-bottom:22px}
 .stat{flex:1 1 150px;padding:4px 16px;min-width:0}
 .stat-v{font-size:clamp(20px,2.6vw,28px);font-weight:300;letter-spacing:-.01em;line-height:1.15;font-variant-numeric:tabular-nums}
-.stat-l{font-size:12px;color:var(--fg-3);margin-top:3px}
+.stat-l{font-size:13px;color:var(--fg-3);margin-top:3px}
 
 /* now playing */
 .now{display:flex;gap:14px;align-items:center;padding:12px;margin-bottom:22px;background:var(--panel);border-left:3px solid var(--green);border-radius:4px}
@@ -69,15 +69,15 @@ select.sort:focus{outline:2px solid var(--steam-dim)}
 
 /* ---- Steam-style rows ---- */
 .list{display:flex;flex-direction:column;gap:8px}
-.row{display:flex;gap:16px;padding:12px;background:var(--row);border-radius:4px;align-items:flex-start}
+.row{display:flex;gap:18px;padding:14px;background:var(--row);border-radius:4px;align-items:flex-start}
 .row:hover{background:var(--row-hover)}
-.art{flex:0 0 231px;width:231px;aspect-ratio:231/107;background:var(--panel-2);border-radius:2px;overflow:hidden;display:block;position:relative}
+.art{flex:0 0 320px;width:320px;aspect-ratio:231/107;background:var(--panel-2);border-radius:2px;overflow:hidden;display:block;position:relative}
 .art img{width:100%;height:100%;object-fit:cover;display:block}
 /* the tiny library icon is the last resort: contain it instead of stretching it */
 .art img.icon-only{object-fit:contain;padding:22px;image-rendering:auto}
 .art .ph{width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:26px;font-weight:600;color:var(--fg-3)}
 .body{flex:1;min-width:0}
-.name{font-size:16px;font-weight:600;line-height:1.25;margin-bottom:9px}
+.name{font-size:18px;font-weight:600;line-height:1.25;margin-bottom:9px}
 .name a{text-decoration:none}
 .name a:hover{color:var(--steam)}
 .tag{font-size:10px;padding:1px 6px;border-radius:2px;background:rgba(163,113,247,.18);color:var(--purple);margin-left:7px;vertical-align:middle}
@@ -86,25 +86,42 @@ select.sort:focus{outline:2px solid var(--steam-dim)}
 .col{min-width:0}
 /* keep the meta columns from stretching when the achievement column is tall */
 .col:not(.col-ach){flex:0 0 auto}
-.col-l{font-size:10px;text-transform:uppercase;letter-spacing:.07em;color:var(--fg-3);margin-bottom:3px;white-space:nowrap}
-.col-v{font-size:13px;font-family:var(--mono);font-variant-numeric:tabular-nums}
-.col-ach{flex:1 1 240px;min-width:210px}
+.col-l{font-size:11px;text-transform:uppercase;letter-spacing:.07em;color:var(--fg-3);margin-bottom:3px;white-space:nowrap}
+.col-v{font-size:14px;font-family:var(--mono);font-variant-numeric:tabular-nums}
+.col-ach{flex:1 1 260px;min-width:230px}
 .ach-head{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
-.ach-n{font-size:12px;font-family:var(--mono);font-variant-numeric:tabular-nums;color:var(--fg-2)}
-.ach-bar{height:6px;background:var(--panel-2);border-radius:2px;overflow:hidden;margin-top:5px}
+.ach-n{font-size:13px;font-family:var(--mono);font-variant-numeric:tabular-nums;color:var(--fg-2)}
+.ach-bar{height:8px;background:var(--panel-2);border-radius:2px;overflow:hidden;margin-top:5px}
 .ach-fill{height:100%;background:var(--steam);border-radius:2px}
 .ach-none{font-size:12px;color:var(--fg-3)}
 
 /* rarest achievements, per game, under the bar */
 .rare{display:flex;flex-wrap:wrap;gap:6px;margin-top:9px}
 .rare-i{display:flex;align-items:center;gap:6px;background:var(--panel-2);border-radius:3px;padding:4px 8px 4px 4px;max-width:100%}
-.rare-i img{width:22px;height:22px;border-radius:2px;flex-shrink:0;background:var(--panel)}
-.rare-i .ph{width:22px;height:22px;border-radius:2px;flex-shrink:0;background:var(--panel);display:flex;align-items:center;justify-content:center;font-size:10px;color:var(--fg-3)}
-.rare-n{font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:170px}
-.rare-p{font-size:10.5px;font-family:var(--mono);font-variant-numeric:tabular-nums;flex-shrink:0}
+.rare-i img{width:26px;height:26px;border-radius:2px;flex-shrink:0;background:var(--panel)}
+.rare-i .ph{width:26px;height:26px;border-radius:2px;flex-shrink:0;background:var(--panel);display:flex;align-items:center;justify-content:center;font-size:10px;color:var(--fg-3)}
+.rare-n{font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:170px}
+.rare-p{font-size:11.5px;font-family:var(--mono);font-variant-numeric:tabular-nums;flex-shrink:0}
 
-.acts{margin-top:12px}
 .row{transition:background .12s ease}
+
+/* hovering a badge enlarges it and reveals the description in a real tooltip */
+.rare-i{position:relative;transition:transform .12s ease,background .12s ease;cursor:default}
+.rare-i:hover{transform:scale(1.06);background:#22262e;z-index:5}
+.rare-i:hover img,.rare-i:hover .ph{width:34px;height:34px}
+.rare-i img,.rare-i .ph{transition:width .12s ease,height .12s ease}
+.tip{
+  position:absolute;bottom:calc(100% + 8px);left:50%;transform:translateX(-50%) translateY(4px);
+  width:max-content;max-width:280px;padding:9px 11px;border-radius:5px;
+  background:#0c0d10;border:1px solid var(--edge);box-shadow:0 8px 22px rgba(0,0,0,.6);
+  opacity:0;visibility:hidden;transition:opacity .12s ease,transform .12s ease;
+  pointer-events:none;z-index:40;text-align:left;white-space:normal;
+}
+.rare-i:hover .tip{opacity:1;visibility:visible;transform:translateX(-50%) translateY(0)}
+/* block, or the three lines run together inside the inline badge */
+.tip-n{display:block;font-size:13px;font-weight:600;margin-bottom:4px;color:var(--fg);line-height:1.3}
+.tip-d{display:block;font-size:12px;color:var(--fg-2);line-height:1.45}
+.tip-p{display:block;font-size:11px;font-family:var(--mono);margin-top:6px}
 .btn{display:inline-block;font-size:12px;padding:6px 12px;border-radius:3px;border:1px solid var(--edge);color:var(--fg-2);background:transparent;text-decoration:none;cursor:pointer;font-family:var(--sans)}
 .btn:hover{background:var(--panel-2);color:var(--fg)}
 .btn:focus-visible{outline:2px solid var(--steam);outline-offset:2px}
@@ -133,7 +150,6 @@ select.sort:focus{outline:2px solid var(--steam-dim)}
 
   <div class="top">
     <a class="back" href="/">&larr; back</a>
-    <h1>Steam <span>library</span></h1>
   </div>
 
   <div class="stats" id="stats"></div>
@@ -258,10 +274,16 @@ select.sort:focus{outline:2px solid var(--steam-dim)}
       var ic = srcs.length
         ? '<img alt="" loading="lazy" data-srcs="'+esc(JSON.stringify(srcs))+'">'
         : '<div class="ph">&#9733;</div>';
-      return '<span class="rare-i" title="'+esc(a.name)+' — '+a.globalPercent.toFixed(1)+'% of players">'+
+      var colour = rarityColor(a.globalPercent);
+      return '<span class="rare-i">'+
         ic+
         '<span class="rare-n">'+esc(a.name)+'</span>'+
-        '<span class="rare-p" style="color:'+rarityColor(a.globalPercent)+'">'+a.globalPercent.toFixed(1)+'%</span>'+
+        '<span class="rare-p" style="color:'+colour+'">'+a.globalPercent.toFixed(1)+'%</span>'+
+        '<span class="tip">'+
+          '<span class="tip-n">'+esc(a.name)+'</span>'+
+          (a.description ? '<span class="tip-d">'+esc(a.description)+'</span>' : '<span class="tip-d">No description.</span>')+
+          '<span class="tip-p" style="color:'+colour+'">'+a.globalPercent.toFixed(1)+'% of players unlocked this</span>'+
+        '</span>'+
       '</span>';
     }).join("")+'</div>';
   }
@@ -276,20 +298,40 @@ select.sort:focus{outline:2px solid var(--steam-dim)}
     });
   }
 
-  function achHTML(g){
-    if(!g.hasStats) return '<div class="col-l">Achievements</div><div class="ach-none">none</div>';
-    if(!g.achLoaded) return '<div class="col-l">Achievements</div><div class="ach-none js-ach-pending">loading…</div>';
-    if(!g.achTotal)  return '<div class="col-l">Achievements</div><div class="ach-none">none</div>';
+  function achBlockHTML(achieved, total, percent, rarest){
     return '<div class="ach-head"><div class="col-l">Achievements</div>'+
-             '<span class="ach-n">'+g.achAchieved+' / '+g.achTotal+'</span></div>'+
-           '<div class="ach-bar"><div class="ach-fill" style="width:'+g.achPercent.toFixed(1)+'%"></div></div>'+
-           rarestHTML(g.rarest);
+             '<span class="ach-n">'+achieved+' / '+total+'</span></div>'+
+           '<div class="ach-bar"><div class="ach-fill" style="width:'+percent.toFixed(1)+'%"></div></div>'+
+           rarestHTML(rarest);
+  }
+
+  // Games without achievements drop the column entirely rather than showing an empty "none".
+  function achHTML(g){
+    if(!g.hasStats) return "";
+    if(!g.achLoaded) return '<div class="col-l">Achievements</div><div class="ach-none">loading…</div>';
+    if(!g.achTotal)  return "";
+    return achBlockHTML(g.achAchieved, g.achTotal, g.achPercent, g.rarest);
   }
 
   function row(g){
     var el = document.createElement("article");
     el.className = "row";
     el.dataset.appid = g.appid;
+
+    // Surface the figure the current sort is about, so the ordering is always explainable.
+    var extra = "";
+    if(state.sort === "recent"){
+      extra = '<div class="col"><div class="col-l">Last 2 weeks</div>'+
+              '<div class="col-v">'+hours(g.playtime2w)+' hours</div></div>';
+    } else if(state.sort === "year"){
+      extra = '<div class="col"><div class="col-l">This year</div>'+
+              '<div class="col-v">'+hours(g.playtimeYear)+' hours</div></div>';
+    } else if(g.playtimeYear){
+      extra = '<div class="col"><div class="col-l">This year</div>'+
+              '<div class="col-v">'+hours(g.playtimeYear)+' hours</div></div>';
+    }
+
+    var ach = achHTML(g);
 
     el.innerHTML =
       '<a class="art" href="'+esc(g.storeUrl)+'" target="_blank" rel="noopener" aria-label="'+esc(g.name)+' on Steam"></a>'+
@@ -301,11 +343,10 @@ select.sort:focus{outline:2px solid var(--steam-dim)}
           '<div class="col"><div class="col-l">Total played</div><div class="col-v">'+hours(g.playtimeForever)+' hours</div></div>'+
           '<div class="col"><div class="col-l">Last played</div><div class="col-v">'+when(g.lastPlayed)+'</div></div>'+
           '<div class="col"><div class="col-l">'+(g.addedIsFirstSeen?"In library since":"Added")+'</div>'+
-            '<div class="col-v">'+monthYear(g.addedAt)+'</div></div>'+
-          (g.playtimeYear ? '<div class="col"><div class="col-l">This year</div><div class="col-v">'+hours(g.playtimeYear)+' hours</div></div>' : '')+
-          '<div class="col col-ach js-ach">'+achHTML(g)+'</div>'+
+            '<div class="col-v">'+(g.addedIsFirstSeen ? monthYear(g.addedAt) : when(g.addedAt))+'</div></div>'+
+          extra+
+          (ach ? '<div class="col col-ach js-ach">'+ach+'</div>' : '')+
         '</div>'+
-        '<div class="acts"><a class="btn" href="'+esc(g.storeUrl)+'" target="_blank" rel="noopener">View on Steam</a></div>'+
       '</div>';
 
     attachArt(el.querySelector(".art"), g);
@@ -329,23 +370,16 @@ select.sort:focus{outline:2px solid var(--steam-dim)}
     function fetchAch(el){
       var id = el.dataset.appid;
       var slot = el.querySelector(".js-ach");
+      if(!slot) return;
       fetch("/api/steam/achievements?appid="+id)
         .then(function(r){ return r.json(); })
         .then(function(d){
-          if(!d.available || !d.total){
-            slot.innerHTML = '<div class="col-l">Achievements</div><div class="ach-none">none</div>';
-            return;
-          }
-          slot.innerHTML =
-            '<div class="ach-head"><div class="col-l">Achievements</div>'+
-              '<span class="ach-n">'+d.achieved+' / '+d.total+'</span></div>'+
-            '<div class="ach-bar"><div class="ach-fill" style="width:'+d.percent.toFixed(1)+'%"></div></div>'+
-            rarestHTML(d.rarest);
+          // Nothing to show means the column goes away, not an empty "none".
+          if(!d.available || !d.total){ slot.remove(); return; }
+          slot.innerHTML = achBlockHTML(d.achieved, d.total, d.percent, d.rarest);
           hydrateIcons(slot);
         })
-        .catch(function(){
-          slot.innerHTML = '<div class="col-l">Achievements</div><div class="ach-none">unavailable</div>';
-        });
+        .catch(function(){ slot.remove(); });
     }
 
     return {

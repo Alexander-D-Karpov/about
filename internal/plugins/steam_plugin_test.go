@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -316,5 +317,63 @@ func TestSteamRarestExcludesHiddenGames(t *testing.T) {
 	unlocked, _, _, enriched := p.achievementSummary()
 	if enriched != 1 {
 		t.Fatalf("hidden game counted in the achievement summary (enriched=%d, unlocked=%d)", enriched, unlocked)
+	}
+}
+
+// Steam reports Blender and Wallpaper Engine as type "game", so only the genres reveal that they
+// are software. Getting this wrong is what left them in the library.
+func TestSteamIsGameUsesGenresNotType(t *testing.T) {
+	cases := []struct {
+		name string
+		info steamAppInfo
+		want bool
+	}{
+		{"plain game", steamAppInfo{Type: "game", Genres: []string{"Action", "Indie"}}, true},
+		{"blender", steamAppInfo{Type: "game", Genres: []string{"Animation & Modeling", "Design & Illustration", "Video Production"}}, false},
+		{"wallpaper engine", steamAppInfo{Type: "game", Genres: []string{"Casual", "Indie", "Utilities", "Photo Editing"}}, false},
+		{"dlc", steamAppInfo{Type: "dlc", Genres: []string{"Action"}}, false},
+		{"demo", steamAppInfo{Type: "demo"}, false},
+		{"soundtrack", steamAppInfo{Type: "music"}, false},
+		{"unknown genres", steamAppInfo{Type: "game"}, true},
+		{"case insensitive", steamAppInfo{Type: "game", Genres: []string{"UTILITIES"}}, false},
+	}
+	for _, c := range cases {
+		if got := steamIsGame(c.info); got != c.want {
+			t.Errorf("%s: steamIsGame = %v, want %v", c.name, got, c.want)
+		}
+	}
+}
+
+// Steam moved achievement art; the schema still returns the old path, which 404s for some games.
+func TestSteamModernIconURLRewritesLegacyPaths(t *testing.T) {
+	const hash = "73495fcb0e9edc5b4a752f774289d5fcbdf4c693.jpg"
+	legacy := "https://steamcdn-a.akamaihd.net/steamcommunity/public/images/apps/427520/" + hash
+	want := "https://shared.akamai.steamstatic.com/community_assets/images/apps/427520/" + hash
+
+	if got := steamModernIconURL(legacy); got != want {
+		t.Fatalf("legacy rewrite = %q, want %q", got, want)
+	}
+	if got := steamModernIconURL(want); got != "" {
+		t.Fatalf("already-modern URL should not be rewritten, got %q", got)
+	}
+	if got := steamModernIconURL("https://example.com/x.jpg"); got != "" {
+		t.Fatalf("unrelated URL should not be rewritten, got %q", got)
+	}
+}
+
+// Cached entries written before the path change must still be corrected when served.
+func TestSteamNormalizeIconsUpgradesCachedEntries(t *testing.T) {
+	legacy := "https://steamcdn-a.akamaihd.net/steamcommunity/public/images/apps/427520/a.jpg"
+	in := []SteamRarestAchievement{{Name: "x", Icon: legacy}}
+
+	out := steamNormalizeIcons(in)
+	if !strings.HasPrefix(out[0].Icon, steamAssetIconPrefix) {
+		t.Fatalf("icon not upgraded: %s", out[0].Icon)
+	}
+	if out[0].IconGray != legacy {
+		t.Fatalf("original URL should be kept as a fallback, got %q", out[0].IconGray)
+	}
+	if in[0].Icon != legacy {
+		t.Fatalf("input slice must not be mutated")
 	}
 }
