@@ -105,11 +105,9 @@ select.sort:focus{outline:2px solid var(--steam-dim)}
 
 .row{transition:background .12s ease}
 
-/* hovering a badge enlarges it and reveals the description in a real tooltip */
-.rare-i{position:relative;transition:transform .12s ease,background .12s ease;cursor:default}
-.rare-i:hover{transform:scale(1.06);background:#22262e;z-index:5}
-.rare-i:hover > img,.rare-i:hover > .ph{width:34px;height:34px}
-.rare-i > img,.rare-i > .ph{transition:width .12s ease,height .12s ease}
+/* hovering a badge reveals the tooltip; the badge itself does not resize */
+.rare-i{position:relative;transition:background .12s ease;cursor:default}
+.rare-i:hover{background:#22262e;z-index:5}
 .tip{
   position:absolute;bottom:calc(100% + 8px);left:50%;transform:translateX(-50%) translateY(4px);
   display:flex;gap:12px;align-items:flex-start;
@@ -171,7 +169,9 @@ select.sort:focus{outline:2px solid var(--steam-dim)}
 
   <section class="sec">
     <div class="controls">
-      <input class="search" id="q" type="search" placeholder="Find a game" aria-label="Find a game">
+      <input class="search" id="q" type="search" placeholder="Find a game" aria-label="Find a game"
+             autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
+             name="steam-library-search" data-form-type="other" data-lpignore="true">
       <select class="sort" id="sort" aria-label="Sort by">
         <option value="playtime">Most played</option>
         <option value="recent">Recently played</option>
@@ -327,7 +327,7 @@ select.sort:focus{outline:2px solid var(--steam-dim)}
           big+
           '<span class="tip-b">'+
             '<span class="tip-n">'+esc(a.name)+'</span>'+
-            '<span class="tip-d">'+(a.description ? esc(a.description) : "No description.")+'</span>'+
+            (a.description ? '<span class="tip-d">'+esc(a.description)+'</span>' : '')+
             '<span class="tip-p" style="color:'+colour+'">'+a.globalPercent.toFixed(1)+'% of players unlocked this</span>'+
           '</span>'+
         '</span>'+
