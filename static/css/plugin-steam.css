@@ -267,11 +267,20 @@
     margin-top: 14px;
 }
 
-/* Both actions share one box so they line up regardless of the count pill. */
+/* Both actions share one fixed box so they line up regardless of the count pill
+   and of any inherited sizing from the surrounding plugin styles. */
 .steam-section .steam-actions > a {
-    min-height: 34px;
+    height: 34px;
+    min-height: 0;
+    /* the profile link carries a 12px top margin of its own, which offsets it
+       from its sibling once both are centred */
+    margin: 0;
+    align-self: center;
     line-height: 1;
     box-sizing: border-box;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
 }
 
 .steam-section .steam-all-games-btn {
@@ -295,7 +304,8 @@
 .steam-section .steam-all-games-btn .steam-count {
     font-variant-numeric: tabular-nums;
     font-size: 11px;
-    line-height: 18px;
+    line-height: 16px;
+    height: 16px;
     padding: 0 7px;
     border-radius: 99px;
     background: color-mix(in oklch, var(--accent) 18%, transparent);
