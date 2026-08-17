@@ -51,7 +51,7 @@ h1 span{color:var(--steam)}
 .year-name{flex:0 0 auto;width:min(220px,36vw);font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .year-bar{flex:1;height:6px;background:var(--panel-2);border-radius:2px;overflow:hidden}
 .year-fill{height:100%;background:var(--steam);border-radius:2px}
-.year-v{flex:0 0 auto;width:120px;text-align:right;font-family:var(--mono);font-variant-numeric:tabular-nums}
+.year-v{flex:0 0 auto;width:170px;text-align:right;white-space:nowrap;font-family:var(--mono);font-variant-numeric:tabular-nums}
 .year-v b{font-size:13px;font-weight:600}
 .year-v s{font-size:10px;color:var(--fg-3);text-decoration:none;margin-left:6px}
 
@@ -146,7 +146,7 @@ select.sort:focus{outline:2px solid var(--steam-dim)}
   .art img.icon-only{padding:30px}
   .stat{flex:1 1 50%}
   .year-name{width:40vw}
-  .year-v{width:100px}
+  .year-v{width:150px}
   .cols{gap:18px}
 }
 @media (prefers-reduced-motion:reduce){*{animation-duration:.01ms !important;transition-duration:.01ms !important}}
@@ -175,7 +175,7 @@ select.sort:focus{outline:2px solid var(--steam-dim)}
       <select class="sort" id="sort" aria-label="Sort by">
         <option value="playtime">Most played</option>
         <option value="recent">Recently played</option>
-        <option value="year">Most played this year</option>
+        <option value="year" id="opt-year">Most played this year</option>
         <option value="added">Recently added</option>
         <option value="ach">Achievement completion</option>
       </select>
@@ -199,7 +199,7 @@ select.sort:focus{outline:2px solid var(--steam-dim)}
   "use strict";
 
   var PAGE = 30;
-  var state = {offset:0, q:"", sort:"playtime", filter:"all", loading:false, hasMore:true, seeded:false};
+  var state = {offset:0, q:"", sort:"playtime", filter:"all", loading:false, hasMore:true, seeded:false, year:null};
 
   var list = document.getElementById("list");
   var spin = document.getElementById("spin");
@@ -370,11 +370,8 @@ select.sort:focus{outline:2px solid var(--steam-dim)}
     if(state.sort === "recent"){
       extra = '<div class="col"><div class="col-l">Last 2 weeks</div>'+
               '<div class="col-v">'+hours(g.playtime2w)+' hours</div></div>';
-    } else if(state.sort === "year"){
-      extra = '<div class="col"><div class="col-l">This year</div>'+
-              '<div class="col-v">'+hours(g.playtimeYear)+' hours</div></div>';
-    } else if(g.playtimeYear){
-      extra = '<div class="col"><div class="col-l">This year</div>'+
+    } else if(state.sort === "year" || g.playtimeYear){
+      extra = '<div class="col"><div class="col-l">'+(state.year || "This year")+'</div>'+
               '<div class="col-v">'+hours(g.playtimeYear)+' hours</div></div>';
     }
 
@@ -435,6 +432,7 @@ select.sort:focus{outline:2px solid var(--steam-dim)}
   })();
 
   function renderStats(s){
+    state.year = s.year ? String(s.year) : null;
     if(state.seeded) return;
     state.seeded = true;
 
@@ -460,13 +458,19 @@ select.sort:focus{outline:2px solid var(--steam-dim)}
         '<div><div class="now-l">Now playing</div><div class="now-n">'+esc(c.gameName)+'</div></div></div>';
     }
 
+    var optYear = document.getElementById("opt-year");
+    if(optYear && s.year) optYear.textContent = "Most played in " + s.year;
+
     var yr = s.topThisYear || [];
     if(yr.length){
       document.getElementById("year-sec").classList.remove("hide");
       document.getElementById("year-label").textContent = "in " + s.year;
-      if(s.yearSnapshotAt){
+      // Steam only publishes a year once it has ended; until then these are our own figures.
+      if(s.yearFromSteam){
+        document.getElementById("year-note").textContent = "from Steam's " + s.year + " review";
+      } else if(s.yearSnapshotAt){
         document.getElementById("year-note").textContent =
-          "tracked since " + new Date(s.yearSnapshotAt*1000).toLocaleDateString(undefined,{month:"short",day:"numeric",year:"numeric"});
+          "tracked here since " + new Date(s.yearSnapshotAt*1000).toLocaleDateString(undefined,{month:"short",day:"numeric",year:"numeric"});
       }
       var top = yr[0].minutes || 1;
       document.getElementById("year").innerHTML = yr.map(function(g){

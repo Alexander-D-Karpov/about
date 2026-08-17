@@ -26,6 +26,13 @@ type steamYearSnapshot struct {
 	TakenAt  int64       `json:"taken_at"`
 }
 
+// steamYearReview is Steam's own per-year playtime, which it only publishes once a year ends.
+type steamYearReview struct {
+	Year      int         `json:"year"`
+	Playtime  map[int]int `json:"playtime"`
+	FetchedAt int64       `json:"fetched_at"`
+}
+
 type steamLibraryFile struct {
 	Version      int                   `json:"version"`
 	Games        []SteamGame           `json:"games"`
@@ -33,6 +40,7 @@ type steamLibraryFile struct {
 	FirstSeen    map[int]int64         `json:"first_seen"`
 	Achievements map[int]steamAchEntry `json:"achievements"`
 	YearSnapshot steamYearSnapshot     `json:"year_snapshot"`
+	YearReview   steamYearReview       `json:"year_review"`
 	PendingAch   []int                 `json:"pending_ach"`
 	FamilyValid  bool                  `json:"family_valid"`
 	LastFullSync int64                 `json:"last_full_sync"`
@@ -109,6 +117,9 @@ func (s *SteamStore) load() {
 	if s.data.AppHeaders == nil {
 		s.data.AppHeaders = make(map[int]string)
 	}
+	if s.data.YearReview.Playtime == nil {
+		s.data.YearReview.Playtime = make(map[int]int)
+	}
 	if s.data.TypesVersion != steamTypesVersion {
 		// The rules for what counts as a game changed; drop the verdicts (not the achievements)
 		// and let the worker re-resolve them.
@@ -128,6 +139,7 @@ func (s *SteamStore) reset() {
 		YearSnapshot: steamYearSnapshot{Playtime: make(map[int]int)},
 		AppTypes:     make(map[int]string),
 		AppHeaders:   make(map[int]string),
+		YearReview:   steamYearReview{Playtime: make(map[int]int)},
 		TypesVersion: steamTypesVersion,
 	}
 }
@@ -407,6 +419,30 @@ func (s *SteamStore) YearSnapshot() steamYearSnapshot {
 func (s *SteamStore) SetYearSnapshot(snap steamYearSnapshot) {
 	s.mu.Lock()
 	s.data.YearSnapshot = snap
+	s.dirty = true
+	s.mu.Unlock()
+	s.Flush()
+}
+
+// --- Steam's published year in review ---
+
+func (s *SteamStore) YearReview() steamYearReview {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := steamYearReview{
+		Year:      s.data.YearReview.Year,
+		FetchedAt: s.data.YearReview.FetchedAt,
+		Playtime:  make(map[int]int, len(s.data.YearReview.Playtime)),
+	}
+	for k, v := range s.data.YearReview.Playtime {
+		out.Playtime[k] = v
+	}
+	return out
+}
+
+func (s *SteamStore) SetYearReview(r steamYearReview) {
+	s.mu.Lock()
+	s.data.YearReview = r
 	s.dirty = true
 	s.mu.Unlock()
 	s.Flush()

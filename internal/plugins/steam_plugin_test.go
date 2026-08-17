@@ -117,7 +117,7 @@ func TestSteamPlaytimeThisYearDelta(t *testing.T) {
 		TakenAt:  time.Now().Add(-30 * 24 * time.Hour).Unix(),
 	})
 
-	yearly, _ := p.playtimeThisYear()
+	yearly := p.playtimeForYear().Minutes
 	if yearly[1] != 100 {
 		t.Fatalf("expected 100 minutes this year for appid 1, got %d", yearly[1])
 	}
@@ -137,7 +137,7 @@ func TestSteamPlaytimeThisYearIgnoresStaleSnapshot(t *testing.T) {
 		Playtime: map[int]int{1: 10},
 	})
 
-	if yearly, _ := p.playtimeThisYear(); len(yearly) != 0 {
+	if yearly := p.playtimeForYear().Minutes; len(yearly) != 0 {
 		t.Fatalf("last year's snapshot must not produce this-year figures: %v", yearly)
 	}
 }
@@ -375,5 +375,63 @@ func TestSteamNormalizeIconsUpgradesCachedEntries(t *testing.T) {
 	}
 	if in[0].Icon != legacy {
 		t.Fatalf("input slice must not be mutated")
+	}
+}
+
+// Steam only publishes a year's playtime once that year has ended, so the snapshot delta (which is
+// zero until playtime accrues) must give way to Steam's real figures as soon as they exist.
+func TestSteamYearReviewPreferredOverSnapshot(t *testing.T) {
+	p := newTestSteamPlugin(t, map[string]interface{}{"steamid": "123"})
+	games := []SteamGame{{AppID: 1, Name: "A", PlaytimeAll: 600}, {AppID: 2, Name: "B", PlaytimeAll: 300}}
+	p.store.SetGames(games)
+	p.applyLibrary(games)
+
+	// Snapshot taken today: every delta is zero, which is why this could never show anything.
+	p.store.SetYearSnapshot(steamYearSnapshot{
+		Year:     time.Now().Year(),
+		Playtime: map[int]int{1: 600, 2: 300},
+		TakenAt:  time.Now().Unix(),
+	})
+	if got := p.playtimeForYear(); len(got.Minutes) != 0 || got.FromSteam {
+		t.Fatalf("expected no figures from a same-day snapshot, got %+v", got)
+	}
+
+	p.store.SetYearReview(steamYearReview{
+		Year:      time.Now().Year() - 1,
+		Playtime:  map[int]int{1: 240, 2: 60},
+		FetchedAt: time.Now().Unix(),
+	})
+
+	got := p.playtimeForYear()
+	if !got.FromSteam {
+		t.Fatalf("Steam's published figures should win over the snapshot")
+	}
+	if got.Year != time.Now().Year()-1 {
+		t.Fatalf("year should follow the published data, got %d", got.Year)
+	}
+	if got.Minutes[1] != 240 || got.Minutes[2] != 60 {
+		t.Fatalf("unexpected minutes: %v", got.Minutes)
+	}
+}
+
+// Games hidden or no longer owned must not appear in the year figures.
+func TestSteamYearReviewExcludesHiddenAndUnowned(t *testing.T) {
+	p := newTestSteamPlugin(t, map[string]interface{}{
+		"steamid":     "123",
+		"hiddenGames": []interface{}{float64(2)},
+	})
+	games := []SteamGame{{AppID: 1, PlaytimeAll: 600}, {AppID: 2, PlaytimeAll: 300}}
+	p.store.SetGames(games)
+	p.applyLibrary(games)
+
+	p.store.SetYearReview(steamYearReview{
+		Year:      2025,
+		Playtime:  map[int]int{1: 240, 2: 60, 999: 120}, // 2 is hidden, 999 is not owned
+		FetchedAt: time.Now().Unix(),
+	})
+
+	got := p.playtimeForYear()
+	if len(got.Minutes) != 1 || got.Minutes[1] != 240 {
+		t.Fatalf("expected only the visible owned game, got %v", got.Minutes)
 	}
 }

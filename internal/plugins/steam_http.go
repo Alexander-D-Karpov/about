@@ -105,7 +105,8 @@ func (p *SteamPlugin) HandleGamesAPI(w http.ResponseWriter, r *http.Request) {
 
 	games := p.snapshotGames()
 	firstSeen := p.store.FirstSeenAll()
-	yearly, snapshotAt := p.playtimeThisYear()
+	year := p.playtimeForYear()
+	yearly := year.Minutes
 	ach := p.store.AllAchievements()
 	headers := p.store.AppHeaders()
 
@@ -185,7 +186,7 @@ func (p *SteamPlugin) HandleGamesAPI(w http.ResponseWriter, r *http.Request) {
 		"games":   out,
 	}
 	if offset == 0 {
-		resp["stats"] = p.libraryStats(games, yearly, snapshotAt, firstSeen, ach)
+		resp["stats"] = p.libraryStats(games, year, firstSeen, ach)
 	}
 
 	json.NewEncoder(w).Encode(resp)
@@ -206,7 +207,8 @@ func steamAchPercent(g SteamGame, ach map[int]steamAchEntry) float64 {
 }
 
 // libraryStats builds the header summary for the page.
-func (p *SteamPlugin) libraryStats(games []SteamGame, yearly map[int]int, snapshotAt time.Time, firstSeen map[int]int64, ach map[int]steamAchEntry) map[string]interface{} {
+func (p *SteamPlugin) libraryStats(games []SteamGame, year steamYearPlaytime, firstSeen map[int]int64, ach map[int]steamAchEntry) map[string]interface{} {
+	yearly := year.Minutes
 	var totalMinutes, played int
 	for _, g := range games {
 		totalMinutes += g.PlaytimeAll
@@ -260,8 +262,8 @@ func (p *SteamPlugin) libraryStats(games []SteamGame, yearly map[int]int, snapsh
 	}
 
 	snapshotUnix := int64(0)
-	if !snapshotAt.IsZero() {
-		snapshotUnix = snapshotAt.Unix()
+	if !year.TrackedSince.IsZero() {
+		snapshotUnix = year.TrackedSince.Unix()
 	}
 
 	return map[string]interface{}{
@@ -276,7 +278,8 @@ func (p *SteamPlugin) libraryStats(games []SteamGame, yearly map[int]int, snapsh
 		"pendingEnrichment":    p.store.PendingCount(),
 		"topThisYear":          topYear,
 		"yearSnapshotAt":       snapshotUnix,
-		"year":                 time.Now().Year(),
+		"year":                 year.Year,
+		"yearFromSteam":        year.FromSteam,
 		"current":              current,
 	}
 }

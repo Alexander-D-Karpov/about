@@ -272,6 +272,9 @@ func (p *SteamPlugin) syncCycle(ctx context.Context) {
 
 	p.refreshLive(ctx, steamID)
 
+	// Cheap and TTL-guarded, so it runs on the normal cycle rather than only on the daily sync.
+	p.refreshYearReview(ctx, steamID)
+
 	if time.Since(p.store.LastFullSync()) >= steamFullSyncInterval {
 		p.fullSync(ctx, steamID)
 	}
@@ -527,12 +530,43 @@ func (p *SteamPlugin) captureYearSnapshot(games []SteamGame) {
 	log.Printf("[Steam] year snapshot captured for %d (games=%d)", year, len(playtime))
 }
 
-// playtimeThisYear returns minutes played this year per appid, plus the snapshot date.
-func (p *SteamPlugin) playtimeThisYear() (map[int]int, time.Time) {
+// steamYearPlaytime is per-game playtime for a year, and where the figures came from.
+type steamYearPlaytime struct {
+	Minutes map[int]int
+	Year    int
+	// FromSteam is true for Steam's own published figures, false for our own tracking.
+	FromSteam bool
+	// TrackedSince is only meaningful for our own tracking.
+	TrackedSince time.Time
+}
+
+// playtimeForYear prefers Steam's published year in review, which is the only real source of
+// per-year playtime. Steam only publishes a year once it has ended, so until then this falls back
+// to the difference from our own new-year snapshot.
+func (p *SteamPlugin) playtimeForYear() steamYearPlaytime {
+	if review := p.store.YearReview(); review.Year > 0 && len(review.Playtime) > 0 {
+		hidden := p.hiddenSet()
+		owned := make(map[int]bool)
+		for _, g := range p.snapshotGames() {
+			owned[g.AppID] = true
+		}
+
+		out := make(map[int]int, len(review.Playtime))
+		for appID, mins := range review.Playtime {
+			if hidden[appID] || !owned[appID] || mins <= 0 {
+				continue
+			}
+			out[appID] = mins
+		}
+		if len(out) > 0 {
+			return steamYearPlaytime{Minutes: out, Year: review.Year, FromSteam: true}
+		}
+	}
+
 	snap := p.store.YearSnapshot()
 	out := make(map[int]int, len(snap.Playtime))
 	if snap.Year != time.Now().Year() {
-		return out, time.Unix(snap.TakenAt, 0)
+		return steamYearPlaytime{Minutes: out, Year: time.Now().Year(), TrackedSince: time.Unix(snap.TakenAt, 0)}
 	}
 	for _, g := range p.snapshotGames() {
 		base, ok := snap.Playtime[g.AppID]
@@ -544,7 +578,7 @@ func (p *SteamPlugin) playtimeThisYear() (map[int]int, time.Time) {
 			out[g.AppID] = delta
 		}
 	}
-	return out, time.Unix(snap.TakenAt, 0)
+	return steamYearPlaytime{Minutes: out, Year: snap.Year, TrackedSince: time.Unix(snap.TakenAt, 0)}
 }
 
 // queueEnrichment refills the resumable achievement queue with games that have stats and no fresh
