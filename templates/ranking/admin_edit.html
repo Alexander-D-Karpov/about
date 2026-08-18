@@ -287,6 +287,8 @@
             align-content: flex-start;
             min-height: 80px;
             transition: background 0.15s;
+            /* anchor for the absolutely-positioned drop indicator */
+            position: relative;
         }
 
         .tier-entries.drag-over {
@@ -350,6 +352,11 @@
             user-select: none;
             transition: transform 0.1s, opacity 0.1s;
             border: 2px solid transparent;
+            /* Skip painting and image decoding for cards scrolled out of view.
+               Every card has an explicit width/height, so its box is laid out
+               identically either way and nothing shifts (no contain-intrinsic-size
+               needed -- the fixed size already governs). */
+            content-visibility: auto;
         }
 
         .entry-card img {
@@ -573,6 +580,8 @@
             border-radius: 6px;
             min-height: 90px;
             transition: background 0.15s, border-color 0.15s;
+            /* anchor for the absolutely-positioned drop indicator */
+            position: relative;
         }
 
         .unsorted-entries.drag-over {
@@ -806,15 +815,20 @@
             border: 1px solid #4a2a2a;
         }
 
+        /* Positioned absolutely and moved with a transform so that showing or
+           moving it during a drag never reflows the cards. That keeps the card
+           geometry cached at dragstart valid for the whole drag. */
         .drop-indicator {
+            position: absolute;
+            top: 0;
+            left: 0;
             width: 3px;
             height: 75px;
-            align-self: stretch;
             background: #6a9fff;
             border-radius: 2px;
-            flex-shrink: 0;
             pointer-events: none;
-            transition: opacity 0.1s;
+            z-index: 5;
+            will-change: transform;
         }
 
         .upload-progress {
@@ -1241,53 +1255,176 @@
         setTimeout(() => t.classList.remove("show"), 3000);
     }
 
-    function getInsertIndex(cards, x, y) {
-        for (let i = 0; i < cards.length; i++) {
-            const rect = cards[i].getBoundingClientRect();
-            if (y < rect.top) return i;
-            if (y < rect.bottom) {
-                if (x < rect.left + rect.width / 2) return i;
-            }
+    /* ---------------------------------------------------------------------
+       Drag hot path.
+
+       dragover fires on every pointer move, so it must not read layout. The
+       old handler queried the whole document, inserted an element, then read
+       getBoundingClientRect() on every card in the zone -- a mutate/measure
+       cycle that forced a synchronous relayout per event. At 2k entries that
+       was ~15ms per event, eating the entire frame budget.
+
+       Now: the event handler only records coordinates and requests a frame.
+       Card geometry is measured once per zone per drag (in one batched read
+       pass, no interleaved writes) and reused, which is valid because the
+       indicator is positioned absolutely and never reflows the cards.
+       --------------------------------------------------------------------- */
+
+    let dropIndicator = null;
+    let dragCtx = null;
+
+    function getIndicator() {
+        if (!dropIndicator) {
+            dropIndicator = document.createElement("div");
+            dropIndicator.className = "drop-indicator";
         }
-        return cards.length;
+        return dropIndicator;
     }
 
     function clearIndicators() {
-        document.querySelectorAll(".drop-indicator").forEach(el => el.remove());
+        if (dropIndicator && dropIndicator.parentNode) dropIndicator.remove();
+    }
+
+    function newDragCtx() {
+        return {zones: new Map(), hoverZone: null, zone: null, x: 0, y: 0, lastIdx: -1, raf: 0};
+    }
+
+    function endDrag() {
+        if (dragCtx) {
+            if (dragCtx.raf) cancelAnimationFrame(dragCtx.raf);
+            if (dragCtx.hoverZone) dragCtx.hoverZone.classList.remove("drag-over");
+        }
+        dragCtx = null;
+        clearIndicators();
+    }
+
+    // One batched measure pass per zone per drag. Offsets are relative to the
+    // zone's padding box (the containing block of the absolute indicator), so
+    // they stay correct while the page scrolls.
+    function zoneGeometry(zone) {
+        let g = dragCtx.zones.get(zone);
+        if (g) return g;
+        const zr = zone.getBoundingClientRect();
+        const ox = zr.left + zone.clientLeft;
+        const oy = zr.top + zone.clientTop;
+        const cards = [], boxes = [];
+        for (const el of zone.children) {
+            if (el === dropIndicator) continue;
+            if (!el.classList.contains("entry-card")) continue;
+            if (el.classList.contains("dragging")) continue;
+            const r = el.getBoundingClientRect();
+            cards.push(el);
+            boxes.push({
+                left: r.left - ox, right: r.right - ox,
+                top: r.top - oy, bottom: r.bottom - oy, h: r.height
+            });
+        }
+        g = {cards, boxes};
+        dragCtx.zones.set(zone, g);
+        return g;
+    }
+
+    // Same placement rule as before, but over cached numbers -- no layout.
+    function insertIndexFromCache(boxes, x, y) {
+        for (let i = 0; i < boxes.length; i++) {
+            const b = boxes[i];
+            if (y < b.top) return i;
+            if (y < b.bottom) {
+                if (x < b.left + (b.right - b.left) / 2) return i;
+            }
+        }
+        return boxes.length;
+    }
+
+    function placeIndicator(zone, boxes, idx) {
+        const ind = getIndicator();
+        let x, y, h;
+        if (boxes.length === 0) {
+            x = 0; y = 0; h = 75;
+        } else if (idx < boxes.length) {
+            const b = boxes[idx];
+            x = b.left - 4; y = b.top; h = b.h;
+        } else {
+            const b = boxes[boxes.length - 1];
+            x = b.right + 1; y = b.top; h = b.h;
+        }
+        ind.style.height = h + "px";
+        ind.style.transform = "translate(" + x + "px," + y + "px)";
+        if (ind.parentNode !== zone) zone.appendChild(ind);
+    }
+
+    function updateDropIndicator() {
+        if (!dragCtx) return;
+        dragCtx.raf = 0;
+        const zone = dragCtx.zone;
+        if (!zone) return;
+        const g = zoneGeometry(zone);
+        const zr = zone.getBoundingClientRect();
+        const x = dragCtx.x - (zr.left + zone.clientLeft);
+        const y = dragCtx.y - (zr.top + zone.clientTop);
+        const idx = insertIndexFromCache(g.boxes, x, y);
+        if (idx !== dragCtx.lastIdx || !dropIndicator || dropIndicator.parentNode !== zone) {
+            dragCtx.lastIdx = idx;
+            placeIndicator(zone, g.boxes, idx);
+        }
+    }
+
+    function dropIndexFor(zone, clientX, clientY) {
+        if (dragCtx && dragCtx.zone === zone && dragCtx.lastIdx >= 0) return dragCtx.lastIdx;
+        const ctxWasNull = !dragCtx;
+        if (ctxWasNull) dragCtx = newDragCtx();
+        const g = zoneGeometry(zone);
+        const zr = zone.getBoundingClientRect();
+        const idx = insertIndexFromCache(
+            g.boxes, clientX - (zr.left + zone.clientLeft), clientY - (zr.top + zone.clientTop));
+        if (ctxWasNull) dragCtx = null;
+        return idx;
     }
 
     function setupDropZone(zone, tierId) {
         zone.addEventListener("dragover", e => {
             e.preventDefault();
             e.dataTransfer.dropEffect = "move";
-            zone.classList.add("drag-over");
-            const cards = Array.from(zone.querySelectorAll(".entry-card:not(.dragging)"));
-            clearIndicators();
-            const idx = getInsertIndex(cards, e.clientX, e.clientY);
-            const indicator = document.createElement("div");
-            indicator.className = "drop-indicator";
-            if (idx < cards.length) cards[idx].before(indicator);
-            else zone.appendChild(indicator);
+            if (!dragCtx) dragCtx = newDragCtx();
+            if (zone !== dragCtx.hoverZone) {
+                if (dragCtx.hoverZone) dragCtx.hoverZone.classList.remove("drag-over");
+                zone.classList.add("drag-over");
+                dragCtx.hoverZone = zone;
+                dragCtx.lastIdx = -1;
+            }
+            dragCtx.zone = zone;
+            dragCtx.x = e.clientX;
+            dragCtx.y = e.clientY;
+            if (!dragCtx.raf) dragCtx.raf = requestAnimationFrame(updateDropIndicator);
         });
 
         zone.addEventListener("dragleave", e => {
             if (!zone.contains(e.relatedTarget)) {
                 zone.classList.remove("drag-over");
                 clearIndicators();
+                if (dragCtx) {
+                    if (dragCtx.hoverZone === zone) dragCtx.hoverZone = null;
+                    if (dragCtx.zone === zone) dragCtx.zone = null;
+                    dragCtx.lastIdx = -1;
+                }
             }
         });
 
         zone.addEventListener("drop", e => {
             e.preventDefault();
-            zone.classList.remove("drag-over");
-            clearIndicators();
             const types = Array.from(e.dataTransfer.types);
 
             if (types.includes("text/entry-id")) {
                 const entryId = parseInt(e.dataTransfer.getData("text/entry-id"));
-                moveEntry(entryId, tierId, zone, e);
+                const idx = dropIndexFor(zone, e.clientX, e.clientY);
+                zone.classList.remove("drag-over");
+                endDrag();
+                moveEntry(entryId, tierId, zone, idx);
                 return;
             }
+
+            zone.classList.remove("drag-over");
+            endDrag();
 
             uploadedURLs.clear();
             if (e.dataTransfer.files.length > 0) {
@@ -1314,9 +1451,33 @@
         });
     }
 
+    // Card elements are expensive to build (each is ~25 nodes with inline SVG
+    // icons and six listeners), so they are cached by entry id and reused
+    // across renders. Anything that changes an entry's name or image must call
+    // invalidateCard() so the node is rebuilt.
+    const cardById = new Map();
+    const staleCards = new Set();
+    const zoneByTierId = new Map();
+    const countBadgeByTierId = new Map();
+
+    function getCard(entry) {
+        let card = cardById.get(entry.id);
+        if (card && !staleCards.has(entry.id)) return card;
+        card = createEntryCard(entry);
+        cardById.set(entry.id, card);
+        staleCards.delete(entry.id);
+        return card;
+    }
+
+    function invalidateCard(entryId) {
+        staleCards.add(entryId);
+    }
+
     function render() {
         const board = document.getElementById("tier-board");
         board.innerHTML = "";
+        zoneByTierId.clear();
+        countBadgeByTierId.clear();
         tiers.sort((a, b) => a.position - b.position);
 
         tiers.forEach((tier, idx) => {
@@ -1345,13 +1506,15 @@
             countBadge.className = "tier-entry-count";
             countBadge.textContent = tierEntries.length;
             label.appendChild(countBadge);
+            countBadgeByTierId.set(tier.id, countBadge);
 
             const zone = document.createElement("div");
             zone.className = "tier-entries";
             zone.dataset.tierId = tier.id;
             setupDropZone(zone, tier.id);
+            zoneByTierId.set(tier.id, zone);
 
-            tierEntries.sort((a, b) => a.position - b.position).forEach(e => zone.appendChild(createEntryCard(e)));
+            tierEntries.sort((a, b) => a.position - b.position).forEach(e => zone.appendChild(getCard(e)));
 
             const controls = document.createElement("div");
             controls.className = "tier-controls";
@@ -1396,8 +1559,19 @@
         const unsorted = document.getElementById("unsorted-zone");
         unsorted.innerHTML = "";
         entries.filter(e => !e.tier_id).sort((a, b) => a.position - b.position).forEach(e => {
-            unsorted.appendChild(createEntryCard(e));
+            unsorted.appendChild(getCard(e));
         });
+
+        // Drop cached nodes for entries that no longer exist.
+        if (cardById.size > entries.length) {
+            const live = new Set(entries.map(e => e.id));
+            cardById.forEach((_, id) => {
+                if (!live.has(id)) {
+                    cardById.delete(id);
+                    staleCards.delete(id);
+                }
+            });
+        }
 
         updateEntryCount();
     }
@@ -1484,10 +1658,11 @@
             e.dataTransfer.setData("text/entry-id", String(entry.id));
             e.dataTransfer.effectAllowed = "move";
             card.classList.add("dragging");
+            endDrag();
         });
         card.addEventListener("dragend", () => {
             card.classList.remove("dragging");
-            clearIndicators();
+            endDrag();
         });
 
         return card;
@@ -1539,12 +1714,27 @@
     function assignEntryToTier(entryId, tierId) {
         const entry = entries.find(e => e.id === entryId);
         if (!entry) return;
+        const oldTierId = entry.tier_id;
+        if (oldTierId === tierId) return;
         entry.tier_id = tierId;
-        const targetEntries = entries.filter(e => e.tier_id === tierId);
-        entry.position = targetEntries.length;
+
+        const targetEntries = entries.filter(e => e.tier_id === tierId && e.id !== entryId).sort((a, b) => a.position - b.position);
+        targetEntries.push(entry);
+        targetEntries.forEach((e, i) => e.position = i);
+
+        entries.filter(e => e.tier_id === oldTierId && e.id !== entryId)
+            .sort((a, b) => a.position - b.position)
+            .forEach((e, i) => e.position = i);
+
+        placeCard(entry, zoneForTier(tierId), targetEntries, targetEntries.length - 1);
+        refreshCounts(oldTierId, tierId);
         markDirty();
-        render();
         broadcastState();
+    }
+
+    function zoneForTier(tierId) {
+        if (tierId === null || tierId === undefined) return document.getElementById("unsorted-zone");
+        return zoneByTierId.get(tierId) || null;
     }
 
     document.addEventListener("click", (e) => {
@@ -1582,15 +1772,17 @@
         document.body.style.overflow = "";
     }
 
-    function moveEntry(entryId, tierId, zone, event) {
+    // Placing one entry only ever changes one card's position and two counts.
+    // Rebuilding the whole board here cost ~340ms at 2k entries; moving the
+    // existing node is O(1).
+    function moveEntry(entryId, tierId, zone, insertIndex) {
         const entry = entries.find(e => e.id === entryId);
         if (!entry) return;
         const oldTierId = entry.tier_id;
         entry.tier_id = tierId;
 
-        const cards = Array.from(zone.querySelectorAll(".entry-card:not(.dragging)"));
-        const insertIndex = getInsertIndex(cards, event.clientX, event.clientY);
         const targetEntries = entries.filter(e => e.tier_id === tierId && e.id !== entryId).sort((a, b) => a.position - b.position);
+        if (!(insertIndex >= 0) || insertIndex > targetEntries.length) insertIndex = targetEntries.length;
         targetEntries.splice(insertIndex, 0, entry);
         targetEntries.forEach((e, i) => e.position = i);
 
@@ -1599,9 +1791,35 @@
             sourceEntries.forEach((e, i) => e.position = i);
         }
 
+        placeCard(entry, zone, targetEntries, insertIndex);
+        refreshCounts(oldTierId, tierId);
         markDirty();
-        render();
         broadcastState();
+    }
+
+    // Move the entry's existing card element into `zone` at `insertIndex`.
+    // targetEntries is the target list *including* the moved entry.
+    function placeCard(entry, zone, targetEntries, insertIndex) {
+        const card = cardById.get(entry.id);
+        if (!card || !zone) {
+            scheduleRender();
+            return;
+        }
+        const after = targetEntries[insertIndex + 1];
+        const ref = after ? cardById.get(after.id) : null;
+        if (ref && ref.parentNode === zone) zone.insertBefore(card, ref);
+        else zone.appendChild(card);
+    }
+
+    function refreshCounts() {
+        updateEntryCount();
+        const seen = new Set();
+        for (const tid of arguments) {
+            if (tid === null || tid === undefined || seen.has(tid)) continue;
+            seen.add(tid);
+            const badge = countBadgeByTierId.get(tid);
+            if (badge) badge.textContent = entries.reduce((n, e) => n + (e.tier_id === tid ? 1 : 0), 0);
+        }
     }
 
     function extractImageURL(dt) {
@@ -1946,6 +2164,7 @@
         const entry = entries.find(e => e.id === editingEntryId);
         if (entry) {
             entry.name = document.getElementById("edit-name").value;
+            invalidateCard(entry.id);
             markDirty();
             render();
             broadcastState();
