@@ -13,7 +13,10 @@
   --edge:rgba(255,255,255,.07);
   --mono:ui-monospace,"JetBrains Mono","SF Mono",SFMono-Regular,Menlo,Consolas,monospace;
   --sans:system-ui,-apple-system,"Segoe UI",Inter,Roboto,Helvetica,Arial,sans-serif;
+  --tip-bg:#0c0d10; --badge-hover:#22262e;
+  --shadow:0 8px 22px rgba(0,0,0,.6);
 }
+
 *{box-sizing:border-box}
 html,body{margin:0;padding:0}
 body{background:var(--bg);color:var(--fg);font-family:var(--sans);font-size:15px;line-height:1.5;-webkit-font-smoothing:antialiased}
@@ -98,12 +101,12 @@ select.sort:focus{outline:2px solid var(--steam-dim)}
 
 /* hovering a badge reveals the tooltip; the badge itself does not resize */
 .rare-i{position:relative;transition:background .12s ease;cursor:default}
-.rare-i:hover{background:#22262e;z-index:5}
+.rare-i:hover{background:var(--badge-hover);z-index:5}
 .tip{
   position:absolute;bottom:calc(100% + 8px);left:50%;transform:translateX(-50%) translateY(4px);
   display:flex;gap:12px;align-items:flex-start;
   width:max-content;max-width:360px;padding:11px 13px;border-radius:6px;
-  background:#0c0d10;border:1px solid var(--edge);box-shadow:0 8px 22px rgba(0,0,0,.6);
+  background:var(--tip-bg);border:1px solid var(--edge);box-shadow:var(--shadow);
   opacity:0;visibility:hidden;transition:opacity .12s ease,transform .12s ease;
   pointer-events:none;z-index:40;text-align:left;white-space:normal;
 }
@@ -144,6 +147,25 @@ select.sort:focus{outline:2px solid var(--steam-dim)}
   .stat{flex:1 1 50%}
   .cols{gap:18px}
 }
+/* Light theme, matching the palette the rest of the site uses. Steam's own blue is too pale on
+   white, so the accent shifts to the site's link blue and the rarity colours darken enough to
+   stay readable. */
+@media (prefers-color-scheme:light){
+  :root{
+    --bg:#f8f9fa; --panel:#ffffff; --panel-2:#f0f1f3; --row:#ffffff; --row-hover:#f0f1f3;
+    --fg:#1a1f26; --fg-2:#4a5568; --fg-3:#718096;
+    --steam:#2563eb; --steam-dim:#2563eb; --green:#16a34a; --gold:#b45309; --purple:#7c3aed;
+    --edge:rgba(0,0,0,.10);
+    --tip-bg:#ffffff; --badge-hover:#e6e9ee;
+    --shadow:0 6px 20px rgba(0,0,0,.14);
+  }
+  /* panels sit on a tinted page, so they need an outline to read as surfaces */
+  .stats,.row,.now{border:1px solid var(--edge)}
+  .chip[aria-pressed="true"]{color:#fff}
+  .art,.rare-i>img,.rare-i>.ph,.tip-img,.tip>.ph{background:var(--panel-2)}
+  .rare-i{background:var(--panel-2);border:1px solid var(--edge)}
+}
+
 @media (prefers-reduced-motion:reduce){*{animation-duration:.01ms !important;transition-duration:.01ms !important}}
 </style>
 </head>
