@@ -5,6 +5,12 @@ on:
     branches: [ master, dev ]
   pull_request:
     branches: [ master, dev ]
+  workflow_dispatch:
+    inputs:
+      skip_vuln:
+        description: 'Skip the govulncheck job'
+        type: boolean
+        default: false
 
 jobs:
   test:
@@ -85,6 +91,16 @@ jobs:
 
   vulnerability-check:
     runs-on: ubuntu-latest
+    # Escape hatches, for when a freshly published advisory blocks an urgent
+    # merge and the upstream fix is not out yet. Any one of:
+    #   - put [skip vuln] in the commit message (push builds)
+    #   - set repository variable SKIP_VULN_CHECK=true (blanket, until unset)
+    #   - run the workflow manually with skip_vuln checked
+    # Nothing here suppresses a real finding silently: the job shows as skipped.
+    if: >-
+      !contains(github.event.head_commit.message, '[skip vuln]')
+      && vars.SKIP_VULN_CHECK != 'true'
+      && inputs.skip_vuln != true
     steps:
       - uses: actions/checkout@v4
 
