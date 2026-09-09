@@ -47,6 +47,48 @@
     letter-spacing: .5px;
 }
 
+/* Map-focus mode: reached via the #bike hash (e.g. /?ride=...#bike) or by
+   going fullscreen. The map gets most of the viewport because at 300px a
+   25-ride overview is unreadable, and one-finger panning is enabled (see
+   .bike-map-container.is-focus below).
+
+   Capped at 62vh rather than filling the screen so the selected ride's name
+   and stats stay visible underneath without scrolling. */
+.bike-section.bike-focus .bike-map-container {
+    height: min(62vh, 760px);
+}
+
+.bike-section.bike-focus .bike-rides-list {
+    max-height: 32vh;
+}
+
+/* Inside the expanded overlay the panel is capped at 92vh and still has to fit
+   its title bar, stats row, profile chart and ride list. A 62vh map overflowed
+   that, so the panel scrolled and pushed its own window chrome off screen. */
+.bike-section.bike-focus.plugin--expanded .bike-map-container {
+    height: min(45vh, 480px);
+}
+
+.bike-section.bike-focus.plugin--expanded .bike-rides-list {
+    max-height: 22vh;
+}
+
+@media (max-width: 780px) {
+    .bike-section.bike-focus .bike-map-container {
+        height: min(56vh, 560px);
+    }
+
+    .bike-section.bike-focus.plugin--expanded .bike-map-container {
+        height: min(46vh, 420px);
+    }
+}
+
+/* When panning is handed to the map, the browser must stop treating the
+   gesture as a page scroll - otherwise a drag does nothing on touch. */
+.bike-map-container.is-focus {
+    touch-action: none;
+}
+
 .bike-map-container {
     position: relative;
     width: 100%;

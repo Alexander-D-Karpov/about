@@ -97,13 +97,31 @@
         });
         host.appendChild(st.fullscreenBtn);
 
+        const bikeSection = function () { return document.querySelector('.bike-section'); };
+
+        // Focus mode follows the ACTUAL state - fullscreen, or the plugin being
+        // open in the expanded overlay - not the URL hash.
+        //
+        // windowManager.expandPlugin() pushes "#bike" into the URL when it
+        // opens the overlay, and that hash is still there after you close it.
+        // Deriving focus from the hash therefore left the map at its big size
+        // with one-finger panning still stealing the scroll gesture after
+        // exiting. The classList is authoritative; the hash is only a trigger.
+        const focusActive = function () {
+            if (document.fullscreenElement === fullscreenTarget) return true;
+            const sec = bikeSection();
+            return !!(sec && sec.classList.contains('plugin--expanded'));
+        };
+
+        const syncFocus = function () { NS.setMapFocus(focusActive()); };
+
         document.addEventListener('fullscreenchange', function () {
             NS.syncFullscreenState(fullscreenTarget);
+            syncFocus();
+
             setTimeout(function () {
                 if (!NS.state.map) return;
-                try {
-                    NS.state.map.invalidateSize({ pan: false, animate: false });
-                } catch (e) {}
+                NS.forceInvalidateMapSize();
                 if (NS.state.speedMode) {
                     NS.state.speedLayerKey = null;
                     NS.applyMapMode();
@@ -111,12 +129,51 @@
                 if (NS.state.autoView && NS.state.selectedRideIndex == null) NS.fitAllRides(false);
             }, 120);
         });
+
+        // The overlay is opened/closed by windowManager, which only toggles a
+        // class - there is no event to listen for, so watch the attribute.
+        const sec = bikeSection();
+        if (sec && typeof MutationObserver !== 'undefined') {
+            const mo = new MutationObserver(syncFocus);
+            mo.observe(sec, { attributes: true, attributeFilter: ['class'] });
+            NS.state.focusObserver = mo;
+        }
+
+        // #bike deep link (e.g. /?ride=2026-08-29-...#bike) still scrolls the
+        // section into view on load; expansion itself is windowManager's job.
+        window.addEventListener('hashchange', syncFocus);
+        window.addEventListener('popstate', syncFocus);
+
+        if (NS.isBikeHash()) {
+            const s = bikeSection();
+            if (s && s.scrollIntoView) s.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+        syncFocus();
     };
 
     NS.setupMapResizeHandling = function (targetEl) {
         if (!targetEl) return function () {};
 
-        const refresh = function () {
+        // This used to run refresh() straight off window resize,
+        // orientationchange, visibilitychange AND a ResizeObserver, with no
+        // debounce. refresh() rebuilds the speed layers and re-renders the
+        // elevation chart, so on mobile - where scrolling collapses the URL bar
+        // and fires resize continuously - the map spent whole seconds
+        // relaying out instead of scrolling.
+        //
+        // Now every source funnels into one rAF-coalesced refresh that returns
+        // immediately unless the container actually changed size.
+        let pending = null;
+        let lastW = -1;
+        let lastH = -1;
+
+        const doRefresh = function (force) {
+            const w = targetEl.clientWidth;
+            const h = targetEl.clientHeight;
+            if (!force && w === lastW && h === lastH) return;
+            lastW = w;
+            lastH = h;
+
             NS.invalidateMapSize();
             if (NS.state.speedMode && NS.speedWeight() !== NS.state.speedLayerWeight) {
                 NS.state.speedLayerKey = null;
@@ -125,23 +182,32 @@
             if (NS.state.chart) NS.renderChart();
         };
 
-        const onWindowResize = function () { refresh(); };
-        const onOrientationChange = function () { refresh(); };
-        const onVisibilityChange = function () { if (!document.hidden) refresh(); };
+        const refresh = function (force) {
+            if (pending) cancelAnimationFrame(pending);
+            pending = requestAnimationFrame(function () {
+                pending = null;
+                doRefresh(force);
+            });
+        };
 
-        window.addEventListener('resize', onWindowResize);
-        window.addEventListener('orientationchange', onOrientationChange);
+        const onWindowResize = function () { refresh(false); };
+        const onOrientationChange = function () { refresh(true); };
+        const onVisibilityChange = function () { if (!document.hidden) refresh(true); };
+
+        window.addEventListener('resize', onWindowResize, { passive: true });
+        window.addEventListener('orientationchange', onOrientationChange, { passive: true });
         document.addEventListener('visibilitychange', onVisibilityChange);
 
         let resizeObserver = null;
         if (typeof ResizeObserver !== 'undefined') {
-            resizeObserver = new ResizeObserver(function () { refresh(); });
+            resizeObserver = new ResizeObserver(function () { refresh(false); });
             resizeObserver.observe(targetEl);
         }
 
-        refresh();
+        doRefresh(true);
 
         return function () {
+            if (pending) cancelAnimationFrame(pending);
             window.removeEventListener('resize', onWindowResize);
             window.removeEventListener('orientationchange', onOrientationChange);
             document.removeEventListener('visibilitychange', onVisibilityChange);

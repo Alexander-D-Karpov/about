@@ -22,6 +22,140 @@
         return 20;
     }
 
+    // Below this zoom the direction arrows are unreadable clutter, and with ~25
+    // rides there are a couple of hundred of them - each a DOM marker that
+    // Leaflet has to keep positioned. Drop them from the map when zoomed out.
+    const ARROW_MIN_ZOOM = 10;
+
+    // Ceiling on markers per ride so a long route zoomed right in cannot spawn
+    // thousands of DOM nodes.
+    const MAX_ARROWS_PER_RIDE = 140;
+
+    let lastArrowSize = -1;
+
+    // Spacing between arrows, in km. getArrowInterval() gives the baseline for
+    // the ride's length; this then tightens it as you zoom in, and again when
+    // the ride is the focused one, so a route you are actually looking at shows
+    // its direction densely instead of a handful of arrows over 250km.
+    function arrowIntervalKm(distKm, zoom, focused) {
+        const base = getArrowInterval(distKm || 0);
+        const z = NS.num(zoom) ? zoom : 11;
+
+        // Every ~1.5 zoom levels above ARROW_MIN_ZOOM doubles the density,
+        // capped at 8x so it levels off rather than growing without bound.
+        const steps = Math.max(0, Math.min(3, (z - ARROW_MIN_ZOOM) / 1.5));
+        let iv = base / Math.pow(2, steps);
+
+        if (focused) iv /= 2;
+
+        const floor = distKm > 0 ? distKm / MAX_ARROWS_PER_RIDE : 0.2;
+        return Math.max(0.2, floor, iv);
+    }
+
+    // Rebuilding is only worth it when the spacing actually changed, so bucket
+    // the interval and compare - zoomend fires for every wheel notch.
+    function arrowLayoutKey() {
+        const st = NS.state;
+        if (!NS.mapReady()) return 'none';
+        let zoom;
+        try {
+            zoom = st.map.getZoom();
+        } catch (e) {
+            return 'none';
+        }
+        const activeIdx = NS.activeRideIndex();
+        const parts = [activeIdx == null ? 'all' : 'ride' + activeIdx];
+        st.rides.forEach(function (ride, i) {
+            if (activeIdx != null && i !== activeIdx) return;
+            if (st.hiddenRides.has(i)) return;
+            const iv = arrowIntervalKm(ride.distance_km || 0, zoom, i === activeIdx);
+            parts.push(i + ':' + iv.toFixed(2));
+        });
+        return parts.join('|');
+    }
+
+    // Re-place the arrow markers for whichever rides are currently drawn.
+    // Only the focused ride (or, in overview, the visible ones) is rebuilt.
+    NS.rebuildArrows = function () {
+        const st = NS.state;
+        if (!NS.mapReady() || !st.profiles) return;
+
+        const key = arrowLayoutKey();
+        if (key === st.arrowLayoutKey) return;
+        st.arrowLayoutKey = key;
+
+        let zoom;
+        try {
+            zoom = st.map.getZoom();
+        } catch (e) {
+            return;
+        }
+
+        (st.arrowMarkers || []).forEach(function (m) { NS.removeLayerSafe(m); });
+        st.arrowMarkers = [];
+
+        const activeIdx = NS.activeRideIndex();
+        const size = getArrowSize(zoom);
+        lastArrowSize = size;
+
+        st.rides.forEach(function (ride, i) {
+            if (st.hiddenRides.has(i)) return;
+            if (activeIdx != null && i !== activeIdx) return;
+
+            const prof = st.profiles[i];
+            if (!prof || !prof.points || prof.points.length < 2) return;
+
+            const latlngs = prof.points.map(p => [p.lat, p.lng]);
+            const iv = arrowIntervalKm(ride.distance_km || 0, zoom, i === activeIdx);
+            const arrows = placeArrows(latlngs, NS.COLORS[i % NS.COLORS.length], iv, size);
+            arrows.forEach(function (m) {
+                m._bikeIndex = i;
+                st.arrowMarkers.push(m);
+            });
+        });
+
+        NS.syncArrowVisibility();
+    };
+
+    // Single source of truth for "should this arrow be on the map". Everything
+    // that used to decide independently (applyMapMode, syncRideHighlight, the
+    // zoom handler) now goes through here, so they can't disagree and leave
+    // another ride's arrows behind.
+    function arrowShouldShow(m) {
+        const st = NS.state;
+        if (st.speedMode) return false;
+        if (st.hiddenRides.has(m._bikeIndex)) return false;
+
+        const activeIdx = NS.activeRideIndex();
+        if (activeIdx != null) {
+            // One ride focused: that's ~20 markers, cheap enough to always
+            // draw. Fitting a long ride lands around z9, so applying the
+            // zoom gate here would leave the focused route with no direction
+            // arrows at all.
+            return m._bikeIndex === activeIdx;
+        }
+
+        // Overview of every ride: gate on zoom, where the couple of hundred
+        // markers both cost the most and read as noise.
+        if (!NS.mapReady()) return false;
+        let zoom;
+        try {
+            zoom = st.map.getZoom();
+        } catch (e) {
+            return false;
+        }
+        return NS.num(zoom) ? zoom >= ARROW_MIN_ZOOM : true;
+    }
+
+    NS.syncArrowVisibility = function () {
+        const st = NS.state;
+        if (!st.arrowMarkers || !st.arrowMarkers.length) return;
+        st.arrowMarkers.forEach(function (m) {
+            if (arrowShouldShow(m)) NS.addLayerSafe(m);
+            else NS.removeLayerSafe(m);
+        });
+    };
+
     function updateArrowSizes() {
         if (!NS.mapReady()) return;
         let zoom;
@@ -31,9 +165,21 @@
             return;
         }
         if (!NS.num(zoom)) return;
+
+        // Spacing is zoom-dependent, so a zoom change may need entirely new
+        // markers rather than just resized ones. rebuildArrows() no-ops unless
+        // the computed interval actually changed.
+        NS.rebuildArrows();
+        NS.syncArrowVisibility();
+
+        // setIcon() replaces the marker's DOM node, so only pay for it when the
+        // rendered size actually changed - zoomend fires for every wheel notch.
         const size = getArrowSize(zoom);
+        if (size === lastArrowSize) return;
+        lastArrowSize = size;
+
         NS.state.arrowMarkers.forEach(function (m) {
-            m.setIcon(makeArrowIcon(m._bearing, m._color, size));
+            if (NS.state.map.hasLayer(m)) m.setIcon(makeArrowIcon(m._bearing, m._color, size));
         });
     }
 
@@ -271,13 +417,15 @@
             else styleRide(i, i === activeIdx ? 'active' : 'dim');
         });
 
-        st.arrowMarkers.forEach(function (m) {
-            if (st.hiddenRides.has(m._bikeIndex)) return;
-            const el = m.getElement();
-            if (!el) return;
-            if (activeIdx == null) el.style.opacity = '0.85';
-            else el.style.opacity = m._bikeIndex === activeIdx ? '1' : '0.15';
-        });
+        // Focusing a ride removes the other rides' arrows outright rather than
+        // dimming them. Dimming relied on an inline opacity that setIcon() and
+        // re-adding the marker both wipe, so stale bright arrows from every
+        // other ride stayed on top of the focused route.
+        //
+        // Rebuild rather than just toggle: the focused ride gets a tighter
+        // arrow spacing than it had in the overview.
+        NS.rebuildArrows();
+        NS.syncArrowVisibility();
 
         NS.updateHalo();
 
@@ -328,11 +476,7 @@
             }
         }
 
-        st.arrowMarkers.forEach(function (m) {
-            const want = !st.hiddenRides.has(m._bikeIndex) && !st.speedMode;
-            if (want) NS.addLayerSafe(m);
-            else NS.removeLayerSafe(m);
-        });
+        NS.syncArrowVisibility();
 
         const legend = document.getElementById('bike-speed-legend');
         if (legend) legend.hidden = !st.speedMode;
@@ -439,17 +583,45 @@
         NS.notifyLayout();
     }
 
+    // NS.setupMapResizeHandling already watches this same element and handles
+    // invalidateSize. This observer exists only for the initial auto-fit, so it
+    // is size-gated, rAF-coalesced, and disconnects itself once the fit
+    // retries are exhausted - previously it ran unthrottled alongside the other
+    // observer, doubling the relayout cost of every resize.
     function observeContainerSize(target) {
         if (typeof ResizeObserver === 'undefined') return;
 
+        let pending = null;
+        let lastW = -1;
+        let lastH = -1;
+
         NS.state.sizeObserver = new ResizeObserver(function () {
-            if (!NS.mapReady()) return;
-            try {
-                NS.state.map.invalidateSize({ pan: false, animate: false });
-            } catch (e) {}
-            if (NS.state.autoView && NS.state.selectedRideIndex == null && NS.state.fitRetries > 0) {
+            if (pending) return;
+            pending = requestAnimationFrame(function () {
+                pending = null;
+                if (!NS.mapReady()) return;
+
+                const w = target.clientWidth;
+                const h = target.clientHeight;
+                if (w === lastW && h === lastH) return;
+                lastW = w;
+                lastH = h;
+
+                const wantsFit = NS.state.autoView &&
+                    NS.state.selectedRideIndex == null &&
+                    NS.state.fitRetries > 0;
+
+                if (!wantsFit) {
+                    // Nothing left for this observer to do; the resize handler
+                    // owns invalidateSize from here on.
+                    if (NS.state.sizeObserver) {
+                        NS.state.sizeObserver.disconnect();
+                        NS.state.sizeObserver = null;
+                    }
+                    return;
+                }
                 NS.fitAllRides(false);
-            }
+            });
         });
         NS.state.sizeObserver.observe(target);
     }
@@ -467,9 +639,12 @@
             wheelPxPerZoomLevel: 90
         });
 
-        // On mobile, one-finger drag should scroll the page, not pan the map
-        // (pinch-zoom and the zoom buttons still work).
-        if (L.Browser && L.Browser.mobile) {
+        // Inline on mobile, one-finger drag should scroll the page rather than
+        // pan the map, otherwise the map traps the gesture and the page can't
+        // be scrolled past it. In focus mode (#bike hash or fullscreen) the map
+        // owns the viewport, so panning is handed back - see NS.setMapFocus.
+        st.mapTouchInline = !!(L.Browser && L.Browser.mobile);
+        if (st.mapTouchInline) {
             st.map.dragging.disable();
             if (st.map.tap) st.map.tap.disable();
             container.style.touchAction = 'pan-y';
@@ -559,16 +734,15 @@
             NS.addLayerSafe(line);
             st.plainLines[i] = line;
 
-            const arrows = placeArrows(latlngs, color, getArrowInterval(ride.distance_km || 0), arrowSize);
-            arrows.forEach(function (m) {
-                m._bikeIndex = i;
-                NS.addLayerSafe(m);
-            });
-            st.arrowMarkers.push.apply(st.arrowMarkers, arrows);
+            // Arrows are not created here: NS.rebuildArrows() places them at a
+            // spacing that depends on the current zoom and on which ride is
+            // focused, and re-places them whenever either changes.
 
             const colorEl = document.querySelector('.bike-ride-color[data-ride-color="' + i + '"]');
             if (colorEl) colorEl.style.background = color;
         });
+
+        NS.rebuildArrows();
 
         NS.buildLegend();
         NS.buildMapControls(fullscreenTarget);

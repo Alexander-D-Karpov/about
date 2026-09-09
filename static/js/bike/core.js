@@ -381,17 +381,96 @@
         }
     };
 
-    NS.invalidateMapSize = function () {
+    // invalidateSize() forces Leaflet to re-measure the container and reflow
+    // every pane, which is expensive with many layers. This used to fire it
+    // four times (0/50/150/300ms) on every call, and it is wired to popup
+    // open/close, ride clicks and every resize event - on mobile a single
+    // scroll (URL bar collapsing) produced a storm of full relayouts.
+    //
+    // Now: coalesce to one rAF-timed call, plus a single delayed retry to catch
+    // late layout (fullscreen transitions, font loads), and skip entirely when
+    // the container size has not actually changed.
+    let sizeRaf = null;
+    let sizeRetry = null;
+    let lastW = -1;
+    let lastH = -1;
+
+    function applyInvalidate(force) {
+        const map = NS.state.map;
+        if (!map) return;
+        const c = map.getContainer && map.getContainer();
+        if (c) {
+            const w = c.clientWidth;
+            const h = c.clientHeight;
+            if (!force && w === lastW && h === lastH) return;
+            lastW = w;
+            lastH = h;
+        }
+        try {
+            map.invalidateSize({ pan: false, animate: false });
+        } catch (e) {}
+    }
+
+    NS.invalidateMapSize = function (force) {
         if (!NS.state.map) return;
-        [0, 50, 150, 300].forEach(function (delay) {
-            setTimeout(function () {
-                const map = NS.state.map;
-                if (!map) return;
-                try {
-                    map.invalidateSize({ pan: false, animate: false });
-                } catch (e) {}
-            }, delay);
+
+        if (sizeRaf) cancelAnimationFrame(sizeRaf);
+        sizeRaf = requestAnimationFrame(function () {
+            sizeRaf = null;
+            applyInvalidate(!!force);
         });
+
+        if (sizeRetry) clearTimeout(sizeRetry);
+        sizeRetry = setTimeout(function () {
+            sizeRetry = null;
+            applyInvalidate(!!force);
+        }, 250);
+    };
+
+    // Call when the container size is known to have changed out-of-band
+    // (fullscreen enter/exit), bypassing the unchanged-size shortcut.
+    NS.forceInvalidateMapSize = function () {
+        lastW = -1;
+        lastH = -1;
+        NS.invalidateMapSize(true);
+    };
+
+    // Focus mode = the map is the point of the page: entered via the #bike
+    // hash (e.g. /?ride=...#bike) or by going fullscreen. It gives the map most
+    // of the viewport and hands one-finger panning back to Leaflet, since the
+    // user is no longer trying to scroll past it.
+    NS.setMapFocus = function (on) {
+        const st = NS.state;
+        if (st.mapFocus === on) return;
+        st.mapFocus = on;
+
+        const section = document.querySelector('.bike-section');
+        if (section) section.classList.toggle('bike-focus', on);
+
+        const container = document.getElementById('bike-map-container');
+        if (container) container.classList.toggle('is-focus', on);
+
+        const map = st.map;
+        if (map && st.mapTouchInline) {
+            if (on) {
+                map.dragging.enable();
+                if (map.tap) map.tap.enable();
+                if (st.container) st.container.style.touchAction = 'none';
+            } else {
+                map.dragging.disable();
+                if (map.tap) map.tap.disable();
+                if (st.container) st.container.style.touchAction = 'pan-y';
+            }
+        }
+
+        NS.forceInvalidateMapSize();
+        if (st.autoView && st.selectedRideIndex == null) {
+            setTimeout(function () { NS.fitAllRides(false); }, 60);
+        }
+    };
+
+    NS.isBikeHash = function () {
+        return (window.location.hash || '').toLowerCase() === '#bike';
     };
 
     NS.showMapToast = function (text) {
