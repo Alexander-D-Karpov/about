@@ -14,6 +14,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/Alexander-D-Karpov/about/internal/assets"
+	"github.com/Alexander-D-Karpov/about/internal/buildinfo"
 	"github.com/Alexander-D-Karpov/about/internal/config"
 	"github.com/Alexander-D-Karpov/about/internal/layout"
 	"github.com/Alexander-D-Karpov/about/internal/plugins"
@@ -36,6 +37,7 @@ type TemplateData struct {
 	OGDescription string
 	OGImage       string
 	PotatoMode    bool
+	Preview       bool
 	CSSHash       string
 	JSHash        string
 	Plugins       []template.HTML
@@ -195,6 +197,7 @@ func (h *MainHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		Title:       "sanspie",
 		Description: "WebDev & DevSecOps",
 		PotatoMode:  potatoMode,
+		Preview:     buildinfo.IsPreview(),
 		CSSHash:     cssHash,
 		JSHash:      jsHash,
 		Plugins:     prebakedPlugins,

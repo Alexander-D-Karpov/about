@@ -12,10 +12,17 @@ PROD_SERVICE    := about-prod.service
 BUILD_ENV := CGO_ENABLED=0 GOOS=linux GOARCH=amd64
 BUILD_FLAGS := -trimpath -ldflags="-s -w"
 
-.PHONY: help build build-linux cli cli-bike deploy deploy-prod _require-host
+# Preview builds stamp internal/buildinfo.Env, which is what puts the "preview"
+# badge on the page. Prod builds leave it empty - the two deployments share a
+# host and a config, so the binary is the only thing that can tell them apart.
+PREVIEW_PKG := github.com/Alexander-D-Karpov/about/internal/buildinfo
+PREVIEW_FLAGS := -trimpath -ldflags="-s -w -X $(PREVIEW_PKG).Env=preview"
+
+.PHONY: help build build-preview build-linux build-linux-preview cli cli-bike deploy deploy-prod _require-host
 
 help:
 	@echo "make build        - build ./main for the local OS"
+	@echo "make build-preview- build ./main for the local OS, badged as preview"
 	@echo "make build-linux  - build ./main for linux/amd64 (server target)"
 	@echo "make cli          - build ./projects (the projects CLI)"
 	@echo "make cli-bike     - build ./bike (the bike rides / GPX-reprocess CLI)"
@@ -26,8 +33,14 @@ help:
 build:
 	go build $(BUILD_FLAGS) -o main .
 
+build-preview:
+	go build $(PREVIEW_FLAGS) -o main .
+
 build-linux:
 	$(BUILD_ENV) go build $(BUILD_FLAGS) -o main .
+
+build-linux-preview:
+	$(BUILD_ENV) go build $(PREVIEW_FLAGS) -o main .
 
 cli:
 	go build $(BUILD_FLAGS) -o projects ./cmd/projects
@@ -41,7 +54,7 @@ _require-host:
 # Ship the freshly built binary to <dir>/main and restart <service>.
 # Copies to a temp name then renames (can't overwrite a running binary in place),
 # and uses ssh -t so sudo can prompt for the password.
-deploy: build-linux _require-host
+deploy: build-linux-preview _require-host
 	@echo ">> deploying PREVIEW to $(DEPLOY_HOST):$(PREVIEW_DIR)"
 	scp main $(DEPLOY_HOST):$(PREVIEW_DIR)/main.new
 	ssh -t $(DEPLOY_HOST) 'mv $(PREVIEW_DIR)/main.new $(PREVIEW_DIR)/main && sudo systemctl restart $(PREVIEW_SERVICE) && sleep 2 && systemctl is-active $(PREVIEW_SERVICE)'
