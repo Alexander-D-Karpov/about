@@ -129,8 +129,9 @@ func (p *WebringPlugin) Render(ctx context.Context) (string, error) {
 				<span class="webring-text">← {{.PrevName}}</span>
 			</a>
 			
-			<a href="{{.HomeURL}}" 
-			   class="webring-home" 
+			<a href="{{.HomeURL}}"
+			   class="webring-home"
+			   target="_blank"
 			   rel="external nofollow noopener"
 			   title="Webring Home"
 			   aria-label="Webring home">

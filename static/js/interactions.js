@@ -150,12 +150,11 @@
 
     function initWebring(){
         const sec = $('.webring-section'); if (!sec) return;
-        const home = $('.webring-home', sec);
-        if (home) on(home, 'click', (e) => {
-            e.preventDefault();
-            const base = sec.dataset.baseUrl;
-            if (base) window.open(base, '_blank');
-        });
+
+        // Deliberately no click handler on .webring-home: the anchor has a real
+        // href and target="_blank", so the browser opens it. plugins.js bound an
+        // identical preventDefault+window.open here, and with both live the ring
+        // home opened in two tabs.
 
         document.addEventListener('keydown', (e) => {
             if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;

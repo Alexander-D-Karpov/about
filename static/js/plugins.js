@@ -65,22 +65,11 @@
         });
     }
 
-    function initWebringInteractions() {
-        const webringSection = $('.webring-section');
-        if (!webringSection) return;
-
-        const webringHome = $('.webring-home', webringSection);
-        if (webringHome) {
-            webringHome.addEventListener('click', (e) => {
-                e.preventDefault();
-
-                const baseUrl = webringSection.dataset.baseUrl;
-                if (baseUrl) {
-                    window.open(baseUrl, '_blank');
-                }
-            });
-        }
-    }
+    // The webring home link needs no JS: the anchor carries a real href and
+    // target="_blank", so the browser opens it. This used to bind
+    // preventDefault + window.open, duplicating the identical handler in
+    // interactions.js - with both live, the ring home opened in two tabs.
+    function initWebringInteractions() {}
 
     function initKeyboardShortcuts() {
         document.addEventListener('keydown', (e) => {
