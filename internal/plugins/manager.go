@@ -2,9 +2,12 @@ package plugins
 
 import (
 	"context"
+	"crypto/sha1"
+	"encoding/hex"
 	"fmt"
 	"html/template"
 	"log"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -43,6 +46,11 @@ type Manager struct {
 	appStartTime     time.Time
 	prometheusClient *metrics.PrometheusClient
 	layoutNotifier   LayoutNotifier
+	// last broadcast HTML hash per plugin, to suppress identical re-renders
+	lastBroadcastHash map[string]string
+	// when each plugin last got a frame, so volatile-only changes still
+	// refresh eventually instead of never
+	lastBroadcastAt map[string]time.Time
 }
 
 func (m *Manager) SetLayoutNotifier(n LayoutNotifier) {
@@ -774,9 +782,111 @@ drain:
 	}
 }
 
+type selectiveRender struct {
+	name string
+	html string
+}
+
+// How long a plugin may go without a broadcast when only volatile fields
+// (progress bars, "9m ago" style timestamps) have changed. Bounds staleness of
+// those fields while still collapsing the every-20s churn.
+const volatileRefreshInterval = 5 * time.Minute
+
+// Markup that changes on every render without representing new data. Blanking
+// these before hashing is what lets broadcastRenderedIfChanged tell "the track
+// changed" apart from "the progress bar moved 7%".
+//
+// The music plugin re-renders every 20s off the Last.fm ticker; comparing two
+// consecutive 27KB payloads showed only four differing lines - the progress
+// fill width, the elapsed counter, and two "N minutes ago" labels. The browser
+// already animates the first two locally (plugin-music.js drives
+// [data-music-fill] and [data-music-elapsed]), so re-sending the whole section
+// for them was pure churn: clients replaced the node and re-packed the mosaic
+// three times a minute.
+var volatileMarkup = []*regexp.Regexp{
+	// inline progress widths: style="width:62%"
+	regexp.MustCompile(`width:\s*[\d.]+%`),
+	// relative times anywhere in the text, not just as a whole element:
+	// "16m ago", "2 hours ago", and prefixed forms like
+	// "Last played 14m ago" (data-music-status), which an element-anchored
+	// pattern missed - that single line kept re-broadcasting the section
+	// every minute.
+	regexp.MustCompile(`\b\d+\s*(?:s|m|h|d|sec|secs|min|mins|hour|hours|day|days)\s+ago\b`),
+	// elapsed/duration counters: >2:54<, >1:03:22<
+	regexp.MustCompile(`>\s*\d{1,2}:\d{2}(?::\d{2})?\s*<`),
+}
+
+func normalizeForDedup(html string) string {
+	for _, re := range volatileMarkup {
+		html = re.ReplaceAllString(html, "")
+	}
+	return html
+}
+
+// broadcastRenderedIfChanged pushes a plugin's new HTML to clients, but only
+// when it actually differs from what was last sent.
+//
+// The music plugin re-renders every 20s off the Last.fm ticker and was
+// broadcasting an identical ~25KB payload each time. Clients replace the whole
+// section and re-pack the mosaic on every frame, so the page visibly rebuilt
+// three times a minute - which is what "the site keeps reloading" looked like.
+// Skipping unchanged renders removes that churn without delaying real updates.
+func (m *Manager) broadcastRenderedIfChanged(pluginName, html string) bool {
+	if m.hub == nil || html == "" {
+		return false
+	}
+
+	sum := sha1.Sum([]byte(normalizeForDedup(html)))
+	hash := hex.EncodeToString(sum[:])
+
+	m.mutex.Lock()
+	if m.lastBroadcastHash == nil {
+		m.lastBroadcastHash = make(map[string]string)
+	}
+	if m.lastBroadcastAt == nil {
+		m.lastBroadcastAt = make(map[string]time.Time)
+	}
+	// Volatile-only changes are suppressed, but not forever: relative
+	// timestamps ("9m ago") would otherwise sit stale until the underlying
+	// data changed. Let one through every so often as a floor.
+	stale := time.Since(m.lastBroadcastAt[pluginName]) > volatileRefreshInterval
+	if m.lastBroadcastHash[pluginName] == hash && !stale {
+		m.mutex.Unlock()
+		return false
+	}
+	m.lastBroadcastHash[pluginName] = hash
+	m.lastBroadcastAt[pluginName] = time.Now()
+	m.mutex.Unlock()
+
+	m.hub.Broadcast("plugin_rendered", map[string]interface{}{
+		"plugin":    pluginName,
+		"rendered":  html,
+		"timestamp": time.Now().Unix(),
+	})
+	return true
+}
+
+// preRenderPluginsSelective re-renders the given plugins and pushes the fresh
+// HTML to connected clients.
+//
+// It previously only refreshed m.renderedCache, so after a background update
+// every open page still showed stale content. The only thing telling clients
+// anything had changed was the "plugins_updated" broadcast, which the frontend
+// turned into a full location.reload() - so every visitor's page reloaded on
+// each background cycle. Emitting "plugin_rendered" per plugin lets the client
+// swap just that section instead.
 func (m *Manager) preRenderPluginsSelective(ctx context.Context, pluginNames []string) {
+	for _, r := range m.renderSelective(ctx, pluginNames) {
+		m.broadcastRenderedIfChanged(r.name, r.html)
+	}
+}
+
+// renderSelective renders under the manager lock and returns what changed, so
+// the caller can broadcast without holding the lock.
+func (m *Manager) renderSelective(ctx context.Context, pluginNames []string) []selectiveRender {
+	var rendered []selectiveRender
 	if len(pluginNames) == 0 {
-		return
+		return rendered
 	}
 
 	m.mutex.Lock()
@@ -803,7 +913,7 @@ func (m *Manager) preRenderPluginsSelective(ctx context.Context, pluginNames []s
 		select {
 		case <-renderCtx.Done():
 			fmt.Printf("Selective pre-rendering timeout for remaining plugins\n")
-			return
+			return rendered
 		default:
 		}
 
@@ -817,17 +927,20 @@ func (m *Manager) preRenderPluginsSelective(ctx context.Context, pluginNames []s
 			pluginCtx, pluginCancel := context.WithTimeout(renderCtx, 3*time.Second)
 			defer pluginCancel()
 
-			rendered, err := plugin.Render(pluginCtx)
+			html, err := plugin.Render(pluginCtx)
 			if err != nil {
 				fmt.Printf("Error selective pre-rendering plugin %s: %v\n", plugin.Name(), err)
 				return
 			}
-			if rendered != "" {
-				m.renderedCache[plugin.Name()] = template.HTML(rendered)
+			if html != "" {
+				m.renderedCache[plugin.Name()] = template.HTML(html)
+				rendered = append(rendered, selectiveRender{name: plugin.Name(), html: html})
 				fmt.Printf("Selective pre-rendered plugin: %s\n", plugin.Name())
 			}
 		}()
 	}
+
+	return rendered
 }
 
 func (m *Manager) UpdatePlugin(pluginName string) error {
@@ -882,11 +995,9 @@ func (m *Manager) UpdatePlugin(pluginName string) error {
 		m.renderedCache[pluginName] = template.HTML(rendered)
 		m.mutex.Unlock()
 
-		m.hub.Broadcast("plugin_rendered", map[string]interface{}{
-			"plugin":    pluginName,
-			"rendered":  rendered,
-			"timestamp": time.Now().Unix(),
-		})
+		// Only push when the markup actually changed - this path runs off the
+		// 20s Last.fm ticker and was re-sending an identical payload.
+		m.broadcastRenderedIfChanged(pluginName, rendered)
 	}()
 
 	return nil

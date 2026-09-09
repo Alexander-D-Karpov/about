@@ -398,11 +398,16 @@
                     updateHealthDisplay(message.data);
                     break;
                 case 'plugins_updated':
-                    setTimeout(() => {
-                        if (window.location.pathname !== '/admin') {
-                            window.location.reload();
-                        }
-                    }, 1000);
+                    // Emitted by the periodic background refresh. This used to
+                    // call location.reload(), so every visitor's page did a hard
+                    // reload on each cycle - the "reloads every few minutes"
+                    // behaviour.
+                    //
+                    // The server now sends one 'plugin_rendered' frame per
+                    // refreshed plugin carrying its new HTML, and
+                    // handlePluginRendered swaps that section in place. All
+                    // that's left here is re-packing the mosaic afterwards.
+                    scheduleRecalc();
                     break;
                 case 'meme_update':
                     updateMemeGlobal(message.data);
@@ -1405,6 +1410,15 @@
     function handlePluginUpdate(data) {
         if (data.action === 'settings_changed') {
             console.debug('Plugin settings updated:', data.plugin);
+
+            // Deliberately still a full reload - this is the edge case.
+            // SetSettings() is only reachable from the admin UI (a human
+            // editing config), and it can enable/disable plugins or change
+            // their order and width, which needs the whole mosaic rebuilt
+            // rather than one section swapped.
+            //
+            // Routine data refreshes do NOT come through here: they arrive as
+            // 'plugin_rendered' frames and are swapped in place.
             if (window.location.pathname !== '/admin') {
                 setTimeout(() => {
                     window.location.reload();
