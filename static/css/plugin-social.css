@@ -59,6 +59,16 @@
     .social-link:hover img {
         opacity: 0.9;
     }
+
+    /* A few brand logos are pure-white artwork intended for dark backgrounds,
+       so on the light chip they read as blank or near-blank. Invert just those
+       to their black equivalent. Add new white-only icons to this list -
+       the data-icon value is the icon name (or slugified link name). */
+    .social-link[data-icon="ctftime"] img,
+    .social-link[data-icon="email"] img,
+    .social-link[data-icon="x"] img {
+        filter: invert(1);
+    }
 }
 
 .social-pages {

@@ -26,6 +26,38 @@ func (p *SocialPlugin) Name() string {
 	return "social"
 }
 
+// socialIconSlug reduces an icon reference (or the link's name, when no icon is
+// configured) to a stable [a-z0-9-] token. It is emitted as data-icon so CSS can
+// target individual brands - some logos are pure-white artwork meant for dark
+// backgrounds and need correcting in light mode.
+func socialIconSlug(iconField, name string) string {
+	s := strings.ToLower(strings.TrimSpace(iconField))
+	if s != "" {
+		// An icon reference may be a path or filename: keep the basename and
+		// drop the extension. Only do this here - a display name like
+		// "Last.fm" must not be truncated at its dot.
+		if i := strings.LastIndexByte(s, '/'); i >= 0 {
+			s = s[i+1:]
+		}
+		if i := strings.LastIndexByte(s, '.'); i >= 0 {
+			s = s[:i]
+		}
+	} else {
+		s = strings.ToLower(strings.TrimSpace(name))
+	}
+
+	var b strings.Builder
+	for _, r := range s {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
+			b.WriteRune(r)
+		case r == ' ', r == '_', r == '-':
+			b.WriteByte('-')
+		}
+	}
+	return strings.Trim(b.String(), "-")
+}
+
 func (p *SocialPlugin) Render(ctx context.Context) (string, error) {
 	config := p.storage.GetPluginConfig(p.Name())
 	settings := config.Settings
@@ -52,14 +84,14 @@ func (p *SocialPlugin) Render(ctx context.Context) (string, error) {
 	tmpl := `
 <section class="social-section section plugin" data-w="1">
 	<header class="plugin-header">
-		<h3 class="plugin-title">{{.SectionTitle}}</h3>
+		<h2 class="plugin-title">{{.SectionTitle}}</h2>
 	</header>
 
 	<div class="plugin__inner">
 		<div class="social-links">
 			{{range .Links}}
-			<a href="{{.URL}}" title="{{.Name}}" target="_blank" rel="noopener" class="social-link">
-				<img src="{{.IconURL}}" alt="{{.Name}} icon" class="icon icon-social" loading="lazy" decoding="async">
+			<a href="{{.URL}}" title="{{.Name}}" target="_blank" rel="noopener" class="social-link" data-icon="{{.Slug}}">
+				<img src="{{.IconURL}}" alt="{{.Name}} icon" class="icon icon-social" width="20" height="20" loading="lazy" decoding="async">
 			</a>
 			{{end}}
 		</div>
@@ -81,6 +113,7 @@ func (p *SocialPlugin) Render(ctx context.Context) (string, error) {
 		Name    string
 		URL     string
 		IconURL string
+		Slug    string
 	}
 
 	type pageLink struct {
@@ -100,11 +133,10 @@ func (p *SocialPlugin) Render(ctx context.Context) (string, error) {
 		name := p.getStringFromMap(linkMap, "name", "Link")
 		url := p.getStringFromMap(linkMap, "url", "#")
 
+		iconField := strings.TrimSpace(p.getStringFromMap(linkMap, "icon", ""))
+
 		iconURL := p.getStringFromMap(linkMap, "iconPath", "")
 		if strings.TrimSpace(iconURL) == "" {
-			iconField := p.getStringFromMap(linkMap, "icon", "link")
-			iconField = strings.TrimSpace(iconField)
-
 			switch {
 			case iconField == "":
 				iconURL = "/static/icons/link.svg"
@@ -122,6 +154,7 @@ func (p *SocialPlugin) Render(ctx context.Context) (string, error) {
 			Name:    name,
 			URL:     url,
 			IconURL: iconURL,
+			Slug:    socialIconSlug(iconField, name),
 		})
 	}
 
