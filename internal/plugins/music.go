@@ -1266,7 +1266,7 @@ func (p *MusicPlugin) buildNow(t *MusicTrack) nowVM {
 		Name:     t.Name,
 		Artist:   t.Artist.Text,
 		Album:    t.Album.Text,
-		Image:    p.imageForVM(t.Artist.Text, t.Name, image),
+		Image:    shrinkArtworkURL(p.imageForVM(t.Artist.Text, t.Name, image), artNowPx),
 		URL:      t.URL,
 		Playing:  playing,
 	}
@@ -1333,7 +1333,7 @@ func (p *MusicPlugin) buildRecent(current *MusicTrack, recent []MusicTrack) []re
 		vm := recentVM{
 			Name:        t.Name,
 			Artist:      t.Artist.Text,
-			Image:       p.imageForVM(t.Artist.Text, t.Name, image),
+			Image:       shrinkArtworkURL(p.imageForVM(t.Artist.Text, t.Name, image), artRecentPx),
 			Time:        p.getRelativeTimeForTrack(t),
 			LovedLastfm: p.isLovedTrack(t.Artist.Text, t.Name),
 			LikedSpot:   p.isTrackLikedCached(t.Artist.Text, t.Name),
@@ -1410,7 +1410,7 @@ func buildCovers(items []topItem) []coverVM {
 		}
 		vm := coverVM{
 			Name:  name,
-			Image: it.Image,
+			Image: shrinkArtworkURL(it.Image, artCoverPx),
 			Plays: it.Plays,
 			Grad:  grads[i%len(grads)],
 		}
