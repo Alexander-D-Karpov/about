@@ -90,6 +90,9 @@ func (s *Storage) Load() error {
 	}
 
 	migrated := s.migratePluginKeys()
+	if s.backfillDefaultLinks("social", "links") {
+		migrated = true
+	}
 	s.applyEnvOverrides()
 	if migrated {
 		if err := s.saveToFileAtomic(); err != nil {
@@ -416,6 +419,7 @@ func (s *Storage) getDefaultConfig() map[string]interface{} {
 						map[string]interface{}{"name": "Telegram", "url": "https://t.me/sanspie", "icon": "telegram"},
 						map[string]interface{}{"name": "GitHub", "url": "https://github.com/Alexander-D-Karpov", "icon": "github"},
 						map[string]interface{}{"name": "VK", "url": "https://vk.com/al.karpov", "icon": "vk"},
+						map[string]interface{}{"name": "X", "url": "https://x.com/s4nspi", "icon": "x"},
 						map[string]interface{}{"name": "LinkedIn", "url": "https://www.linkedin.com/in/alexandr-karpov-ba8891218", "icon": "linkedin"},
 						map[string]interface{}{"name": "Email", "url": "mailto:sanspie@akarpov.ru", "icon": "email"},
 						map[string]interface{}{"name": "Discord", "url": "https://discord.com/users/SansPie#9074", "icon": "discord"},
@@ -841,4 +845,136 @@ func (s *Storage) migratePluginKeys() bool {
 	}
 	fmt.Printf("[Storage] Migrated plugin config: lastfm -> music\n")
 	return true
+}
+
+// seededDefaultsKey holds, per list, the entries of that list in
+// getDefaultConfig that an existing config has already been offered. It lives
+// at the top level rather than inside the plugin settings because saving a
+// plugin from the admin UI replaces its settings map wholesale.
+const seededDefaultsKey = "seeded_defaults"
+
+// backfillDefaultLinks adds entries that were introduced in the built-in
+// defaults after this config file was written. The defaults are only applied
+// on a first run, so an existing install would never see a newly added link
+// otherwise.
+//
+// Every default is offered at most once: the URLs already handled are recorded
+// under seededDefaultsKey, so a link removed through the admin UI stays removed
+// instead of coming back on the next boot. New entries keep their position
+// relative to the neighbouring defaults the config already has.
+func (s *Storage) backfillDefaultLinks(plugin, listKey string) bool {
+	links, ok := pluginSettings(s.data, plugin)[listKey].([]interface{})
+	if !ok {
+		return false
+	}
+	defaults, ok := pluginSettings(s.getDefaultConfig(), plugin)[listKey].([]interface{})
+	if !ok {
+		return false
+	}
+
+	ledger := plugin + "." + listKey
+	seeded := s.seededDefaults(ledger)
+	seededBefore := len(seeded)
+
+	var added []string
+	for i, def := range defaults {
+		url := linkField(def, "url")
+		if url == "" {
+			continue
+		}
+		if indexOfLink(links, url) < 0 && !seeded[url] {
+			links = insertAt(links, def, defaultLinkPosition(links, defaults, i))
+			added = append(added, linkField(def, "name"))
+		}
+		seeded[url] = true
+	}
+
+	if len(added) == 0 && len(seeded) == seededBefore {
+		return false
+	}
+
+	pluginSettings(s.data, plugin)[listKey] = links
+	s.setSeededDefaults(ledger, seeded)
+	if len(added) > 0 {
+		fmt.Printf("[Storage] %s.%s: added from defaults: %s\n", plugin, listKey, strings.Join(added, ", "))
+	}
+	return true
+}
+
+// defaultLinkPosition returns the index at which defaults[i] should be inserted
+// so that it lands after the closest preceding default the config still has -
+// keeping a backfilled link next to the entries it ships next to.
+func defaultLinkPosition(links, defaults []interface{}, i int) int {
+	for j := i - 1; j >= 0; j-- {
+		if at := indexOfLink(links, linkField(defaults[j], "url")); at >= 0 {
+			return at + 1
+		}
+	}
+	return 0
+}
+
+func indexOfLink(links []interface{}, url string) int {
+	if url == "" {
+		return -1
+	}
+	for i, link := range links {
+		if linkField(link, "url") == url {
+			return i
+		}
+	}
+	return -1
+}
+
+func insertAt(links []interface{}, entry interface{}, i int) []interface{} {
+	out := make([]interface{}, 0, len(links)+1)
+	out = append(out, links[:i]...)
+	out = append(out, entry)
+	return append(out, links[i:]...)
+}
+
+// linkField reads a string field off a link entry, tolerating the untyped
+// shapes that come back out of config.json.
+func linkField(entry interface{}, field string) string {
+	m, ok := entry.(map[string]interface{})
+	if !ok {
+		return ""
+	}
+	v, _ := m[field].(string)
+	return strings.TrimSpace(v)
+}
+
+// pluginSettings returns a plugin's settings map, or nil when the plugin (or
+// the config around it) is missing. Reading a nil map is safe, so callers can
+// index the result directly.
+func pluginSettings(data map[string]interface{}, plugin string) map[string]interface{} {
+	plugins, _ := data["plugins"].(map[string]interface{})
+	p, _ := plugins[plugin].(map[string]interface{})
+	settings, _ := p["settings"].(map[string]interface{})
+	return settings
+}
+
+func (s *Storage) seededDefaults(ledger string) map[string]bool {
+	all, _ := s.data[seededDefaultsKey].(map[string]interface{})
+	seen, _ := all[ledger].([]interface{})
+	out := make(map[string]bool, len(seen))
+	for _, v := range seen {
+		if url, ok := v.(string); ok {
+			out[url] = true
+		}
+	}
+	return out
+}
+
+func (s *Storage) setSeededDefaults(ledger string, seeded map[string]bool) {
+	all, _ := s.data[seededDefaultsKey].(map[string]interface{})
+	if all == nil {
+		all = map[string]interface{}{}
+		s.data[seededDefaultsKey] = all
+	}
+	urls := make([]string, 0, len(seeded))
+	for url := range seeded {
+		urls = append(urls, url)
+	}
+	sort.Strings(urls)
+	all[ledger] = urls
 }
