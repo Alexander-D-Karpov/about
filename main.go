@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -315,14 +316,56 @@ func main() {
 	}
 }
 
+// Cache tiers for static assets. Everything used to be one hour, which meant
+// repeat visitors re-downloaded ~900 KiB of icons, libs and media on every
+// visit (flagged by Lighthouse as "efficient cache lifetimes").
+const (
+	// Uploaded media filenames embed an upload timestamp, so changing a file
+	// always produces a new URL. Safe to freeze permanently.
+	cacheImmutable = "public, max-age=31536000, immutable"
+	// Third-party libs under /static/libs are NOT versioned in the path, so
+	// they stay revalidatable - otherwise upgrading Leaflet would strand
+	// cached clients until the TTL expired.
+	cacheMedium = "public, max-age=2592000"
+	// Embedded assets change only on deploy and carry no cache-buster, so keep
+	// the window short enough that a deploy propagates within a week.
+	cacheShort = "public, max-age=604800"
+	cacheNone  = "no-cache, no-store, must-revalidate"
+)
+
+// cacheAssetExts are the extensions treated as long-lived static assets.
+var cacheAssetExts = map[string]bool{
+	".css": true, ".js": true, ".mjs": true,
+	".png": true, ".jpg": true, ".jpeg": true, ".gif": true,
+	".svg": true, ".webp": true, ".avif": true, ".ico": true,
+	".woff": true, ".woff2": true, ".ttf": true, ".otf": true,
+	".mp4": true, ".webm": true,
+}
+
+// cacheControlFor picks a Cache-Control value from the request path. It matches
+// on the real extension - the previous strings.Contains check also matched
+// paths that merely contained ".css" somewhere.
+func cacheControlFor(urlPath string) string {
+	if !cacheAssetExts[strings.ToLower(path.Ext(urlPath))] {
+		return cacheNone
+	}
+	switch {
+	case strings.HasPrefix(urlPath, "/media/"):
+		return cacheImmutable
+	case strings.HasPrefix(urlPath, "/static/libs/"):
+		return cacheMedium
+	default:
+		return cacheShort
+	}
+}
+
 func addCacheHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Server", "about-server/1.0")
 
-		if strings.Contains(r.URL.Path, ".css") || strings.Contains(r.URL.Path, ".js") || strings.Contains(r.URL.Path, ".png") || strings.Contains(r.URL.Path, ".jpg") || strings.Contains(r.URL.Path, ".svg") {
-			w.Header().Set("Cache-Control", "public, max-age=3600")
-		} else {
-			w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+		cc := cacheControlFor(r.URL.Path)
+		w.Header().Set("Cache-Control", cc)
+		if cc == cacheNone {
 			w.Header().Set("Pragma", "no-cache")
 			w.Header().Set("Expires", "0")
 		}
