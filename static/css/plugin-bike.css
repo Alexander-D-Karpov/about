@@ -27,6 +27,16 @@
     color: #ff8c42;
     line-height: 1;
     margin-bottom: 4px;
+    white-space: nowrap;
+}
+
+/* Units sit inline with the number at nearly full size. An earlier version
+   used .72em + reduced opacity, which in the mono face read as a superscript
+   rather than a unit. */
+.bike-stat-unit {
+    font-size: .88em;
+    font-weight: inherit;
+    vertical-align: baseline;
 }
 
 .bike-stat-label {
@@ -442,9 +452,25 @@
 }
 
 @media (max-width: 780px) {
-    .bike-stats { gap: 6px }
-    .bike-stat { padding: 10px 6px; min-width: 60px }
+    /* Six flex tiles squeezed into one row on a phone (6 x 60px + gaps just
+       fits ~400px), which forced "Elevation ↑" and "Total Time" to wrap onto a
+       second line and made the row ragged. A 3x2 grid gives each tile a third
+       of the width, so every label sits on one line. */
+    .bike-stats {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 6px;
+    }
+
+    .bike-stat { padding: 10px 4px; min-width: 0 }
     .bike-stat-value { font-size: 15px }
+
+    .bike-stat-label {
+        font-size: 9px;
+        letter-spacing: .2px;
+        white-space: nowrap;
+    }
+
     .bike-map-container { height: 240px }
     .bike-ride-chips { flex-wrap: wrap }
     .bike-profile-chart, .bike-profile-svg { height: 120px }
@@ -459,8 +485,16 @@
 }
 
 @media (prefers-color-scheme: light) {
-    .bike-stat-value { color: #d96a1e }
-    .bike-chip { background: rgba(217, 106, 30, .08); color: #d96a1e }
+    /* #d96a1e scored 3.48:1 on white and failed WCAG AA for 15px bold text.
+       #ba5b19 is the lightest shade of the same hue that reaches 4.57:1. */
+    .bike-stat-value { color: #ba5b19 }
+    /* var(--muted) resolves to #718096 here (4.02:1) - just short of 4.5:1
+       at this 10px size. Scoped to the bike labels rather than changing the
+       global token. */
+    .bike-stat-label { color: #69778b }
+    /* The chip's tinted background composites to #fbf3ed over white, not pure
+       white, so it needs a touch more darkening than the stat value. */
+    .bike-chip { background: rgba(217, 106, 30, .08); color: #b05617 }
     .bike-ride-item:hover,
     .bike-ride-item.active { background: rgba(217, 106, 30, .04) }
     .bike-profile { background: rgba(0, 0, 0, .015) }

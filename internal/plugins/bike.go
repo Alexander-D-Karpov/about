@@ -8,6 +8,7 @@ import (
 	"html/template"
 	"math"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -214,18 +215,19 @@ func (p *BikePlugin) Render(ctx context.Context) (string, error) {
 	}
 	var buf strings.Builder
 	if err := t.Execute(&buf, struct {
-		SectionTitle, TotalKm, TotalElevation, AvgDistance, AvgSpeed, TotalTime string
-		TotalRides                                                              int
-		Rides                                                                   []BikeRide
-		RidesJSON                                                               template.JS
+		SectionTitle, TotalKm, AvgDistance, AvgSpeed string
+		TotalElevation, TotalTime                    template.HTML
+		TotalRides                                   int
+		Rides                                        []BikeRide
+		RidesJSON                                    template.JS
 	}{
 		SectionTitle:   sectionTitle,
-		TotalKm:        fmt.Sprintf("%.1f", totalKm),
+		TotalKm:        humanizeFloat(totalKm, 1),
 		TotalRides:     len(rides),
-		TotalElevation: fmt.Sprintf("%.0fm", totalElev),
-		AvgDistance:    fmt.Sprintf("%.1f", avgDist),
-		AvgSpeed:       fmt.Sprintf("%.1f", avgSpeed),
-		TotalTime:      formatBikeDuration(totalDur),
+		TotalElevation: template.HTML(humanizeFloat(totalElev, 0) + statUnit("m")),
+		AvgDistance:    humanizeFloat(avgDist, 1),
+		AvgSpeed:       humanizeFloat(avgSpeed, 1),
+		TotalTime:      formatBikeDurationHTML(totalDur),
 		Rides:          displayRides,
 		RidesJSON:      template.JS(ridesJSON),
 	}); err != nil {
@@ -471,6 +473,54 @@ func formatBikeDuration(min float64) string {
 		return fmt.Sprintf("%dh", h)
 	}
 	return fmt.Sprintf("%dh %dm", h, m)
+}
+
+// humanizeFloat renders v with `decimals` places and comma thousands
+// separators, matching the toLocaleString('en-US') formatting the frontend
+// already uses for other counters.
+func humanizeFloat(v float64, decimals int) string {
+	s := strconv.FormatFloat(v, 'f', decimals, 64)
+
+	sign := ""
+	if strings.HasPrefix(s, "-") {
+		sign, s = "-", s[1:]
+	}
+
+	intPart, frac := s, ""
+	if i := strings.IndexByte(s, '.'); i >= 0 {
+		intPart, frac = s[:i], s[i:]
+	}
+
+	var b strings.Builder
+	for i := 0; i < len(intPart); i++ {
+		if i > 0 && (len(intPart)-i)%3 == 0 {
+			b.WriteByte(',')
+		}
+		b.WriteByte(intPart[i])
+	}
+	return sign + b.String() + frac
+}
+
+// statUnit wraps a trailing unit so CSS can render it smaller than the number.
+// The stat tiles are only ~80px wide, so a full-size unit pushes values like
+// "125h 43m" onto a second line.
+func statUnit(u string) string {
+	return `<span class="bike-stat-unit">` + u + `</span>`
+}
+
+// formatBikeDurationHTML is formatBikeDuration with the h/m suffixes marked up
+// as units so they render small and the value stays on one line.
+func formatBikeDurationHTML(min float64) template.HTML {
+	h, m := int(min)/60, int(min)%60
+	switch {
+	case h == 0:
+		return template.HTML(humanizeFloat(float64(m), 0) + statUnit("m"))
+	case m == 0:
+		return template.HTML(humanizeFloat(float64(h), 0) + statUnit("h"))
+	default:
+		return template.HTML(humanizeFloat(float64(h), 0) + statUnit("h") + " " +
+			humanizeFloat(float64(m), 0) + statUnit("m"))
+	}
 }
 
 func parseGPXTime(s string) (time.Time, bool) {
