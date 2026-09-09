@@ -6,11 +6,59 @@ import (
 	"embed"
 	"fmt"
 	"io/fs"
+	"log"
 	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
+
+	"github.com/tdewolff/minify/v2"
+	"github.com/tdewolff/minify/v2/css"
+	"github.com/tdewolff/minify/v2/js"
 )
+
+const (
+	mimeCSS = "text/css"
+	mimeJS  = "application/javascript"
+)
+
+func newMinifier() *minify.M {
+	m := minify.New()
+	m.AddFunc(mimeCSS, css.Minify)
+	m.AddFunc(mimeJS, js.Minify)
+	return m
+}
+
+var assetMinifier = newMinifier()
+
+// minifyAsset shrinks a single asset. Minification is per-file and best-effort:
+// if a file fails to parse we keep the original bytes so one bad file degrades
+// its own size rather than breaking the entire bundle.
+func minifyAsset(mediaType, name string, data []byte) []byte {
+	out, err := assetMinifier.Bytes(mediaType, data)
+	if err != nil {
+		log.Printf("assets: minify %s failed, using original: %v", name, err)
+		return data
+	}
+	return out
+}
+
+// joinerFor returns the separator placed after each file. JS uses ";\n" so that
+// a file ending in an expression cannot be glued onto the next file's leading
+// parenthesis by automatic semicolon insertion.
+func joinerFor(ext string) string {
+	if ext == ".js" {
+		return ";\n"
+	}
+	return "\n"
+}
+
+func mediaTypeFor(ext string) string {
+	if ext == ".js" {
+		return mimeJS
+	}
+	return mimeCSS
+}
 
 type Bundler struct {
 	staticFS  embed.FS
@@ -99,8 +147,8 @@ func (b *Bundler) bundleDir(dir, ext string, priorityFirst, exclude []string) ([
 		}
 
 		buf.WriteString(fmt.Sprintf("\n/* === %s === */\n", name))
-		buf.Write(data)
-		buf.WriteString("\n")
+		buf.Write(minifyAsset(mediaTypeFor(ext), name, data))
+		buf.WriteString(joinerFor(ext))
 	}
 
 	hash := fmt.Sprintf("%x", md5.Sum(buf.Bytes()))[:8]
@@ -118,8 +166,8 @@ func (b *Bundler) bundlePotato(dir, ext string, include []string) ([]byte, strin
 		}
 
 		buf.WriteString(fmt.Sprintf("\n/* === %s === */\n", name))
-		buf.Write(data)
-		buf.WriteString("\n")
+		buf.Write(minifyAsset(mediaTypeFor(ext), name, data))
+		buf.WriteString(joinerFor(ext))
 	}
 
 	files, _ := b.listFiles(dir, ext)
@@ -139,8 +187,8 @@ func (b *Bundler) bundlePotato(dir, ext string, include []string) ([]byte, strin
 				continue
 			}
 			buf.WriteString(fmt.Sprintf("\n/* === %s === */\n", name))
-			buf.Write(data)
-			buf.WriteString("\n")
+			buf.Write(minifyAsset(mediaTypeFor(ext), name, data))
+			buf.WriteString(joinerFor(ext))
 		}
 	}
 
