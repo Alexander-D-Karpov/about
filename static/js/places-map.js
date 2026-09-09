@@ -11,7 +11,8 @@
     let mapResizeCleanup = null;
 
     let interactionTimeout = null;
-    let initialFitDone = false;
+    let userMovedMap = false;
+    let lastMapSize = null;
 
     function clamp(v, min, max) {
         return Math.max(min, Math.min(max, v));
@@ -111,15 +112,22 @@
         const defaultLng = config.defaultLng ?? 0;
         const defaultZoom = config.defaultZoom ?? 3;
 
+        // No center/zoom here on purpose: the view is set below from the
+        // places themselves, so the very first paint is already on the
+        // visited area instead of animating in from the world view.
         map = L.map(container, {
-            center: [defaultLat, defaultLng],
-            zoom: defaultZoom,
             zoomControl: true,
             attributionControl: true,
             minZoom: 2,
             maxZoom: 18,
             preferCanvas: true // OPTIMIZATION: Use Canvas instead of SVGs for vector layers
         });
+
+        // Must happen before any layer is added: a map without a view can't render.
+        if (!fitAllPlaces({animate: false})) {
+            map.setView([defaultLat, defaultLng], defaultZoom, {animate: false});
+        }
+        lastMapSize = map.getSize();
 
         // On mobile, one-finger drag should scroll the page, not pan the map
         // (pinch-zoom and the zoom buttons still work). Prevents the map from
@@ -130,23 +138,11 @@
             container.style.touchAction = 'pan-y';
         }
 
-        const isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-
-        let tileUrl;
-        let tileAttribution;
-
-        if (isDark) {
-            tileUrl = 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png';
-            tileAttribution =
-                '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> &copy; <a href="https://carto.com/attributions">CARTO</a>';
-        } else {
-            tileUrl = 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
-            tileAttribution =
-                '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>';
-        }
-
-        L.tileLayer(tileUrl, {
-            attribution: tileAttribution,
+        // CARTO's basemaps now require an API key and watermark unkeyed tiles
+        // with "API KEY REQUIRED", so both themes use OpenStreetMap. Dark mode
+        // is produced by filtering .leaflet-tile-pane in CSS instead.
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
             maxZoom: 18
         }).addTo(map);
 
@@ -159,8 +155,6 @@
             heatLayer.addTo(map);
             ensureHeatCanvasConfig();
         }
-
-        fitAllPlaces(true);
 
         const loadingEl = document.getElementById('map-loading');
         if (loadingEl) {
@@ -319,12 +313,26 @@
         updateMarkerSizes();
     }
 
+    function applyMapSize() {
+        if (!map) return;
+
+        // pan defaults to true, which keeps the geographic center across a
+        // resize; pan:false pins the top-left corner and lets the view drift.
+        map.invalidateSize({animate: false});
+
+        const size = map.getSize();
+        if (lastMapSize && size.x === lastMapSize.x && size.y === lastMapSize.y) return;
+        lastMapSize = size;
+
+        // The layout pass resizes plugins after load, which changes how much
+        // fits on screen. Re-frame the places until the visitor takes over.
+        if (!userMovedMap) fitAllPlaces({animate: false});
+    }
+
     function invalidatePlacesMapSize() {
         if (!map) return;
         [0, 50, 150, 300].forEach(delay => {
-            setTimeout(() => {
-                if (map) map.invalidateSize({ pan: false, animate: false });
-            }, delay);
+            setTimeout(applyMapSize, delay);
         });
     }
 
@@ -428,31 +436,35 @@
         });
     }
 
-    function fitAllPlaces(isInitial = false) {
-        if (!map || !places.length) return;
-        if (isInitial && initialFitDone) return;
+    function placeCoords() {
+        return places
+            .map((p) => [Number(p.lat ?? p.Lat), Number(p.lng ?? p.Lng)])
+            .filter(([lat, lng]) => isFinite(lat) && isFinite(lng));
+    }
 
-        if (places.length === 1) {
-            const p = places[0];
-            const lat = Number(p.lat ?? p.Lat);
-            const lng = Number(p.lng ?? p.Lng);
-            if (!isFinite(lat) || !isFinite(lng)) return;
-            map.setView([lat, lng], 8);
-        } else {
-            const bounds = L.latLngBounds(
-                places
-                    .map((p) => [Number(p.lat ?? p.Lat), Number(p.lng ?? p.Lng)])
-                    .filter(([lat, lng]) => isFinite(lat) && isFinite(lng))
-            );
-            if (bounds.isValid()) {
-                map.fitBounds(bounds, {
-                    padding: [40, 40],
-                    maxZoom: 6
-                });
-            }
+    // Returns false when there is nothing valid to fit, so the caller can
+    // fall back to the configured default view.
+    function fitAllPlaces(options) {
+        if (!map) return false;
+
+        const animate = options?.animate !== false;
+        const coords = placeCoords();
+        if (!coords.length) return false;
+
+        if (coords.length === 1) {
+            map.setView(coords[0], 8, {animate});
+            return true;
         }
 
-        if (isInitial) initialFitDone = true;
+        const bounds = L.latLngBounds(coords);
+        if (!bounds.isValid()) return false;
+
+        map.fitBounds(bounds, {
+            padding: [40, 40],
+            maxZoom: 6,
+            animate
+        });
+        return true;
     }
 
     function setupControls() {
@@ -468,7 +480,7 @@
         }
 
         if (fitBtn) {
-            fitBtn.addEventListener('click', () => fitAllPlaces(false));
+            fitBtn.addEventListener('click', () => fitAllPlaces());
         }
 
         const observer = new MutationObserver(() => {
@@ -541,6 +553,15 @@
     function setupInteractionHandling() {
         if (!map) return;
 
+        // Once the visitor picks their own view, later resizes must not drag
+        // the map back to the places.
+        const markUserMoved = () => {
+            userMovedMap = true;
+        };
+        ['pointerdown', 'wheel', 'keydown'].forEach((evt) => {
+            map.getContainer().addEventListener(evt, markUserMoved, {passive: true});
+        });
+
         function interactionStart() {
             if (!isHeatmapMode || !heatLayer) return;
             ensureHeatCanvasConfig();
@@ -600,7 +621,8 @@
         markersLayer = null;
         markers = [];
         isHeatmapMode = true;
-        initialFitDone = false;
+        userMovedMap = false;
+        lastMapSize = null;
         initPlacesMap();
     };
 

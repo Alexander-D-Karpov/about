@@ -27,6 +27,9 @@
     };
 
     const FILL_OPACITY = [0, 0.18, 0.4, 0.65, 0.9];
+    // Framed to the inhabited latitudes rather than the whole projection, so
+    // the countries fill the plugin without empty polar bands.
+    const WORLD_BOUNDS = [[-56, -168], [72, 190]];
     const EMPTY_RETRY_DELAY = 60000;
     const MAX_EMPTY_RETRIES = 10;
     const REFRESH_INTERVAL = 10 * 60 * 1000;
@@ -220,6 +223,15 @@
         restyleGeoLayer();
     }
 
+    function fitWorld(map, animate) {
+        try {
+            map.fitBounds(WORLD_BOUNDS, {padding: [0, 0], animate});
+            return true;
+        } catch (e) {
+            return false;
+        }
+    }
+
     function buildMap(el, initialCounts) {
         mapEl = el;
         geoLayer = null;
@@ -228,9 +240,9 @@
         const accent = cssVar('--accent', '#4d9fff');
         const edge = 'rgba(255,255,255,0.07)';
 
+        // No center/zoom on purpose: the view is framed below before any layer
+        // is added, so the first paint is already the final one.
         const map = L.map(el, {
-            center: [20, 0],
-            zoom: 1,
             minZoom: 1,
             maxZoom: 5,
             zoomControl: false,
@@ -241,8 +253,33 @@
             maxBoundsViscosity: 1.0,
         });
 
-        L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-            subdomains: 'abcd',
+        if (!fitWorld(map, false)) {
+            map.setView([20, 0], 1, {animate: false});
+        }
+
+        // A resize changes how much of the world fits, so re-frame it — unless
+        // the visitor has panned the map themselves.
+        let lastSize = map.getSize();
+        let userMoved = false;
+        ['pointerdown', 'keydown'].forEach((evt) => {
+            el.addEventListener(evt, () => { userMoved = true; }, {passive: true});
+        });
+
+        function applySize() {
+            // pan defaults to true, keeping the center across a resize instead
+            // of pinning the top-left and letting the view drift.
+            map.invalidateSize();
+            const size = map.getSize();
+            if (size.x === lastSize.x && size.y === lastSize.y) return;
+            lastSize = size;
+            if (!userMoved) fitWorld(map, false);
+        }
+
+        // CARTO basemaps now require an API key. OSM has no key requirement;
+        // the dark look comes from the .leaflet-tile-pane CSS filter.
+        // Note OSM serves a/b/c only - 'd' would 404.
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            subdomains: 'abc',
             maxZoom: 19
         }).addTo(map);
 
@@ -267,10 +304,7 @@
                 restyleGeoLayer();
 
                 setTimeout(() => {
-                    map.invalidateSize();
-                    try {
-                        map.fitBounds([[-56, -168], [72, 190]], { padding: [0, 0] });
-                    } catch (e) {}
+                    applySize();
                     notifyResize(el);
                 }, 100);
             })
@@ -282,7 +316,7 @@
         refreshTimer = setInterval(refreshCounts, REFRESH_INTERVAL);
 
         if (window.ResizeObserver) {
-            new ResizeObserver(() => map.invalidateSize()).observe(el);
+            new ResizeObserver(applySize).observe(el);
         }
     }
 

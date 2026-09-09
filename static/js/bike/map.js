@@ -502,13 +502,12 @@
             if (!NS.state.programmaticView) NS.state.autoView = false;
         });
 
-        const isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-        L.tileLayer(
-            isDark
-                ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
-                : 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
-            { maxZoom: 18 }
-        ).addTo(st.map);
+        // CARTO basemaps now require an API key (unkeyed tiles come back
+        // watermarked), so use OpenStreetMap for both themes. Dark mode is a
+        // CSS filter on .leaflet-tile-pane.
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            maxZoom: 18
+        }).addTo(st.map);
 
         let arrowSize = 14;
         try {

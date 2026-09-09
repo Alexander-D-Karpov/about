@@ -1707,9 +1707,10 @@ function initPlacesAdminMap(pluginName) {
         worldCopyJump: true
     });
 
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-        attribution: '&copy; OpenStreetMap &copy; CARTO',
-        subdomains: 'abcd',
+    // CARTO basemaps now require an API key; OSM does not. (OSM serves a/b/c.)
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; OpenStreetMap',
+        subdomains: 'abc',
         maxZoom: 19
     }).addTo(placesAdminMap);
 

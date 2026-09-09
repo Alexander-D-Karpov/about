@@ -165,6 +165,17 @@
     opacity: 1 !important;
 }
 
+/* Dark basemap without a tile-provider API key.
+   CARTO's dark_all now requires a key and watermarks unkeyed tiles, so every
+   map uses plain OpenStreetMap and gets darkened here instead. This targets
+   only the tile pane, so route lines, markers and heat overlays (which live in
+   sibling panes) keep their real colours. */
+@media (prefers-color-scheme: dark) {
+    .leaflet-tile-pane {
+        filter: invert(1) hue-rotate(180deg) brightness(0.8) contrast(1.05) saturate(0.3);
+    }
+}
+
 .leaflet-control-zoom {
     border: none !important;
     border-radius: 8px !important;
