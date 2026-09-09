@@ -12,6 +12,8 @@ import (
 // footer, and that undated projects render without one.
 func TestProjectsRendersDates(t *testing.T) {
 	st := storage.New(t.TempDir())
+	// Backups run in a goroutine; wait for them before TempDir is removed.
+	t.Cleanup(st.Wait)
 	cfg := st.GetPluginConfig("projects")
 	cfg.Settings["projects"] = []interface{}{
 		map[string]interface{}{
@@ -51,6 +53,8 @@ func TestProjectsRendersDates(t *testing.T) {
 // Projects must render most-recently-updated first, undated last.
 func TestProjectsSortedByUpdated(t *testing.T) {
 	st := storage.New(t.TempDir())
+	// Backups run in a goroutine; wait for them before TempDir is removed.
+	t.Cleanup(st.Wait)
 	cfg := st.GetPluginConfig("projects")
 	cfg.Settings["projects"] = []interface{}{
 		map[string]interface{}{"name": "older", "updated": "2023-01-01"},

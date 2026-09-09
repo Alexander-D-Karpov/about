@@ -15,6 +15,24 @@ type Storage struct {
 	dataPath string
 	data     map[string]interface{}
 	mutex    sync.RWMutex
+
+	// Daily backups run in a background goroutine. backupWG lets callers wait
+	// for them to finish (see Wait) rather than leaving fire-and-forget
+	// goroutines writing into dataPath after the owner considers itself done.
+	// Tests using t.TempDir() failed intermittently with "directory not
+	// empty" because a backup recreated backups/ while RemoveAll was walking
+	// the tree.
+	backupWG sync.WaitGroup
+}
+
+// Wait blocks until any in-flight background backup has finished.
+//
+// Call it before deleting dataPath - tests should do
+// `st := storage.New(dir); t.Cleanup(st.Wait)`. Cleanups run LIFO, so
+// registering this after t.TempDir() makes it run before the directory is
+// removed.
+func (s *Storage) Wait() {
+	s.backupWG.Wait()
 }
 
 type PluginConfig struct {
@@ -155,7 +173,11 @@ func (s *Storage) SetPluginConfig(pluginName string, config *PluginConfig) error
 
 	data, err := json.MarshalIndent(s.data, "", "  ")
 	if err == nil {
-		go s.createDailyBackupFromBytes(data)
+		s.backupWG.Add(1)
+		go func() {
+			defer s.backupWG.Done()
+			s.createDailyBackupFromBytes(data)
+		}()
 	}
 
 	return nil
@@ -170,13 +192,17 @@ func (s *Storage) createDailyBackupFromBytes(data []byte) {
 
 	today := time.Now().Format("2006-01-02")
 	backupFile := filepath.Join(backupDir, fmt.Sprintf("config_%s.json", today))
-	tempFile := backupFile + ".tmp"
 
-	f, err := os.OpenFile(tempFile, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
+	// Unique temp file per backup. This was a fixed "<backupFile>.tmp", so two
+	// concurrent SetPluginConfig calls raced on the same path: whichever
+	// renamed first left the other failing with "no such file or directory",
+	// silently losing that backup.
+	f, err := os.CreateTemp(backupDir, "config_"+today+".*.tmp")
 	if err != nil {
 		fmt.Printf("[Storage] Failed to create backup temp file: %v\n", err)
 		return
 	}
+	tempFile := f.Name()
 
 	if _, err := f.Write(data); err != nil {
 		f.Close()
@@ -250,61 +276,6 @@ func (s *Storage) saveToFileAtomic() error {
 	}
 
 	return nil
-}
-
-func (s *Storage) createDailyBackup() {
-	s.mutex.RLock()
-	data, err := json.MarshalIndent(s.data, "", "  ")
-	s.mutex.RUnlock()
-
-	if err != nil {
-		fmt.Printf("[Storage] Failed to marshal backup data: %v\n", err)
-		return
-	}
-
-	backupDir := filepath.Join(s.dataPath, "backups")
-	if err := os.MkdirAll(backupDir, 0755); err != nil {
-		fmt.Printf("[Storage] Failed to create backup directory: %v\n", err)
-		return
-	}
-
-	today := time.Now().Format("2006-01-02")
-	backupFile := filepath.Join(backupDir, fmt.Sprintf("config_%s.json", today))
-	tempFile := backupFile + ".tmp"
-
-	f, err := os.OpenFile(tempFile, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
-	if err != nil {
-		fmt.Printf("[Storage] Failed to create backup temp file: %v\n", err)
-		return
-	}
-
-	if _, err := f.Write(data); err != nil {
-		f.Close()
-		os.Remove(tempFile)
-		fmt.Printf("[Storage] Failed to write backup: %v\n", err)
-		return
-	}
-
-	if err := f.Sync(); err != nil {
-		f.Close()
-		os.Remove(tempFile)
-		fmt.Printf("[Storage] Failed to sync backup: %v\n", err)
-		return
-	}
-
-	if err := f.Close(); err != nil {
-		os.Remove(tempFile)
-		fmt.Printf("[Storage] Failed to close backup file: %v\n", err)
-		return
-	}
-
-	if err := os.Rename(tempFile, backupFile); err != nil {
-		os.Remove(tempFile)
-		fmt.Printf("[Storage] Failed to finalize backup: %v\n", err)
-		return
-	}
-
-	s.cleanupOldBackups(backupDir, 7)
 }
 
 func (s *Storage) cleanupOldBackups(backupDir string, keepDays int) {

@@ -24,6 +24,7 @@ func newTestSteamPlugin(t *testing.T, settings map[string]interface{}) *SteamPlu
 	t.Cleanup(func() { _ = os.RemoveAll(dir) })
 
 	st := storage.New(dir)
+	t.Cleanup(st.Wait)
 	if err := st.Load(); err != nil {
 		t.Fatal(err)
 	}
