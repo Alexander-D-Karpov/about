@@ -202,12 +202,19 @@ func (m *Manager) PreloadData() error {
 	return nil
 }
 
+// preRenderPlugins warms the render cache.
+//
+// It renders WITHOUT holding the manager lock, then swaps the result in at the
+// end. It used to hold the write lock for the whole loop - up to 30 seconds -
+// during which every request blocked on the read lock in GetRenderedPlugins.
+// That is what made a cold start feel like the site was down: the listener was
+// up but every request sat waiting for the warm-up to finish.
 func (m *Manager) preRenderPlugins(ctx context.Context) {
-	m.mutex.Lock()
-	defer m.mutex.Unlock()
-
+	m.mutex.RLock()
 	enabledPlugins := m.getEnabledPluginsLocked()
-	m.renderedCache = make(map[string]template.HTML)
+	m.mutex.RUnlock()
+
+	fresh := make(map[string]template.HTML)
 
 	renderCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
@@ -220,6 +227,8 @@ func (m *Manager) preRenderPlugins(ctx context.Context) {
 		select {
 		case <-renderCtx.Done():
 			fmt.Printf("Pre-rendering timeout for remaining plugins\n")
+			// Publish whatever finished rather than discarding it.
+			m.publishRenderCache(fresh)
 			return
 		default:
 		}
@@ -240,12 +249,20 @@ func (m *Manager) preRenderPlugins(ctx context.Context) {
 				return
 			}
 			if rendered != "" {
-				m.renderedCache[plugin.Name()] = template.HTML(rendered)
+				fresh[plugin.Name()] = template.HTML(rendered)
 			}
 		}()
 	}
 
+	m.publishRenderCache(fresh)
+}
+
+// publishRenderCache swaps a freshly built cache in under a brief write lock.
+func (m *Manager) publishRenderCache(fresh map[string]template.HTML) {
+	m.mutex.Lock()
+	m.renderedCache = fresh
 	m.cacheTimestamp = time.Now()
+	m.mutex.Unlock()
 }
 
 func (m *Manager) GetRenderedPlugins(ctx context.Context) []template.HTML {

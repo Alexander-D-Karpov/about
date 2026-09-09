@@ -65,11 +65,26 @@ func main() {
 		log.Fatal("Failed to load plugins:", err)
 	}
 
-	log.Println("Preloading plugin data...")
-	if err := pluginManager.PreloadData(); err != nil {
-		log.Printf("Warning: Failed to preload some plugin data: %v", err)
-	}
-	log.Println("Plugin data preloaded successfully")
+	// Warm the plugin caches in the background instead of blocking startup.
+	//
+	// PreloadData calls every plugin's UpdateData, which means live requests to
+	// Last.fm, Steam, GitHub, WakaTime, HCGateway and friends. Waiting for all
+	// of them before binding the listener is what made restarts after a deploy
+	// take so long - the service was unreachable for the whole warm-up, and one
+	// slow third party held up the entire site.
+	//
+	// Serving early is safe: GetRenderedPlugins renders on demand (with its own
+	// timeout) when the cache is cold, and plugins restore their last-known
+	// state from disk during LoadAll, so early requests get real content rather
+	// than blanks.
+	go func() {
+		start := time.Now()
+		log.Println("Preloading plugin data in background...")
+		if err := pluginManager.PreloadData(); err != nil {
+			log.Printf("Warning: Failed to preload some plugin data: %v", err)
+		}
+		log.Printf("Plugin data preloaded in %s", time.Since(start).Round(time.Millisecond))
+	}()
 
 	heightStore := measure.NewHeightStore(cfg.DataPath)
 	if err := heightStore.Load(); err != nil {
