@@ -416,6 +416,13 @@ func (p *ProjectsPlugin) RenderText(ctx context.Context) (string, error) {
 		return "Projects: No valid projects", nil
 	}
 
+	// Only the first few fit in the terminal box; the rest are summarized.
+	const shown = 5
+	if len(projectNames) > shown {
+		return fmt.Sprintf("Projects: %s and %d more (%d total)",
+			strings.Join(projectNames[:shown], ", "), len(projectNames)-shown, len(projectNames)), nil
+	}
+
 	return fmt.Sprintf("Projects: %s (%d total)", strings.Join(projectNames, ", "), len(projectNames)), nil
 }
 
