@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -81,12 +82,24 @@ func (h *UploadHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.jsonError(w, "Failed to create file", http.StatusInternalServerError)
 		return
 	}
-	defer out.Close()
-
+	// Closed explicitly (not deferred) because optimizeImageFile below rewrites
+	// this path via rename, and the flushed bytes must be on disk first.
 	_, err = io.Copy(out, file)
+	closeErr := out.Close()
 	if err != nil {
 		h.jsonError(w, "Failed to save file", http.StatusInternalServerError)
 		return
+	}
+	if closeErr != nil {
+		h.jsonError(w, "Failed to save file", http.StatusInternalServerError)
+		return
+	}
+
+	// Downscale oversized uploads so a 1200px source can't be served into a
+	// 32px icon box. Best-effort - a failure here must not fail the upload,
+	// since the original bytes are already safely on disk.
+	if _, err := optimizeImageFile(savePath, maxDimFor(targetDir)); err != nil {
+		log.Printf("upload: optimize %s failed, keeping original: %v", savePath, err)
 	}
 
 	fileURL := fmt.Sprintf("/media/%s/%s", targetDir, filename)
