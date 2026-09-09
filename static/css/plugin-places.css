@@ -49,7 +49,9 @@
     right: 10px;
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    /* 8px keeps adjacent 32px buttons clear of each other's WCAG target box;
+       at 6px Lighthouse reported them as partially obscured. */
+    gap: 8px;
     z-index: 1000;
 }
 
@@ -311,4 +313,12 @@
 
 .places-map-container:fullscreen .map-controls {
     z-index: 1100;
+}
+/* The Leaflet top-right control stack and our absolutely positioned
+   .map-controls occupy the same corner, so their 24px WCAG target boxes
+   overlap and Lighthouse reports the fullscreen button as partially obscured.
+   .map-controls holds two 32px buttons plus an 8px gap at top:10px, occupying
+   roughly y=10..82px, so start the Leaflet stack below that. */
+.places-fullscreen-control {
+    margin-top: 80px !important;
 }
