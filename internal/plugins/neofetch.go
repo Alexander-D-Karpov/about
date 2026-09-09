@@ -61,7 +61,7 @@ func (p *NeofetchPlugin) Render(ctx context.Context) (string, error) {
 	const tmpl = `
 <section class="neofetch-section section plugin" data-w="2">
   <header class="plugin-header">
-    <h3 class="plugin-title">System Information</h3>
+    <h2 class="plugin-title">System Information</h2>
   </header>
 
   <div class="plugin__inner">
@@ -115,7 +115,7 @@ func (p *NeofetchPlugin) Render(ctx context.Context) (string, error) {
 func (p *NeofetchPlugin) renderNoMachines() string {
 	return `<section class="neofetch-section section plugin" data-w="2">
   <header class="plugin-header">
-    <h3 class="plugin-title">System Information</h3>
+    <h2 class="plugin-title">System Information</h2>
   </header>
   <div class="plugin__inner">
     <p class="text-muted">No machines configured</p>

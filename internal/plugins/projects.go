@@ -90,7 +90,7 @@ func (p *ProjectsPlugin) Render(ctx context.Context) (string, error) {
 	tmpl := `
 	<div class="projects-section plugin" data-w="3">
 		<div class="plugin-header">
-			<h3 class="plugin-title">Projects</h3>
+			<h2 class="plugin-title">Projects</h2>
 		</div>
 		<div class="plugin__inner">
 			<div class="projects-grid">

@@ -130,7 +130,7 @@ func (p *BikePlugin) Render(ctx context.Context) (string, error) {
 	const tmpl = `
 <section class="bike-section section plugin" id="bike-plugin" data-w="2">
 	<header class="plugin-header">
-		<h3 class="plugin-title">{{.SectionTitle}}</h3>
+		<h2 class="plugin-title">{{.SectionTitle}}</h2>
 	</header>
 	<div class="plugin__inner">
 		<div class="bike-stats">

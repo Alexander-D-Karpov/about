@@ -68,7 +68,7 @@ var musicPeriods = []struct{ Value, Label string }{
 
 const musicTemplate = `<section class="music-section section plugin" data-w="2" id="music-section">
   <div class="plugin-header">
-    <h3 class="plugin-title">{{.SectionTitle}}</h3>
+    <h2 class="plugin-title">{{.SectionTitle}}</h2>
     <span class="music-likes text-muted">
       <span class="music-likes__item loved" title="Loved on Last.fm">{{heartIcon}}<span data-music-loved-count>{{.LovedCount}}</span></span>
       <span class="music-likes__sep">·</span>
@@ -1526,7 +1526,7 @@ func (p *MusicPlugin) renderNoTrack(sectionTitle string) string {
 		msg = "Last.fm API key not configured"
 	}
 	return fmt.Sprintf(`<section class="music-section section plugin" data-w="2" id="music-section">
-	<div class="plugin-header"><h3 class="plugin-title">%s</h3></div>
+	<div class="plugin-header"><h2 class="plugin-title">%s</h2></div>
 	<div class="plugin__inner"><p class="text-muted">%s</p></div>
 </section>`, sectionTitle, msg)
 }

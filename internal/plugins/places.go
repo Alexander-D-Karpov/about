@@ -111,7 +111,7 @@ func (p *PlacesPlugin) Render(ctx context.Context) (string, error) {
 	tmpl := `
 <section class="places-section section plugin" id="places-plugin" data-w="2">
     <header class="plugin-header">
-        <h3 class="plugin-title">{{.SectionTitle}}</h3>
+        <h2 class="plugin-title">{{.SectionTitle}}</h2>
     </header>
 
     <div class="plugin__inner">

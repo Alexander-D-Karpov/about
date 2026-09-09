@@ -51,14 +51,14 @@ func (p *PersonalPlugin) Render(ctx context.Context) (string, error) {
 	tmpl := `
 <section class="personal-section section plugin" data-w="2">
 	<header class="plugin-header">
-		<h3 class="plugin-title">{{.SectionTitle}}</h3>
+		<h2 class="plugin-title">{{.SectionTitle}}</h2>
 	</header>
 	<div class="plugin__inner">
 		<div class="personal-{{.Layout}}">
 			{{if .ShowCategories}}
 			{{range $category, $items := .GroupedInfo}}
 			<div class="personal-category">
-				<h4 class="category-title">{{$category}}</h4>
+				<h3 class="category-title">{{$category}}</h3>
 				<div class="personal-items">
 					{{range $items}}
 					<div class="personal-item">
@@ -72,7 +72,7 @@ func (p *PersonalPlugin) Render(ctx context.Context) (string, error) {
 								{{if .Icon}}
 								<span class="personal-icon">{{.Icon}}</span>
 								{{end}}
-								<h5 class="personal-title">{{.Title}}</h5>
+								<h4 class="personal-title">{{.Title}}</h4>
 							</div>
 							<div class="personal-text markdown-content">{{.RenderedContent}}</div>
 						</div>
@@ -95,7 +95,7 @@ func (p *PersonalPlugin) Render(ctx context.Context) (string, error) {
 							{{if .Icon}}
 							<span class="personal-icon">{{.Icon}}</span>
 							{{end}}
-							<h5 class="personal-title">{{.Title}}</h5>
+							<h4 class="personal-title">{{.Title}}</h4>
 						</div>
 						<div class="personal-text markdown-content">{{.RenderedContent}}</div>
 					</div>

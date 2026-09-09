@@ -113,7 +113,7 @@ func (p *MemePlugin) Render(ctx context.Context) (string, error) {
 	tmpl := `
 <section class="meme-section section plugin" id="meme-section" data-w="1"{{if gt .Meme.ImgW 0}} data-pb-imgw="{{.Meme.ImgW}}" data-pb-imgh="{{.Meme.ImgH}}"{{end}}>
 	<header class="plugin-header meme-header">
-		<h3 class="plugin-title">{{.SectionTitle}}</h3>
+		<h2 class="plugin-title">{{.SectionTitle}}</h2>
 		<button type="button" class="btn btn-sm meme-refresh-btn" onclick="refreshMeme()">🎲</button>
 	</header>
 	

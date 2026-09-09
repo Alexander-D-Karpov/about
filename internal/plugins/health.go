@@ -1050,7 +1050,7 @@ func (p *HealthPlugin) Render(ctx context.Context) (string, error) {
 	tmpl := `
 <section class="health-section section plugin" data-w="2" data-plugin="health">
 	<header class="plugin-header">
-		<h3 class="plugin-title">{{.SectionTitle}}</h3>
+		<h2 class="plugin-title">{{.SectionTitle}}</h2>
 		<div class="health-updated">
 			<span class="update-time" data-health-updated>{{.LastUpdatedText}}</span>
 		</div>
@@ -1236,7 +1236,7 @@ func (p *HealthPlugin) Render(ctx context.Context) (string, error) {
 func (p *HealthPlugin) renderNoConfig(sectionTitle string) string {
 	return fmt.Sprintf(`<section class="health-section section plugin" data-w="1">
 		<header class="plugin-header">
-			<h3 class="plugin-title">%s</h3>
+			<h2 class="plugin-title">%s</h2>
 		</header>
 		<div class="plugin__inner">
 			<div class="health-no-config">

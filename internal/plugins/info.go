@@ -55,7 +55,7 @@ func (p *InfoPlugin) Render(ctx context.Context) (string, error) {
 	tmpl := `
 <section class="info-section section plugin" data-w="2">
 	<div class="plugin-header">
-		<h3 class="plugin-title">{{.SectionTitle}}</h3>
+		<h2 class="plugin-title">{{.SectionTitle}}</h2>
 	</div>
 	<div class="plugin__inner">
 		{{if .ShowServerInfo}}

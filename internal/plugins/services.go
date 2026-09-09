@@ -81,7 +81,7 @@ func (p *ServicesPlugin) Render(ctx context.Context) (string, error) {
 	const tmpl = `
 <section class="services-section section plugin {{if .Compact}}is-compact{{end}}" data-w="2" aria-labelledby="services-title" {{if .Stale}}data-stale="true"{{end}}>
 	<header class="plugin-header services-header">
-		<h3 id="services-title" class="plugin-title">{{.SectionTitle}}</h3>
+		<h2 id="services-title" class="plugin-title">{{.SectionTitle}}</h2>
 		<div class="services-header__meta">
 			<span class="services-updated" aria-live="polite" title="Last update">{{.LastUpdatedText}}</span>
 		</div>
@@ -90,7 +90,7 @@ func (p *ServicesPlugin) Render(ctx context.Context) (string, error) {
 	<div class="plugin__inner">
 		<div class="services-grid" role="list">
 			{{range .Services}}
-			<article class="service-item" role="listitem"
+			<div class="service-item" role="listitem"
 			         data-url="{{.URL}}" data-status="{{.Status}}" data-rt="{{.ResponseTime}}" data-code="{{.StatusCode}}">
 				{{if .URL}}
 				<a class="card-overlay" href="{{.URL}}" target="_blank" rel="noopener noreferrer" aria-label="Open {{.Name}}"></a>
@@ -307,7 +307,7 @@ func (p *ServicesPlugin) Render(ctx context.Context) (string, error) {
 func (p *ServicesPlugin) renderNoServices() string {
 	return `<section class="services-section section plugin" data-w="2" aria-labelledby="services-title">
 		<header class="plugin-header services-header">
-			<h3 id="services-title" class="plugin-title">Services</h3>
+			<h2 id="services-title" class="plugin-title">Services</h2>
 		</header>
 		<div class="plugin__inner">
 			<div class="no-services">

@@ -353,7 +353,7 @@ func (p *BeatLeaderPlugin) Render(ctx context.Context) (string, error) {
 	tmpl := `
 <section class="beatleader-section section plugin" data-w="2">
 	<header class="plugin-header">
-		<h3 class="plugin-title">{{.SectionTitle}}</h3>
+		<h2 class="plugin-title">{{.SectionTitle}}</h2>
 	</header>
 
 	<div class="plugin__inner">
@@ -397,13 +397,13 @@ func (p *BeatLeaderPlugin) Render(ctx context.Context) (string, error) {
 		</div>
 		{{end}}
 		{{if and .ShowRecentMaps .RecentScores}}
-		<h4>Recent Maps {{if .ShowPepeGif}} <img src="/static/images/pepe-dance.gif" alt="" class="pepe-gif" loading="lazy" style="width: 20px; height: 20px">{{end}}</h4>
+		<h3>Recent Maps {{if .ShowPepeGif}} <img src="/static/images/pepe-dance.gif" alt="" class="pepe-gif" width="20" height="20" loading="lazy" style="width: 20px; height: 20px">{{end}}</h3>
 		<div class="maps-list">
 			{{range .RecentScores}}
 				{{if .ReplayURL}}
 				<a class="map-item" href="{{.ReplayURL}}" target="_blank" rel="noopener noreferrer">
 					{{if .Leaderboard.Song.CoverImage}}
-					<img src="{{.Leaderboard.Song.CoverImage}}" alt="{{.Leaderboard.Song.Name}}" class="map-cover" loading="lazy">
+					<img src="{{.Leaderboard.Song.CoverImage}}" alt="{{.Leaderboard.Song.Name}}" class="map-cover" width="52" height="52" loading="lazy">
 					{{end}}
 					<div class="map-info">
 						<div class="map-name">{{.Leaderboard.Song.Name}}</div>
@@ -528,7 +528,7 @@ func (p *BeatLeaderPlugin) renderLoading(settings map[string]interface{}) string
 
 	return fmt.Sprintf(`<section class="beatleader-section section plugin" data-w="2">
 		<header class="plugin-header">
-			<h3 class="plugin-title">%s</h3>
+			<h2 class="plugin-title">%s</h2>
 		</header>
 		<div class="plugin__inner">
 			<div class="loading-indicator">

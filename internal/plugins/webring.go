@@ -109,7 +109,7 @@ func (p *WebringPlugin) Render(ctx context.Context) (string, error) {
          data-base-url="{{.BaseURL}}"
          data-username="{{.Username}}">
 	<header class="plugin-header">
-		<h3 class="plugin-title">Webring</h3>
+		<h2 class="plugin-title">Webring</h2>
 	</header>
 
 	<div class="plugin__inner">

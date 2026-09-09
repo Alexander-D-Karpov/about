@@ -152,7 +152,7 @@ func (p *PhotosPlugin) Render(ctx context.Context) (string, error) {
 	tmpl := `
 <section class="photos-section section plugin" data-w="2">
 	<header class="plugin-header">
-		<h3 class="plugin-title">{{.SectionTitle}}</h3>
+		<h2 class="plugin-title">{{.SectionTitle}}</h2>
 		<a href="{{.ApiUrl}}" target="_blank" rel="noopener" class="plugin-header-link" title="View Gallery">
 			<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
 				<path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>

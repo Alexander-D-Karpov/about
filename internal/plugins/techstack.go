@@ -43,14 +43,14 @@ func (p *TechStackPlugin) Render(ctx context.Context) (string, error) {
 	tmpl := `
 <section class="tech-section section plugin" data-w="1">
 	<header class="plugin-header">
-		<h3 class="plugin-title">{{.SectionTitle}}</h3>
+		<h2 class="plugin-title">{{.SectionTitle}}</h2>
 	</header>
 
 	<div class="plugin__inner">
 		<div class="tech-grid">
 			{{range .Technologies}}
 			<div class="tech-item" title="{{.Name}}">
-				<img src="{{.IconURL}}" alt="{{.Name}} logo" class="icon icon-tech" loading="lazy" decoding="async">
+				<img src="{{.IconURL}}" alt="{{.Name}} logo" class="icon icon-tech" width="28" height="28" loading="lazy" decoding="async">
 				<span class="tech-name">{{.Name}}</span>
 			</div>
 			{{end}}

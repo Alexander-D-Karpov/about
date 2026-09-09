@@ -11,7 +11,7 @@ import (
 const steamSectionTemplate = `
 <section class="steam-section section plugin" data-w="2">
 	<header class="plugin-header">
-		<h3 class="plugin-title">{{.SectionTitle}}</h3>
+		<h2 class="plugin-title">{{.SectionTitle}}</h2>
 	</header>
 
 	<div class="plugin__inner">
@@ -52,12 +52,12 @@ const steamSectionTemplate = `
 
 		{{if .RecentGames}}
 		<div class="recent-games">
-			<h4>Recently Played Games</h4>
+			<h3>Recently Played Games</h3>
 			<div class="games-list">
 				{{range .RecentGames}}
 				<div class="game-item" data-app-id="{{.AppID}}">
 					{{if .Icon}}
-					<img src="{{.Icon}}" alt="{{.Name}}" class="game-icon" loading="lazy">
+					<img src="{{.Icon}}" alt="{{.Name}}" class="game-icon" width="40" height="40" loading="lazy">
 					{{end}}
 					<div class="game-info">
 						<div class="game-name">{{.Name}}</div>
@@ -83,12 +83,12 @@ const steamSectionTemplate = `
 
 		{{if .TopGames}}
 		<div class="recent-games">
-			<h4>Top Games by Playtime</h4>
+			<h3>Top Games by Playtime</h3>
 			<div class="games-list">
 				{{range .TopGames}}
 				<div class="game-item" data-app-id="{{.AppID}}">
 					{{if .Icon}}
-					<img src="{{.Icon}}" alt="{{.Name}}" class="game-icon" loading="lazy">
+					<img src="{{.Icon}}" alt="{{.Name}}" class="game-icon" width="40" height="40" loading="lazy">
 					{{end}}
 					<div class="game-info">
 						<div class="game-name">{{.Name}}</div>
@@ -255,7 +255,7 @@ func (p *SteamPlugin) Render(_ context.Context) (string, error) {
 func (p *SteamPlugin) renderNoAPI(sectionTitle string) string {
 	return `<section class="steam-section section plugin" data-w="2">
 	<header class="plugin-header">
-		<h3 class="plugin-title">` + template.HTMLEscapeString(sectionTitle) + `</h3>
+		<h2 class="plugin-title">` + template.HTMLEscapeString(sectionTitle) + `</h2>
 	</header>
 	<div class="plugin__inner">
 		<p class="text-muted">Steam API key not configured</p>
@@ -266,7 +266,7 @@ func (p *SteamPlugin) renderNoAPI(sectionTitle string) string {
 func (p *SteamPlugin) renderLoading(sectionTitle string) string {
 	return `<section class="steam-section section plugin" data-w="2">
 	<header class="plugin-header">
-		<h3 class="plugin-title">` + template.HTMLEscapeString(sectionTitle) + `</h3>
+		<h2 class="plugin-title">` + template.HTMLEscapeString(sectionTitle) + `</h2>
 	</header>
 	<div class="plugin__inner">
 		<div class="loading-indicator">
