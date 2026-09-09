@@ -78,7 +78,7 @@ const musicTemplate = `<section class="music-section section plugin" data-w="2" 
   <div class="plugin__inner">
     <div class="music-now {{if .Now.Playing}}is-playing{{end}}" id="music-now" data-music-now>
       <div class="music-now__cover" data-music-cover>
-        {{if .Now.Image}}<img src="{{.Now.Image}}" alt="" loading="lazy">{{else}}<div class="music-now__ph"></div>{{end}}
+        {{if .Now.Image}}<img src="{{.Now.Image}}" alt="" width="132" height="132" loading="lazy">{{else}}<div class="music-now__ph"></div>{{end}}
         <button class="music-now__play" type="button" onclick="playCurrentLastFMTrack()" aria-label="Play"></button>
       </div>
       <div class="music-now__meta">
@@ -106,7 +106,7 @@ const musicTemplate = `<section class="music-section section plugin" data-w="2" 
       {{range .Recent}}
       <li class="music-recent__item">
         <span class="music-recent__cover">
-          {{if .Image}}<img src="{{.Image}}" alt="" loading="lazy">{{else}}<span class="music-recent__ph" style="background:{{.Color}}">{{.Initial}}</span>{{end}}
+          {{if .Image}}<img src="{{.Image}}" alt="" width="40" height="40" loading="lazy">{{else}}<span class="music-recent__ph" style="background:{{.Color}}">{{.Initial}}</span>{{end}}
         </span>
         <span class="music-recent__text">
           <span class="music-recent__name">{{.Name}}</span>
@@ -156,7 +156,7 @@ const musicTemplate = `<section class="music-section section plugin" data-w="2" 
           <div class="music-covers">
             {{range .TopArtists}}
             <div class="music-cover" style="--grad:{{.Grad}}">
-              {{if .Image}}<img src="{{.Image}}" alt="" loading="lazy">{{else}}<div class="music-cover__ph">{{.Initial}}</div>{{end}}
+              {{if .Image}}<img src="{{.Image}}" alt="" width="40" height="40" loading="lazy">{{else}}<div class="music-cover__ph">{{.Initial}}</div>{{end}}
               <div class="music-cover__name">{{.Name}}</div>
               <div class="music-cover__plays">{{.Plays}} plays</div>
             </div>
@@ -170,7 +170,7 @@ const musicTemplate = `<section class="music-section section plugin" data-w="2" 
           <div class="music-covers">
             {{range .TopAlbums}}
             <div class="music-cover" style="--grad:{{.Grad}}">
-              {{if .Image}}<img src="{{.Image}}" alt="" loading="lazy">{{else}}<div class="music-cover__ph">{{.Initial}}</div>{{end}}
+              {{if .Image}}<img src="{{.Image}}" alt="" width="40" height="40" loading="lazy">{{else}}<div class="music-cover__ph">{{.Initial}}</div>{{end}}
               <div class="music-cover__name">{{.Name}}</div>
               <div class="music-cover__plays">{{.Plays}} plays</div>
             </div>

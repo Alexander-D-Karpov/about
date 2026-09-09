@@ -98,7 +98,7 @@ func (p *ServicesPlugin) Render(ctx context.Context) (string, error) {
 				<div class="service-head">
 					<span class="service-icon" aria-hidden="true">
 						{{- if .IsImage -}}
-							<img src="{{.Icon}}" alt="" loading="lazy" decoding="async" />
+							<img src="{{.Icon}}" alt="" width="32" height="32" loading="lazy" decoding="async" />
 						{{- else if .IsInlineSVG -}}
 							{{.IconHTML}}
 						{{- else if .Icon -}}
@@ -137,7 +137,7 @@ func (p *ServicesPlugin) Render(ctx context.Context) (string, error) {
 						<span class="chip chip-last">{{.LastCheckedText}}</span>
 					{{end}}
 				</div>
-			</article>
+			</div>
 			{{end}}
 		</div>
 

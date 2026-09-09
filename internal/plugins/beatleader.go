@@ -422,7 +422,7 @@ func (p *BeatLeaderPlugin) Render(ctx context.Context) (string, error) {
 				{{else}}
 				<div class="map-item">
 					{{if .Leaderboard.Song.CoverImage}}
-					<img src="{{.Leaderboard.Song.CoverImage}}" alt="{{.Leaderboard.Song.Name}}" class="map-cover" loading="lazy">
+					<img src="{{.Leaderboard.Song.CoverImage}}" alt="{{.Leaderboard.Song.Name}}" class="map-cover" width="52" height="52" loading="lazy">
 					{{end}}
 					<div class="map-info">
 						<div class="map-name">{{.Leaderboard.Song.Name}}</div>

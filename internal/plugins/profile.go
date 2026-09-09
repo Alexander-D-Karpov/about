@@ -94,7 +94,7 @@ func (p *ProfilePlugin) Render(ctx context.Context) (string, error) {
 
 			{{if .ProfileImage}}
 			<div class="profile-image">
-				<img src="{{.ProfileImage}}" alt="{{.Name}}" loading="lazy">
+				<img src="{{.ProfileImage}}" alt="{{.Name}}" width="88" height="88" loading="lazy">
 			</div>
 			{{end}}
 		</div>
