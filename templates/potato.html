@@ -8,7 +8,7 @@
     <link href="/static/bundle.css?v={{ .CSSHash }}" rel="stylesheet">
 </head>
 <body class="potato-mode">
-{{ if .Preview }}<div class="preview-badge">preview</div>{{ end }}
+{{ if .Preview }}<div class="preview-badge"><span>preview</span></div>{{ end }}
 <div class="container">
     <section class="mosaic">
         {{ range .Plugins }}
