@@ -22,10 +22,15 @@
         return 20;
     }
 
-    // Below this zoom the direction arrows are unreadable clutter, and with ~25
-    // rides there are a couple of hundred of them - each a DOM marker that
-    // Leaflet has to keep positioned. Drop them from the map when zoomed out.
+    // Baseline zoom for the arrow density ramp (arrowIntervalKm steps up from
+    // here). Also the gate for a single focused route.
     const ARROW_MIN_ZOOM = 10;
+
+    // In the all-rides overview there are a couple of hundred arrows across the
+    // whole region, so they read as clutter and cost the most exactly when you
+    // are not looking at any one route. Hold them off the map until you have
+    // zoomed well into a area, higher than the focused-route gate.
+    const ARROW_OVERVIEW_MIN_ZOOM = 12;
 
     // Ceiling on markers per ride so a long route zoomed right in cannot spawn
     // thousands of DOM nodes.
@@ -135,8 +140,8 @@
             return m._bikeIndex === activeIdx;
         }
 
-        // Overview of every ride: gate on zoom, where the couple of hundred
-        // markers both cost the most and read as noise.
+        // Overview of every ride: gate on a higher zoom, where the couple of
+        // hundred markers both cost the most and read as noise.
         if (!NS.mapReady()) return false;
         let zoom;
         try {
@@ -144,7 +149,7 @@
         } catch (e) {
             return false;
         }
-        return NS.num(zoom) ? zoom >= ARROW_MIN_ZOOM : true;
+        return NS.num(zoom) ? zoom >= ARROW_OVERVIEW_MIN_ZOOM : true;
     }
 
     NS.syncArrowVisibility = function () {
@@ -811,29 +816,60 @@
         });
     }
 
+    // The tracks are ~470 KB. They used to sit inline in the HTML, so every visit
+    // re-downloaded them; now they come from a versioned URL the browser caches.
+    // The inline form is still honoured, so a page cached from before the change
+    // keeps working after a deploy.
+    function loadRideData(dataEl) {
+        const inline = (dataEl.textContent || '').trim();
+        if (inline) {
+            try {
+                return Promise.resolve(JSON.parse(inline));
+            } catch (e) {
+                console.debug('[bike] failed to parse inline ride data:', e);
+                return Promise.resolve([]);
+            }
+        }
+
+        const src = dataEl.getAttribute('data-src');
+        if (!src) return Promise.resolve([]);
+
+        return fetch(src, { credentials: 'same-origin' })
+            .then(function (res) {
+                if (!res.ok) throw new Error('HTTP ' + res.status);
+                return res.json();
+            })
+            .catch(function (err) {
+                console.debug('[bike] failed to load ride data:', err);
+                return [];
+            });
+    }
+
     function init() {
         const dataEl = document.getElementById('bike-data');
         if (!dataEl) return;
 
-        let rides;
-        try {
-            rides = JSON.parse(dataEl.textContent || '[]');
-        } catch (e) {
-            console.debug('[bike] failed to parse ride data:', e);
-            return;
-        }
-        if (!Array.isArray(rides) || !rides.length) return;
+        const token = NS.state ? NS.state.token : null;
 
-        const st = NS.state;
-        st.rides = rides;
-        st.profiles = NS.buildProfiles(rides);
-        st.plainLines = new Array(rides.length);
+        loadRideData(dataEl).then(function (rides) {
+            if (!Array.isArray(rides) || !rides.length) return;
 
-        NS.bindProfileEvents();
+            const st = NS.state;
+            // The plugin can be re-inited while this fetch is in flight (websocket
+            // re-render, focus mode), so a late response must not overwrite the
+            // state of a map that has since been rebuilt.
+            if (!st || (token !== null && st.token !== token)) return;
 
-        NS.loadLeaflet().then(createMap).catch(function (err) {
-            console.debug('[bike] leaflet failed to load:', err);
-            NS.showMapMessage('Map failed to load');
+            st.rides = rides;
+            st.profiles = NS.buildProfiles(rides);
+            st.plainLines = new Array(rides.length);
+
+            NS.bindProfileEvents();
+
+            NS.loadLeaflet().then(createMap).catch(function (err) {
+                console.debug('[bike] leaflet failed to load:', err);
+                NS.showMapMessage('Map failed to load');
+            });
         });
     }
 

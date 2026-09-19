@@ -198,6 +198,14 @@ func main() {
 		}
 	}
 
+	if bp, ok := pluginManager.GetPlugin("bike"); ok {
+		if bike, ok := bp.(*plugins.BikePlugin); ok {
+			// GPS tracks used to be inlined into every page (~470 KB, re-sent on
+			// each visit). Served here so the browser can cache them by version.
+			r.HandleFunc("/api/bike-data.json", bike.HandleDataAPI).Methods("GET")
+		}
+	}
+
 	r.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Cache-Control", "no-cache")

@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"html/template"
+	"log"
 	"net/http"
+	"net/url"
 	"sort"
 	"strings"
 	"sync"
@@ -34,14 +36,30 @@ type ServiceStatus struct {
 	StatusCode   int       `json:"status_code"`
 }
 
-func NewServicesPlugin(storage *storage.Storage, hub *stream.Hub) *ServicesPlugin {
+func NewServicesPlugin(storage *storage.Storage, hub *stream.Hub, proxyURL string) *ServicesPlugin {
+	client := &http.Client{
+		Timeout: 10 * time.Second,
+	}
+
+	// The about page runs on an edge host that cannot reach the self-hosted
+	// services; a proxy inside their network makes the checks resolve and
+	// connect from there. http.Transport.Proxy handles http(s):// and
+	// socks5(h):// URLs natively, so no extra dialer is needed. A bad URL is
+	// logged and ignored rather than failing every check silently.
+	if proxyURL != "" {
+		if u, err := url.Parse(proxyURL); err == nil && u.Scheme != "" && u.Host != "" {
+			client.Transport = &http.Transport{Proxy: http.ProxyURL(u)}
+			log.Printf("[Services] routing checks through proxy %s", u.Redacted())
+		} else {
+			log.Printf("[Services] ignoring invalid SERVICES_PROXY_URL %q: %v", proxyURL, err)
+		}
+	}
+
 	return &ServicesPlugin{
 		storage:         storage,
 		hub:             hub,
 		serviceStatuses: make(map[string]ServiceStatus),
-		httpClient: &http.Client{
-			Timeout: 10 * time.Second,
-		},
+		httpClient:      client,
 	}
 }
 

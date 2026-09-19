@@ -23,7 +23,11 @@ const steamSectionTemplate = `
 			</div>
 			{{if .CurrentGameImage}}
 			<div class="current-game-cover">
-				<img src="{{.CurrentGameImage}}" alt="{{.CurrentGameName}}" class="game-cover-image" loading="lazy">
+				{{/* Steam header.jpg is always 460x215; stating it gives the box an
+				     aspect ratio before the image arrives, so the card reserves its
+				     real height instead of collapsing and shoving the layout down
+				     once the cover loads. */}}
+				<img src="{{.CurrentGameImage}}" alt="{{.CurrentGameName}}" class="game-cover-image" width="460" height="215" loading="lazy">
 			</div>
 			{{end}}
 			<div class="current-game-info">

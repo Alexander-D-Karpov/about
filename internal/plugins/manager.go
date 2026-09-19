@@ -118,7 +118,7 @@ func (m *Manager) LoadAll() error {
 		beatLeaderPlugin,
 		steamPlugin,
 		NewVisitorsPlugin(m.storage, m.hub, m.config.DataPath),
-		NewServicesPlugin(m.storage, m.hub),
+		NewServicesPlugin(m.storage, m.hub, m.config.ServicesProxyURL),
 		codePlugin,
 		NewInfoPlugin(m.storage, m.hub, m.appStartTime),
 		NewPersonalPlugin(m.storage, m.hub),
@@ -402,18 +402,27 @@ func (m *Manager) GetRenderedPluginsFresh(ctx context.Context) []template.HTML {
 
 func (m *Manager) getEnabledPluginsLocked() []Plugin {
 	var enabled []Plugin
+	order := make(map[string]int, len(m.plugins))
 
 	for _, plugin := range m.plugins {
 		config := m.storage.GetPluginConfig(plugin.Name())
 		if config.Enabled {
 			enabled = append(enabled, plugin)
+			order[plugin.Name()] = config.Order
 		}
 	}
 
-	sort.SliceStable(enabled, func(i, j int) bool {
-		configI := m.storage.GetPluginConfig(enabled[i].Name())
-		configJ := m.storage.GetPluginConfig(enabled[j].Name())
-		return configI.Order < configJ.Order
+	// m.plugins is a map, so `enabled` starts in a random order and a stable
+	// sort would hand ties whatever order this particular request happened to
+	// draw. Two plugins sharing an Order then swap places between page loads,
+	// which reshuffles the whole packed layout. Break ties by name so a given
+	// config always renders the same page.
+	sort.Slice(enabled, func(i, j int) bool {
+		nameI, nameJ := enabled[i].Name(), enabled[j].Name()
+		if order[nameI] != order[nameJ] {
+			return order[nameI] < order[nameJ]
+		}
+		return nameI < nameJ
 	})
 
 	var webring []Plugin

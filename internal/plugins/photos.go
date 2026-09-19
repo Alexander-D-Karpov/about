@@ -245,16 +245,44 @@ func (p *PhotosPlugin) UpdateData(ctx context.Context) error {
 		return err
 	}
 
-	for i := range foldersData.Folders {
-		folder := &foldersData.Folders[i]
-		if folder.PhotoCount > 0 {
-			photos, err := p.fetchFolderPhotos(ctx, apiUrl, folder.ID)
-			if err != nil {
-				continue
+	// Previously-known photos per folder, so a folder whose fetch fails this
+	// cycle keeps its thumbnails instead of blanking to a placeholder.
+	prevPhotos := map[int][]PhotosPhoto{}
+	p.mutex.RLock()
+	if p.data != nil {
+		for _, f := range p.data.Folders {
+			if len(f.Photos) > 0 {
+				prevPhotos[f.ID] = f.Photos
 			}
-			folder.Photos = photos
 		}
 	}
+	p.mutex.RUnlock()
+
+	// Fetch every folder's cover photos concurrently. Sequentially, the round
+	// trips add up: from the edge host each one is slow, and six in a row blew
+	// past the 30s refresh deadline so only the first folder ever got photos and
+	// the rest rendered as placeholders. In parallel the whole set costs about
+	// one round trip.
+	var wg sync.WaitGroup
+	for i := range foldersData.Folders {
+		folder := &foldersData.Folders[i]
+		if folder.PhotoCount == 0 {
+			continue
+		}
+		wg.Add(1)
+		go func(f *PhotosFolder) {
+			defer wg.Done()
+			photos, err := p.fetchFolderPhotos(ctx, apiUrl, f.ID)
+			if err != nil || len(photos) == 0 {
+				if cached, ok := prevPhotos[f.ID]; ok {
+					f.Photos = cached
+				}
+				return
+			}
+			f.Photos = photos
+		}(folder)
+	}
+	wg.Wait()
 
 	totalPhotos := 0
 	for _, f := range foldersData.Folders {

@@ -435,10 +435,10 @@ func (w *Worker) runOnce(ctx context.Context) error {
 		}
 
 		for name, spans := range result {
-			// meme (random per request) and profile (bio height depends on the
-			// viewer's fonts and the packer may down-span it) are reserved
-			// deterministically in the prebake, not from measurement.
-			if name == "meme" || name == "profile" {
+			// The meme image changes every request, so its measurement describes
+			// a meme nobody will see again; the prebake reserves it from the
+			// served image's dimensions instead.
+			if name == "meme" {
 				continue
 			}
 			if agg[name] == nil {

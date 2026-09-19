@@ -167,7 +167,7 @@ func (s *Storage) SetPluginConfig(pluginName string, config *PluginConfig) error
 	plugins[pluginName] = map[string]interface{}{
 		"enabled":  config.Enabled,
 		"order":    config.Order,
-		"settings": config.Settings,
+		"settings": copySettings(config.Settings),
 	}
 
 	if err := s.saveToFileAtomic(); err != nil {
@@ -359,6 +359,23 @@ func (s *Storage) CreateBackup() error {
 	return nil
 }
 
+// copySettings detaches a settings map from whoever else is holding it. Plugins
+// persist a setting by reading their config, mutating Settings and writing it
+// back, so handing out the map that lives inside s.data put every one of those
+// read-modify-write cycles — and every concurrent page render reading the same
+// map — on one shared map with no lock between them. That is what killed the
+// process with "concurrent map writes" from MusicPlugin.saveStats.
+//
+// The copy is one level deep, which is the level callers mutate: they replace
+// whole top-level keys rather than reaching into a nested value.
+func copySettings(in map[string]interface{}) map[string]interface{} {
+	out := make(map[string]interface{}, len(in))
+	for k, v := range in {
+		out[k] = v
+	}
+	return out
+}
+
 func (s *Storage) GetPluginConfig(pluginName string) *PluginConfig {
 	s.mutex.RLock()
 	defer s.mutex.RUnlock()
@@ -388,7 +405,7 @@ func (s *Storage) GetPluginConfig(pluginName string) *PluginConfig {
 		config.Order = orderInt
 	}
 	if settings, ok := pluginData["settings"].(map[string]interface{}); ok {
-		config.Settings = settings
+		config.Settings = copySettings(settings)
 	}
 
 	return config

@@ -2,11 +2,14 @@ package plugins
 
 import (
 	"context"
+	"crypto/sha1"
+	"encoding/hex"
 	"encoding/json"
 	"encoding/xml"
 	"fmt"
 	"html/template"
 	"math"
+	"net/http"
 	"sort"
 	"strconv"
 	"strings"
@@ -110,22 +113,15 @@ func (p *BikePlugin) Render(ctx context.Context) (string, error) {
 		avgSpeed = totalKm / (totalMoving / 60)
 	}
 
-	displayRides := make([]BikeRide, len(rides))
-	copy(displayRides, rides)
-	for i := range displayRides {
-		if displayRides[i].HideFirstKm > 0 && len(displayRides[i].Coordinates) > 1 {
-			displayRides[i].Coordinates = trimFirstKm(displayRides[i].Coordinates, displayRides[i].HideFirstKm)
-		}
-		if displayRides[i].HideLastKm > 0 && len(displayRides[i].Coordinates) > 1 {
-			displayRides[i].Coordinates = trimLastKm(displayRides[i].Coordinates, displayRides[i].HideLastKm)
-		}
-	}
+	// displayRides also drives the ride list below, whose data-ride="{{$i}}"
+	// indices must line up with the JSON array the map receives.
+	displayRides := displayRidesFrom(rides)
 
-	sort.Slice(displayRides, func(i, j int) bool {
-		return displayRides[i].Date > displayRides[j].Date
-	})
-
-	ridesJSON, _ := json.Marshal(displayRides)
+	// Only the version goes into the page. The tracks are ~470 KB - over half the
+	// whole page - and used to be inlined, so every visit re-downloaded them
+	// uncompressed. They now come from /api/bike-data.json?v=<hash>, which the
+	// browser caches, making a repeat visit cost nothing for this data.
+	_, ridesVersion := ridesPayloadOf(displayRides)
 
 	const tmpl = `
 <section class="bike-section section plugin" id="bike-plugin" data-w="2">
@@ -192,7 +188,7 @@ func (p *BikePlugin) Render(ctx context.Context) (string, error) {
 			{{end}}
 		</div>
 	</div>
-	<script id="bike-data" type="application/json">{{.RidesJSON}}</script>
+	<script id="bike-data" type="application/json" data-src="/api/bike-data.json?v={{.RidesVersion}}"></script>
 </section>`
 
 	funcMap := template.FuncMap{
@@ -219,7 +215,7 @@ func (p *BikePlugin) Render(ctx context.Context) (string, error) {
 		TotalElevation, TotalTime                    template.HTML
 		TotalRides                                   int
 		Rides                                        []BikeRide
-		RidesJSON                                    template.JS
+		RidesVersion                                 string
 	}{
 		SectionTitle:   sectionTitle,
 		TotalKm:        humanizeFloat(totalKm, 1),
@@ -229,7 +225,7 @@ func (p *BikePlugin) Render(ctx context.Context) (string, error) {
 		AvgSpeed:       humanizeFloat(avgSpeed, 1),
 		TotalTime:      formatBikeDurationHTML(totalDur),
 		Rides:          displayRides,
-		RidesJSON:      template.JS(ridesJSON),
+		RidesVersion:   ridesVersion,
 	}); err != nil {
 		return "", err
 	}
@@ -288,6 +284,65 @@ func (p *BikePlugin) GetMetrics() map[string]interface{} {
 		"total_rides":   len(rides),
 		"total_km":      total,
 		"avg_speed_kmh": avg,
+	}
+}
+
+// displayRidesFrom turns stored rides into exactly what the map draws: trimmed
+// per hide_first_km/hide_last_km and sorted newest-first. The page and
+// /api/bike-data.json both go through here so their ordering cannot drift - the
+// ride list's data-ride indices address the same array the map receives.
+func displayRidesFrom(rides []BikeRide) []BikeRide {
+	out := make([]BikeRide, len(rides))
+	copy(out, rides)
+	for i := range out {
+		if out[i].HideFirstKm > 0 && len(out[i].Coordinates) > 1 {
+			out[i].Coordinates = trimFirstKm(out[i].Coordinates, out[i].HideFirstKm)
+		}
+		if out[i].HideLastKm > 0 && len(out[i].Coordinates) > 1 {
+			out[i].Coordinates = trimLastKm(out[i].Coordinates, out[i].HideLastKm)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Date > out[j].Date })
+	return out
+}
+
+// ridesPayloadOf returns the JSON the map consumes plus a short content hash.
+// The hash goes in the URL as ?v=, so editing a ride yields a different URL and
+// browsers cannot keep serving stale tracks from cache.
+func ridesPayloadOf(displayRides []BikeRide) ([]byte, string) {
+	data, err := json.Marshal(displayRides)
+	if err != nil {
+		return []byte("[]"), "0"
+	}
+	sum := sha1.Sum(data)
+	return data, hex.EncodeToString(sum[:])[:8]
+}
+
+// HandleDataAPI serves the ride tracks that used to be inlined into the page.
+func (p *BikePlugin) HandleDataAPI(w http.ResponseWriter, r *http.Request) {
+	cfg := p.storage.GetPluginConfig(p.Name())
+	data, version := ridesPayloadOf(displayRidesFrom(p.loadRides(cfg.Settings)))
+	etag := `"` + version + `"`
+
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.Header().Set("ETag", etag)
+
+	// Cache forever only when the caller asked for the version it is actually
+	// getting. A stale or missing ?v still receives current data, and pinning
+	// that under a URL promising different content would serve the wrong tracks
+	// until the cache expired.
+	if r.URL.Query().Get("v") == version {
+		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+	} else {
+		w.Header().Set("Cache-Control", "no-cache")
+	}
+
+	if r.Header.Get("If-None-Match") == etag {
+		w.WriteHeader(http.StatusNotModified)
+		return
+	}
+	if _, err := w.Write(data); err != nil {
+		return
 	}
 }
 

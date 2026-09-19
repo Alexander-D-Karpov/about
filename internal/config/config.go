@@ -18,7 +18,14 @@ type Config struct {
 	HCGatewayUser     string
 	HCGatewayPassword string
 	SteamKey          string
-	Debug             bool
+	// ServicesProxyURL routes the service-status checker through a proxy so the
+	// checks egress from wherever the proxy runs. The about page is hosted on an
+	// edge server that cannot reach the self-hosted services directly; pointing
+	// this at a proxy inside their network lets the checks resolve and connect.
+	// Accepts http://, https://, socks5:// or socks5h:// (all handled natively
+	// by http.Transport.Proxy). Empty means check directly, as before.
+	ServicesProxyURL string
+	Debug            bool
 	// Prometheus Push (Sending data)
 	PrometheusPushGateway  string
 	PrometheusUser         string
@@ -43,6 +50,7 @@ func Load() *Config {
 		AdminPass:         getEnv("ADMIN_PASS", "password"),
 		LastFMKey:         getEnv("LASTFM_API_KEY", ""),
 		SteamKey:          getEnv("STEAM_API_KEY", ""),
+		ServicesProxyURL:  strings.TrimSpace(getEnv("SERVICES_PROXY_URL", "")),
 		HCGatewayURL:      getEnv("HCGATEWAY_URL", "https://api.hcgateway.shuchir.dev"),
 		HCGatewayUser:     getEnv("HCGATEWAY_USER", ""),
 		HCGatewayPassword: getEnv("HCGATEWAY_PASSWORD", ""),

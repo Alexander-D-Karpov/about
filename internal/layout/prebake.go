@@ -42,8 +42,16 @@ const (
 	maxPluginHeightCap = 2600
 	minPluginHeightCap = 120
 	heuristicBiasFrac  = 0.06
-	measuredBiasFrac   = 0.02
 	biasPad            = 8
+
+	// How much relative width growth one bucket — and so one stored height per
+	// plugin — is allowed to cover. Measured against the live page: at 1.12 the
+	// settling on hydration is 16px at 2000 and 1227px at 700 across an 8000px
+	// column. Tightening to 1.06 doubles the baked CSS and the measure pass and
+	// does not improve those numbers, because what is left is content reflowing
+	// a discrete row at some width no bucket boundary happens to sit on, not
+	// the width resolution of the buckets.
+	maxBucketWidthRatio = 1.12
 )
 
 var viewportBuckets = buildViewportBuckets()
@@ -187,12 +195,18 @@ func floorInt(v float64) int {
 	return int(math.Floor(v))
 }
 
+// biasUp pads a height so the reserved track cannot come out shorter than the
+// content. Only guesses get padded: a measured height came from a browser
+// laying out this exact markup at this exact column width, which is the number
+// the client will measure again on hydration. Padding a measurement makes the
+// prebaked box taller than the box the client settles on, and the
+// shortest-column packer turns that surplus into a different column — the
+// violent reshuffle on first paint.
 func biasUp(raw int, measured bool) int {
-	frac := heuristicBiasFrac
 	if measured {
-		frac = measuredBiasFrac
+		return raw
 	}
-	return int(math.Ceil(float64(raw)*(1+frac))) + biasPad
+	return int(math.Ceil(float64(raw)*(1+heuristicBiasFrac))) + biasPad
 }
 
 func containerPaddingForViewport(viewportWidth int) float64 {
@@ -232,6 +246,42 @@ func layoutStateForViewport(viewportWidth int) (cols, mosaicWidth int) {
 	return cols, mosaicWidth
 }
 
+type widthRange struct{ start, end int }
+
+// splitByWidthRatio cuts [lo, hi] into consecutive ranges, each covering at
+// most maxBucketWidthRatio of relative width growth. The cuts are geometric
+// rather than even, because a plugin's height tracks its column width
+// proportionally: a 40px step matters at 360px and is noise at 3000px.
+func splitByWidthRatio(lo, hi int) []widthRange {
+	if hi <= lo || lo <= 0 {
+		return []widthRange{{lo, hi}}
+	}
+
+	parts := int(math.Ceil(math.Log(float64(hi)/float64(lo)) / math.Log(maxBucketWidthRatio)))
+	if parts < 1 {
+		parts = 1
+	}
+
+	step := math.Pow(float64(hi)/float64(lo), 1/float64(parts))
+	out := make([]widthRange, 0, parts)
+	start := lo
+	for p := 1; p <= parts && start <= hi; p++ {
+		end := hi
+		if p < parts {
+			end = roundInt(float64(lo) * math.Pow(step, float64(p)))
+			if end >= hi {
+				end = hi
+			}
+			if end < start {
+				end = start
+			}
+		}
+		out = append(out, widthRange{start, end})
+		start = end + 1
+	}
+	return out
+}
+
 func buildViewportBuckets() []ViewportBucket {
 	type state struct {
 		Cols   int
@@ -267,16 +317,30 @@ func buildViewportBuckets() []ViewportBucket {
 			rangeEnd = rangeStart
 		}
 
-		sampleWidth := rangeStart + (rangeEnd-rangeStart)/2
-		cols, mosaicWidth := layoutStateForViewport(sampleWidth)
+		// A column-count run can be far too wide for one measurement to stand
+		// in for: the 2-column run from 521 to 715 is 37% of width, and a
+		// plugin measured at its midpoint came out hundreds of pixels off at
+		// either end. Slice the run geometrically so each bucket covers a small
+		// relative width change, and measure each slice separately.
+		for s, sub := range splitByWidthRatio(rangeStart, rangeEnd) {
+			bucketMin := sub.start
+			if s == 0 {
+				// keep the run's own boundary, so bucket 0 still starts at 0
+				// and the media queries tile the whole axis without a gap
+				bucketMin = minWidth
+			}
 
-		buckets = append(buckets, ViewportBucket{
-			Name:        fmt.Sprintf("bp%d", i),
-			MinWidth:    minWidth,
-			SampleWidth: sampleWidth,
-			Cols:        cols,
-			MosaicWidth: mosaicWidth,
-		})
+			sampleWidth := sub.start + (sub.end-sub.start)/2
+			cols, mosaicWidth := layoutStateForViewport(sampleWidth)
+
+			buckets = append(buckets, ViewportBucket{
+				Name:        fmt.Sprintf("bp%d", len(buckets)),
+				MinWidth:    bucketMin,
+				SampleWidth: sampleWidth,
+				Cols:        cols,
+				MosaicWidth: mosaicWidth,
+			})
+		}
 	}
 
 	return buckets
@@ -315,12 +379,10 @@ func estimateHeightFromHTML(name string, span, pluginWidth int, html string) int
 
 	switch name {
 	case "profile":
-		// The profile bio wraps taller as the column narrows, the packer can
-		// place the card at span 1 (narrowest) regardless of data-w, and text
-		// height depends on the viewer's fonts — so measurement underestimates
-		// it. Reserve deterministically and conservatively from the bio length
-		// at the given (span-1) width. usableWidth here is the span-1 width
-		// (ExtractLayout passes span 1 for the profile).
+		// Fallback for a profile that has not been measured yet. The bio wraps
+		// taller as the column narrows, so reserve from its length at the width
+		// this span actually occupies, counting characters wide enough to
+		// over-estimate the line count rather than under-estimate it.
 		const (
 			profileHeaderH = 168 // name + role lines + avatar block + paddings
 			profileCharPx  = 11  // deliberately wide: over-counts lines vs word-wrap
@@ -552,11 +614,11 @@ func ExtractLayout(html string, order int, bucket ViewportBucket, store HeightLo
 
 	height := 0
 	measured := false
-	// meme (random per request) and profile (bio height depends on span/width/
-	// fonts, and the packer may down-span it) both underestimate under
-	// measurement, so they never trust the store — their heights are reserved
-	// deterministically from content in estimateHeightFromHTML instead.
-	storeTrusted := name != "meme" && name != "profile"
+	// The meme image is drawn fresh per request, so a stored height describes
+	// some other meme; it is reserved from the served image's own dimensions in
+	// estimateHeightFromHTML instead. Everything else, profile included, is
+	// measured per bucket and per span at the width it will actually occupy.
+	storeTrusted := name != "meme"
 	if store != nil && storeTrusted {
 		if h, ok := store.Get(name, bucket.Name, w); ok && h > 0 {
 			height = h
@@ -808,9 +870,16 @@ func GenerateResponsiveCSS() template.CSS {
 		return ""
 	}
 
+	// Scoped to .js (set on <html> before the stylesheet loads) for two reasons.
+	// It outranks `.js .mosaic`, whose auto-fill track list would otherwise win
+	// on specificity and hand the grid a column count the baked col/row vars
+	// were not computed for. And with scripting off nothing here applies, so the
+	// mosaic stays in plain block flow rather than freezing into fixed-height
+	// tracks measured against another machine's font metrics, with no hydration
+	// coming to correct them.
 	writeBucketCSS := func(bucket ViewportBucket) {
-		css.WriteString(fmt.Sprintf(`.mosaic-prebaked{display:grid;grid-template-columns:repeat(%d,minmax(0,1fr));grid-auto-rows:1px;row-gap:0;column-gap:12px;align-items:start;}`, bucket.Cols))
-		css.WriteString(`.mosaic-prebaked>.plugin{`)
+		css.WriteString(fmt.Sprintf(`.js .mosaic-prebaked{display:grid;grid-template-columns:repeat(%d,minmax(0,1fr));grid-auto-rows:1px;row-gap:0;column-gap:12px;align-items:start;}`, bucket.Cols))
+		css.WriteString(`.js .mosaic-prebaked>.plugin{`)
 		css.WriteString(`align-self:start;`)
 		css.WriteString(`grid-column:var(--pb-` + bucket.Name + `-col)/span var(--pb-` + bucket.Name + `-cs);`)
 		css.WriteString(`grid-row:var(--pb-` + bucket.Name + `-row)/span var(--pb-` + bucket.Name + `-rs);`)

@@ -342,6 +342,12 @@ func (p *BeatLeaderPlugin) Render(ctx context.Context) (string, error) {
 	showPepeGif := p.getConfigBool(settings, "ui.showPepeGif", true)
 	showRecentMaps := p.getConfigBool(settings, "ui.showRecentMaps", true)
 	showMainStats := p.getConfigBool(settings, "ui.showMainStats", true)
+	// The list used to show 10 maps and made the card noticeably taller than its
+	// neighbours; 6 keeps it in line. Configurable for anyone who wants more.
+	maxRecentMaps := p.getConfigInt(settings, "ui.maxRecentMaps", 6)
+	if maxRecentMaps < 1 {
+		maxRecentMaps = 1
+	}
 
 	p.cubesMutex.RLock()
 	cubesSliced := p.cachedCubesSliced
@@ -445,7 +451,7 @@ func (p *BeatLeaderPlugin) Render(ctx context.Context) (string, error) {
 </section>`
 	var processedScores []map[string]interface{}
 	for i, score := range p.recentScores {
-		if i >= 10 {
+		if i >= maxRecentMaps {
 			break
 		}
 
@@ -746,6 +752,28 @@ func (p *BeatLeaderPlugin) getConfigBool(settings map[string]interface{}, key st
 		} else {
 			return defaultValue
 		}
+	}
+	return defaultValue
+}
+
+func (p *BeatLeaderPlugin) getConfigInt(settings map[string]interface{}, key string, defaultValue int) int {
+	keys := strings.Split(key, ".")
+	current := settings
+	for i, k := range keys {
+		if i == len(keys)-1 {
+			switch value := current[k].(type) {
+			case float64:
+				return int(value)
+			case int:
+				return value
+			}
+			return defaultValue
+		}
+		next, ok := current[k].(map[string]interface{})
+		if !ok {
+			return defaultValue
+		}
+		current = next
 	}
 	return defaultValue
 }

@@ -3,37 +3,64 @@ package layout
 import (
 	"html/template"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 )
 
 func reMustCompile(p string) *regexp.Regexp { return regexp.MustCompile(p) }
 
-func TestViewportBucketsMatchClientGridTransitions(t *testing.T) {
-	want := []struct {
-		minWidth int
-		cols     int
-	}{
-		{minWidth: 0, cols: 1},
-		{minWidth: 364, cols: 2},
-		{minWidth: 521, cols: 2},
-		{minWidth: 716, cols: 3},
-		{minWidth: 781, cols: 2},
-		{minWidth: 792, cols: 3},
-		{minWidth: 901, cols: 3},
-		{minWidth: 1132, cols: 4},
-		{minWidth: 1201, cols: 3},
-		{minWidth: 1292, cols: 4},
+// bucketFor resolves the bucket a browser lands in at this width, the way the
+// stacked `@media(min-width:...)` rules do: the last one whose MinWidth fits.
+func bucketFor(width int) ViewportBucket {
+	b := viewportBuckets[0]
+	for _, cand := range viewportBuckets {
+		if cand.MinWidth <= width {
+			b = cand
+		}
 	}
+	return b
+}
 
-	if len(viewportBuckets) < len(want) {
-		t.Fatalf("got %d viewport buckets, want at least %d", len(viewportBuckets), len(want))
+// Whatever the bucket boundaries are, the bucket a viewport resolves to must
+// agree with the client about how many columns the grid has — the baked
+// grid-column values are meaningless in a grid of a different width.
+func TestEveryViewportResolvesToABucketWithTheRightColumnCount(t *testing.T) {
+	for width := minSampleViewport; width <= maxPrebakeViewport; width++ {
+		wantCols, _ := layoutStateForViewport(width)
+		if got := bucketFor(width); got.Cols != wantCols {
+			t.Fatalf("at %dpx the page uses bucket %s with %d columns, client packs %d",
+				width, got.Name, got.Cols, wantCols)
+		}
 	}
+}
 
-	for i, expected := range want {
-		got := viewportBuckets[i]
-		if got.MinWidth != expected.minWidth || got.Cols != expected.cols {
-			t.Fatalf("bucket %d = {minWidth:%d cols:%d}, want {minWidth:%d cols:%d}", i, got.MinWidth, got.Cols, expected.minWidth, expected.cols)
+// A bucket stores one height per plugin, measured at its sample width, so every
+// viewport inside it is served a height measured at a different width. Keeping
+// each bucket narrow in relative terms keeps that error small: a plugin's
+// height tracks its column width, so a bucket spanning 37% of width (bp2 used
+// to span 521..715) served heights that were hundreds of pixels off at the
+// edges, and the page visibly settled on hydration.
+func TestBucketsAreNarrowEnoughForOneSampleToRepresentThem(t *testing.T) {
+	for i, b := range viewportBuckets {
+		lo := b.MinWidth
+		if lo < minSampleViewport {
+			lo = minSampleViewport
+		}
+		hi := maxPrebakeViewport
+		if i+1 < len(viewportBuckets) {
+			hi = viewportBuckets[i+1].MinWidth - 1
+		}
+		if hi <= lo {
+			continue
+		}
+		if ratio := float64(hi) / float64(lo); ratio > maxBucketWidthRatio+0.001 {
+			t.Errorf("bucket %s spans %d..%d (ratio %.3f), wider than %.2f",
+				b.Name, lo, hi, ratio, maxBucketWidthRatio)
+		}
+		if b.SampleWidth < lo || b.SampleWidth > hi {
+			t.Errorf("bucket %s samples at %d, outside its own range %d..%d",
+				b.Name, b.SampleWidth, lo, hi)
 		}
 	}
 }
@@ -41,14 +68,16 @@ func TestViewportBucketsMatchClientGridTransitions(t *testing.T) {
 func TestExtractLayoutUsesViewportAwareWidthHint(t *testing.T) {
 	html := `<section class="projects-section plugin" data-w="3" data-pb-h-1="111" data-pb-h-3="333"></section>`
 
+	// Each hint is a measurement, so it is reserved verbatim — except where the
+	// floor on plugin height lifts it (111 -> minPluginHeightCap).
 	narrow := ExtractLayout(html, 0, ViewportBucket{Cols: 1, MosaicWidth: 320}, nil)
-	if narrow.Width != 1 || narrow.Height != 122 {
-		t.Fatalf("narrow layout = %+v, want width 1 height 122", narrow)
+	if narrow.Width != 1 || narrow.Height != minPluginHeightCap {
+		t.Fatalf("narrow layout = %+v, want width 1 height %d", narrow, minPluginHeightCap)
 	}
 
 	wide := ExtractLayout(html, 0, ViewportBucket{Cols: 4, MosaicWidth: 1240}, nil)
-	if wide.Width != 3 || wide.Height != 348 {
-		t.Fatalf("wide layout = %+v, want width 3 height 348", wide)
+	if wide.Width != 3 || wide.Height != 333 {
+		t.Fatalf("wide layout = %+v, want width 3 height 333", wide)
 	}
 }
 
@@ -217,6 +246,96 @@ func TestPrebakePreservesPluginMapping(t *testing.T) {
 	}
 	if profileH < 200 {
 		t.Fatalf("profile height %d too small — bio not reserved", profileH)
+	}
+}
+
+// A measured height came out of a real browser laying out this exact markup at
+// this exact column width — the same number the client will measure on
+// hydration. Padding it makes the prebaked box taller than the box the client
+// settles on, and the shortest-column packer turns that difference into a
+// different column, which is the violent first-paint reshuffle.
+func TestMeasuredHeightIsReservedVerbatim(t *testing.T) {
+	html := `<section class="tech-section plugin" data-w="1"></section>`
+	bucket := ViewportBucket{Name: "bp0", Cols: 3, MosaicWidth: 900}
+	store := fakeLookup{"tech|bp0|1": 1234}
+	if got := ExtractLayout(html, 0, bucket, store).Height; got != 1234 {
+		t.Fatalf("measured height reserved as %d, want exactly 1234", got)
+	}
+}
+
+// The profile used to be barred from the store on the theory that measurement
+// underestimates its wrapped bio. It does not: the measure worker clones the
+// section at the target column width, which is exactly what the client packer
+// does. Refusing the measurement over-reserved the card by ~60%, and that one
+// bad height was enough to scatter most of the page into other columns.
+func TestProfileUsesMeasuredHeight(t *testing.T) {
+	html := `<section class="profile-section plugin" data-w="2"><div class="plugin__inner">` +
+		`<div class="profile-bio">short bio</div></div></section>`
+	bucket := ViewportBucket{Name: "bp8", Cols: 6, MosaicWidth: 1944}
+	store := fakeLookup{"profile|bp8|2": 235}
+	if got := ExtractLayout(html, 0, bucket, store).Height; got != 235 {
+		t.Fatalf("profile height %d, want the measured 235", got)
+	}
+}
+
+// End-to-end shape of the bug: with every height measured, the prebaked
+// placement must be the placement the client's packer produces from those same
+// heights — same column, same row, for every plugin. Any inflation the prebake
+// applies on top of a measurement shows up here as a mismatch.
+func TestPrebakedPlacementMatchesClientPackFromSameHeights(t *testing.T) {
+	type plugin struct {
+		name string
+		span int
+		h    int
+	}
+	// Heights a headless Chrome measured for the live page at a 2000px
+	// viewport; the client settled on exactly these.
+	page := []plugin{
+		{"webring", 2, 122}, {"profile", 2, 235}, {"social", 1, 223}, {"tech", 1, 360},
+		{"health", 2, 131}, {"bike", 2, 749}, {"music", 2, 564}, {"meme", 1, 327},
+		{"visitors", 1, 468}, {"code", 2, 1482}, {"neofetch", 2, 497}, {"places", 2, 398},
+		{"steam", 2, 740}, {"services", 2, 1085}, {"info", 2, 224}, {"beatleader", 2, 733},
+		{"photos", 2, 557},
+	}
+	// the bucket a 2000px viewport resolves to, which is where the capture below
+	// was taken
+	bucket := bucketFor(2000)
+	bucketName := bucket.Name
+	if bucket.Cols != 6 {
+		t.Fatalf("2000px resolves to %s with %d columns, expected six", bucketName, bucket.Cols)
+	}
+
+	store := fakeLookup{}
+	htmls := make([]template.HTML, len(page))
+	want := make([]PluginLayout, len(page))
+	for i, p := range page {
+		store[p.name+"|"+bucketName+"|"+strconv.Itoa(p.span)] = p.h
+		htmls[i] = template.HTML(
+			`<section class="` + p.name + `-section plugin" data-w="` + strconv.Itoa(p.span) + `"></section>`)
+		want[i] = PluginLayout{Name: p.name, Width: p.span, Height: p.h, Order: i}
+	}
+
+	// What the client does: pack the measured heights.
+	expected := map[string]Placement{}
+	for _, p := range packForCols(want, bucket.Cols) {
+		expected[p.Name] = p
+	}
+
+	// What the server reserves.
+	for i, h := range Prebake(htmls, store) {
+		name := page[i].name
+		if name == "meme" {
+			continue // random image per request, reserved from content by design
+		}
+		e := expected[name]
+		col := regexpFind(string(h), `--pb-`+bucketName+`-col:(\d+)`)
+		row := regexpFind(string(h), `--pb-`+bucketName+`-row:(\d+)`)
+		if wantCol := strconv.Itoa(e.Col + 1); col != wantCol {
+			t.Errorf("%s: prebaked column %s, client packs it at %s", name, col, wantCol)
+		}
+		if wantRow := strconv.Itoa(e.Row + 1); row != wantRow {
+			t.Errorf("%s: prebaked row %s, client packs it at %s", name, row, wantRow)
+		}
 	}
 }
 

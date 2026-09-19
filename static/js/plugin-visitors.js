@@ -28,8 +28,10 @@
 
     const FILL_OPACITY = [0, 0.18, 0.4, 0.65, 0.9];
     // Framed to the inhabited latitudes rather than the whole projection, so
-    // the countries fill the plugin without empty polar bands.
-    const WORLD_BOUNDS = [[-56, -168], [72, 190]];
+    // the countries fill the plugin without empty polar bands. Longitudes span
+    // the full -180..180 — an earlier value of 190 pushed the frame east of the
+    // antimeridian and clipped the Pacific/east Asia edge.
+    const WORLD_BOUNDS = [[-58, -180], [74, 180]];
     const EMPTY_RETRY_DELAY = 60000;
     const MAX_EMPTY_RETRIES = 10;
     const REFRESH_INTERVAL = 10 * 60 * 1000;
@@ -164,6 +166,17 @@
         maxCount = max;
     }
 
+    // Content for the single group tooltip, derived from whichever feature the
+    // pointer is over. Reads live counts, so it stays correct as websocket
+    // updates arrive without needing to re-set anything.
+    function tooltipTextFor(layer) {
+        const f = layer && layer.feature;
+        if (!f) return '';
+        const n = countsByISO3[f.id] || 0;
+        const name = (f.properties && f.properties.name) || f.id;
+        return n > 0 ? `${name} · ${n} visitor${n === 1 ? '' : 's'}` : name;
+    }
+
     function restyleGeoLayer() {
         if (!geoLayer) return;
         geoLayer.eachLayer(layer => {
@@ -171,13 +184,6 @@
             if (!f) return;
             const n = countsByISO3[f.id] || 0;
             layer.setStyle({ fillOpacity: FILL_OPACITY[levelFor(n, maxCount)] });
-            const name = (f.properties && f.properties.name) || f.id;
-            const text = n > 0 ? `${name} · ${n} visitor${n === 1 ? '' : 's'}` : name;
-            if (layer.getTooltip()) {
-                layer.setTooltipContent(text);
-            } else {
-                layer.bindTooltip(text, { sticky: true, direction: 'top', className: 'visitors-map-tooltip' });
-            }
         });
     }
 
@@ -243,13 +249,23 @@
         // No center/zoom on purpose: the view is framed below before any layer
         // is added, so the first paint is already the final one.
         const map = L.map(el, {
-            minZoom: 1,
+            // minZoom 0 + fractional zoomSnap let fitBounds reach whatever zoom
+            // actually fits the whole world in this container. With the old
+            // minZoom 1 (world = 512px wide) any container narrower than 512px —
+            // every mobile / single-column layout — could not zoom out far
+            // enough, so the map sat zoomed in and clipped east Asia off the
+            // right edge.
+            minZoom: 0,
             maxZoom: 5,
-            zoomControl: false,
+            zoomSnap: 0,
+            // +/- buttons plus the default double-click and pinch handlers give
+            // a way to zoom in. Wheel zoom stays off so scrolling the page over
+            // this small embedded map does not get trapped into zooming it.
+            zoomControl: true,
             attributionControl: false,
             scrollWheelZoom: false,
             worldCopyJump: true,
-            maxBounds: [[-56, -180], [78, 180]],
+            maxBounds: [[-60, -180], [80, 180]],
             maxBoundsViscosity: 1.0,
         });
 
@@ -258,12 +274,14 @@
         }
 
         // A resize changes how much of the world fits, so re-frame it — unless
-        // the visitor has panned the map themselves.
+        // the visitor has zoomed or panned the map themselves, in which case a
+        // resize must not snap their view back to the whole world.
         let lastSize = map.getSize();
         let userMoved = false;
         ['pointerdown', 'keydown'].forEach((evt) => {
             el.addEventListener(evt, () => { userMoved = true; }, {passive: true});
         });
+        map.on('zoomstart dragstart', () => { userMoved = true; });
 
         function applySize() {
             // pan defaults to true, keeping the center across a resize instead
@@ -300,6 +318,19 @@
                         layer.on('mouseout', () => layer.setStyle({ weight: 0.5, color: edge }));
                     }
                 }).addTo(map);
+
+                // A single tooltip bound to the whole group, not one per country.
+                // Per-feature tooltips pile up: on this small map, moving across
+                // tiny adjacent countries (and any zoom/resize re-projection)
+                // skips the mouseout that would close the previous one, so they
+                // stack and stay pinned. One shared sticky tooltip is a single
+                // DOM node that just follows the pointer and re-reads its content
+                // per feature, so it can never stack.
+                geoLayer.bindTooltip(tooltipTextFor, {
+                    sticky: true,
+                    direction: 'top',
+                    className: 'visitors-map-tooltip'
+                });
 
                 restyleGeoLayer();
 
