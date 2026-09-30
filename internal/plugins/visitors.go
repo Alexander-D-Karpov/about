@@ -37,6 +37,7 @@ type VisitorsPlugin struct {
 	currentDay   string
 	dataPath     string
 	mutex        sync.RWMutex
+	saveMu       sync.Mutex
 	lastSaveTime time.Time
 	dailyStats   map[string]int64
 	dailyUnique  map[string]int64
@@ -373,13 +374,47 @@ func (p *VisitorsPlugin) saveVisitorsDataAsync(ctx context.Context) error {
 		return fmt.Errorf("create dir error: %w", err)
 	}
 
-	tempFile := dataFile + ".tmp"
-	if err := os.WriteFile(tempFile, data, 0644); err != nil {
-		return fmt.Errorf("write temp file error: %w", err)
+	// Serialize the whole write. Saves fire from several goroutines (per visit,
+	// day rollover, the periodic saver); the old code shared one fixed
+	// "visitors.json.tmp" across them, so their writes interleaved into that one
+	// file and their renames raced — which is how the file got corrupted and the
+	// history was lost. One writer at a time, each with its own temp file.
+	p.saveMu.Lock()
+	defer p.saveMu.Unlock()
+
+	// Keep the last good copy as a backup before overwriting, so a future
+	// corruption is always recoverable (see loadVisitorsData). Only rotate when
+	// the current file still parses, so we never overwrite a good backup with a
+	// bad primary.
+	if cur, err := os.ReadFile(dataFile); err == nil {
+		var check VisitorsData
+		if json.Unmarshal(cur, &check) == nil {
+			_ = os.WriteFile(dataFile+".bak", cur, 0644)
+		}
 	}
 
-	if err := os.Rename(tempFile, dataFile); err != nil {
-		os.Remove(tempFile)
+	tmp, err := os.CreateTemp(p.dataPath, "visitors-*.json.tmp")
+	if err != nil {
+		return fmt.Errorf("create temp file error: %w", err)
+	}
+	tempName := tmp.Name()
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		os.Remove(tempName)
+		return fmt.Errorf("write temp file error: %w", err)
+	}
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		os.Remove(tempName)
+		return fmt.Errorf("sync temp file error: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		os.Remove(tempName)
+		return fmt.Errorf("close temp file error: %w", err)
+	}
+
+	if err := os.Rename(tempName, dataFile); err != nil {
+		os.Remove(tempName)
 		return fmt.Errorf("rename file error: %w", err)
 	}
 
@@ -676,21 +711,50 @@ func (p *VisitorsPlugin) UpdateData(ctx context.Context) error {
 	}
 }
 
+// decodeVisitorsFile reads and parses a visitors data file. A missing file
+// returns an os.IsNotExist error; a present-but-unparseable one returns a
+// non-nil error the caller treats as corruption.
+func decodeVisitorsFile(path string) (VisitorsData, error) {
+	var d VisitorsData
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return d, err
+	}
+	if err := json.Unmarshal(data, &d); err != nil {
+		return d, fmt.Errorf("parse %s: %w", path, err)
+	}
+	return d, nil
+}
+
 func (p *VisitorsPlugin) loadVisitorsData() {
 	dataFile := filepath.Join(p.dataPath, "visitors.json")
 
-	data, err := os.ReadFile(dataFile)
+	visitorsData, err := decodeVisitorsFile(dataFile)
 	if err != nil {
-		if !os.IsNotExist(err) {
-			log.Printf("[Visitors] ERROR reading data file: %v", err)
+		if os.IsNotExist(err) {
+			return // fresh install
 		}
-		return
-	}
 
-	var visitorsData VisitorsData
-	if err := json.Unmarshal(data, &visitorsData); err != nil {
-		log.Printf("[Visitors] ERROR parsing JSON: %v", err)
-		return
+		// A corrupt or unreadable primary must NOT fall through to empty maps:
+		// the periodic save would then overwrite the (recoverable) file with
+		// zeros — exactly how the prod history was wiped. Preserve the bad file
+		// and load the last good backup instead.
+		log.Printf("[Visitors] ERROR loading %s, attempting backup recovery: %v", dataFile, err)
+		if data, rerr := os.ReadFile(dataFile); rerr == nil {
+			corruptName := fmt.Sprintf("%s.corrupt-%d", dataFile, time.Now().UnixNano())
+			if werr := os.WriteFile(corruptName, data, 0644); werr == nil {
+				log.Printf("[Visitors] preserved corrupt file as %s", corruptName)
+			}
+		}
+
+		backup, berr := decodeVisitorsFile(dataFile + ".bak")
+		if berr != nil {
+			log.Printf("[Visitors] no usable backup (%v); starting empty but keeping the corrupt copy", berr)
+			p.currentDay = time.Now().Format("2006-01-02")
+			return
+		}
+		log.Printf("[Visitors] recovered from backup: total=%d, countries=%d", backup.TotalVisits, len(backup.CountryStats))
+		visitorsData = backup
 	}
 
 	p.visitCount = visitorsData.TotalVisits

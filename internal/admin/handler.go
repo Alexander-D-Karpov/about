@@ -898,13 +898,20 @@ func (h *Handler) updatePluginAPI(w http.ResponseWriter, r *http.Request) {
 		"enabled": enabled,
 	})
 
+	// Echo back the same clean settings the GET path serves, not the persisted
+	// blob. `settings` here still carries the hidden runtime keys reattached by
+	// preserveHiddenSettings (current_data, sleep_records, ...); the admin
+	// re-renders the plugin form straight from this response, and on a plugin
+	// like health those maps grow one entry per day/sleep, so rendering them as
+	// editable fields freezes the tab. filterInternalSettings returns a fresh
+	// map, so persistence above is unaffected.
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"success":  true,
 		"message":  fmt.Sprintf("Plugin %s updated successfully", pluginName),
 		"plugin":   pluginName,
 		"order":    order,
 		"enabled":  enabled,
-		"settings": settings,
+		"settings": h.filterInternalSettings(pluginName, settings),
 	})
 }
 
