@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 )
@@ -91,6 +92,7 @@ type glEvent struct {
 	PushData    *struct {
 		CommitCount int    `json:"commit_count"`
 		Ref         string `json:"ref"`
+		RefType     string `json:"ref_type"`
 		Action      string `json:"action"`
 		CommitTo    string `json:"commit_to"`
 		CommitTitle string `json:"commit_title"`
@@ -187,72 +189,142 @@ func (p *GitLabProvider) FetchActivities(ctx context.Context, since time.Time, l
 		if ev.CreatedAt.Before(since) {
 			continue
 		}
-
-		repoName, repoURL, repoPrivate := p.projectInfo(ctx, ev.ProjectID)
-		item := GitActivityItem{
-			Time:    ev.CreatedAt,
-			Repo:    gitShortRepo(repoName),
-			URL:     repoURL,
-			Source:  p.Label(),
-			Color:   p.Color(),
-			Private: p.cfg.Private || repoPrivate,
-		}
-
-		switch {
-		case ev.PushData != nil && ev.PushData.CommitCount > 0:
-			n := ev.PushData.CommitCount
-			item.Type = "push"
-			item.Commits = n
-			item.Ref = gitShortRef(ev.PushData.Ref)
-			item.Title = fmt.Sprintf("Pushed %d commit%s to %s", n, gitPlural(n), item.Repo)
-			if n == 1 && ev.PushData.CommitTitle != "" {
-				item.Title = gitFirstLine(ev.PushData.CommitTitle)
-			}
-			if ev.PushData.CommitTo != "" && repoURL != "" {
-				item.URL = repoURL + "/-/commit/" + ev.PushData.CommitTo
-			}
-
-		case ev.TargetType == "MergeRequest":
-			switch ev.ActionName {
-			case "opened":
-				item.Type = "pr"
-				item.Title = fmt.Sprintf("Opened MR !%d: %s", ev.TargetIID, ev.TargetTitle)
-			case "accepted", "merged":
-				item.Type = "merge"
-				item.Title = fmt.Sprintf("Merged MR !%d: %s", ev.TargetIID, ev.TargetTitle)
-			case "closed":
-				item.Type = "pr"
-				item.Title = fmt.Sprintf("Closed MR !%d: %s", ev.TargetIID, ev.TargetTitle)
-			default:
-				continue
-			}
-
-		case ev.TargetType == "Issue":
-			switch ev.ActionName {
-			case "opened":
-				item.Type = "issue"
-				item.Title = fmt.Sprintf("Opened issue #%d: %s", ev.TargetIID, ev.TargetTitle)
-			case "closed":
-				item.Type = "issue"
-				item.Title = fmt.Sprintf("Closed issue #%d: %s", ev.TargetIID, ev.TargetTitle)
-			default:
-				continue
-			}
-
-		case ev.ActionName == "created" && ev.TargetType == "":
-			item.Type = "create"
-			item.Title = "Created project " + item.Repo
-
-		default:
+		item, ok := p.eventItem(ctx, ev)
+		// Branch create/delete and comments only exist so the day view adds up.
+		if !ok || item.Type == "delete" || item.Type == "other" || (item.Type == "create" && ev.PushData != nil) {
 			continue
 		}
-
 		items = append(items, item)
 		if len(items) >= limit {
 			break
 		}
 	}
 	return items, nil
+}
+
+// FetchDayDetails lists every event of the date. Without calendar.json the calendar counts one
+// contribution per event, so anything left out here would be reported as private for that day.
+// A private source is already counted as private wholesale by the day API.
+func (p *GitLabProvider) FetchDayDetails(ctx context.Context, date string) ([]GitActivityItem, error) {
+	if p.cfg.Private {
+		return nil, nil
+	}
+	day, err := time.Parse("2006-01-02", date)
+	if err != nil {
+		return nil, err
+	}
+	id, err := p.resolveUserID(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	after := day.AddDate(0, 0, -1).Format("2006-01-02")
+	before := day.AddDate(0, 0, 1).Format("2006-01-02")
+	var items []GitActivityItem
+	for page := 1; page <= 10; page++ {
+		var events []glEvent
+		endpoint := fmt.Sprintf("%s/api/v4/users/%d/events?per_page=100&page=%d&after=%s&before=%s",
+			p.base, id, page, after, before)
+		if err := gitFetchJSON(ctx, p.client, "GET", endpoint, p.headers(), nil, &events); err != nil {
+			if page == 1 {
+				return nil, err
+			}
+			break
+		}
+		for _, ev := range events {
+			if ev.CreatedAt.Format("2006-01-02") != date {
+				continue
+			}
+			if item, ok := p.eventItem(ctx, ev); ok {
+				items = append(items, item)
+			}
+		}
+		if len(events) < 100 {
+			break
+		}
+	}
+	return items, nil
+}
+
+func (p *GitLabProvider) eventItem(ctx context.Context, ev glEvent) (GitActivityItem, bool) {
+	repoName, repoURL, repoPrivate := p.projectInfo(ctx, ev.ProjectID)
+	item := GitActivityItem{
+		Time:    ev.CreatedAt,
+		Repo:    gitShortRepo(repoName),
+		URL:     repoURL,
+		Source:  p.Label(),
+		Color:   p.Color(),
+		Private: p.cfg.Private || repoPrivate,
+	}
+
+	switch {
+	case ev.PushData != nil && ev.PushData.CommitCount > 0:
+		n := ev.PushData.CommitCount
+		item.Type = "push"
+		item.Commits = n
+		item.Ref = gitShortRef(ev.PushData.Ref)
+		item.Title = fmt.Sprintf("Pushed %d commit%s to %s", n, gitPlural(n), item.Repo)
+		if n == 1 && ev.PushData.CommitTitle != "" {
+			item.Title = gitFirstLine(ev.PushData.CommitTitle)
+		}
+		if ev.PushData.CommitTo != "" && repoURL != "" {
+			item.URL = repoURL + "/-/commit/" + ev.PushData.CommitTo
+		}
+
+	case ev.TargetType == "MergeRequest":
+		switch ev.ActionName {
+		case "opened":
+			item.Type = "pr"
+			item.Title = fmt.Sprintf("Opened MR !%d: %s", ev.TargetIID, ev.TargetTitle)
+		case "accepted", "merged":
+			item.Type = "merge"
+			item.Title = fmt.Sprintf("Merged MR !%d: %s", ev.TargetIID, ev.TargetTitle)
+		case "closed":
+			item.Type = "pr"
+			item.Title = fmt.Sprintf("Closed MR !%d: %s", ev.TargetIID, ev.TargetTitle)
+		default:
+			p.otherEvent(&item, ev)
+		}
+
+	case ev.TargetType == "Issue":
+		switch ev.ActionName {
+		case "opened":
+			item.Type = "issue"
+			item.Title = fmt.Sprintf("Opened issue #%d: %s", ev.TargetIID, ev.TargetTitle)
+		case "closed":
+			item.Type = "issue"
+			item.Title = fmt.Sprintf("Closed issue #%d: %s", ev.TargetIID, ev.TargetTitle)
+		default:
+			p.otherEvent(&item, ev)
+		}
+
+	case ev.ActionName == "created" && ev.TargetType == "":
+		item.Type = "create"
+		item.Title = "Created project " + item.Repo
+
+	case ev.PushData != nil && ev.PushData.Action == "removed":
+		item.Type = "delete"
+		item.Title = fmt.Sprintf("Deleted %s %s in %s", ev.PushData.RefType, gitShortRef(ev.PushData.Ref), item.Repo)
+
+	case ev.PushData != nil && ev.PushData.Action == "created":
+		item.Type = "create"
+		item.Ref = gitShortRef(ev.PushData.Ref)
+		item.Title = fmt.Sprintf("Created %s %s in %s", ev.PushData.RefType, item.Ref, item.Repo)
+
+	default:
+		p.otherEvent(&item, ev)
+	}
+	return item, true
+}
+
+// otherEvent describes an event the activity feed does not show (comments, approvals...);
+// the day view still lists it because the calendar counted it.
+func (p *GitLabProvider) otherEvent(item *GitActivityItem, ev glEvent) {
+	item.Type = "other"
+	item.Title = strings.TrimSpace(ev.ActionName + " " + ev.TargetTitle)
+	if item.Title != "" {
+		item.Title = strings.ToUpper(item.Title[:1]) + item.Title[1:]
+	}
 }
 
 func (p *GitLabProvider) fetchProjectStats(ctx context.Context, id int) (RepoStats, error) {
