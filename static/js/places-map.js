@@ -13,6 +13,10 @@
     let interactionTimeout = null;
     let userMovedMap = false;
     let lastMapSize = null;
+    let tileLayer = null;
+    let tileErrors = 0;
+    let classObserver = null;
+    let initToken = 0;
 
     function clamp(v, min, max) {
         return Math.max(min, Math.min(max, v));
@@ -49,8 +53,11 @@
             return;
         }
 
+        const token = ++initToken;
         loadLeaflet()
             .then(() => {
+                // The section may have been swapped (live re-render) while Leaflet loaded.
+                if (token !== initToken || !container.isConnected || map) return;
                 createMap(container);
             })
             .catch((err) => {
@@ -141,10 +148,12 @@
         // CARTO's basemaps now require an API key and watermark unkeyed tiles
         // with "API KEY REQUIRED", so both themes use OpenStreetMap. Dark mode
         // is produced by filtering .leaflet-tile-pane in CSS instead.
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        tileErrors = 0;
+        tileLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
             attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
             maxZoom: 18
         }).addTo(map);
+        tileLayer.on('tileerror', () => { tileErrors++; });
 
         createHeatLayer();
         createMarkersLayer();
@@ -172,12 +181,6 @@
             mapResizeCleanup = null;
         }
         mapResizeCleanup = setupMapResizeHandling(fullscreenTarget);
-
-        window
-            .matchMedia('(prefers-color-scheme: dark)')
-            .addEventListener('change', () => {
-                location.reload();
-            });
     }
 
     function computeHeatData() {
@@ -483,7 +486,8 @@
             fitBtn.addEventListener('click', () => fitAllPlaces());
         }
 
-        const observer = new MutationObserver(() => {
+        if (classObserver) classObserver.disconnect();
+        const observer = classObserver = new MutationObserver(() => {
             setTimeout(() => {
                 if (map) map.invalidateSize();
             }, 300);
@@ -613,18 +617,69 @@
             mapResizeCleanup();
             mapResizeCleanup = null;
         }
+        if (classObserver) {
+            classObserver.disconnect();
+            classObserver = null;
+        }
         if (map) {
             map.remove();
             map = null;
         }
         heatLayer = null;
         markersLayer = null;
+        tileLayer = null;
         markers = [];
         isHeatmapMode = true;
         userMovedMap = false;
         lastMapSize = null;
         initPlacesMap();
     };
+
+    // Self-heal: the section is re-rendered live (plugin_rendered swaps it for a
+    // fresh, empty #places-map), and tiles requested while the tab slept or the
+    // network was down stay broken. Rebuild a missing map, re-request failed tiles.
+    function ensurePlacesMap() {
+        const container = document.getElementById('places-map');
+        if (!container) return;
+        if (!map || map.getContainer() !== container || !container.isConnected) {
+            window.reinitPlacesMap();
+            return;
+        }
+        invalidatePlacesMapSize();
+        if (tileErrors > 0 && tileLayer && navigator.onLine !== false) {
+            tileErrors = 0;
+            tileLayer.redraw();
+        }
+    }
+
+    let ensureTimer = null;
+    function scheduleEnsure() {
+        clearTimeout(ensureTimer);
+        ensureTimer = setTimeout(ensurePlacesMap, 100);
+    }
+
+    new MutationObserver((muts) => {
+        for (const m of muts) {
+            for (const n of m.addedNodes) {
+                if (n.nodeType === 1 && (n.id === 'places-map' || n.querySelector?.('#places-map'))) {
+                    scheduleEnsure();
+                    return;
+                }
+            }
+        }
+    }).observe(document.documentElement, {childList: true, subtree: true});
+
+    document.addEventListener('visibilitychange', () => {
+        if (!document.hidden) scheduleEnsure();
+    });
+    window.addEventListener('pageshow', (e) => { if (e.persisted) scheduleEnsure(); });
+    window.addEventListener('online', scheduleEnsure);
+
+    window
+        .matchMedia('(prefers-color-scheme: dark)')
+        .addEventListener('change', () => {
+            location.reload();
+        });
 
     setTimeout(() => {
         if (map) {

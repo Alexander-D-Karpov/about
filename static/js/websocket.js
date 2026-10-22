@@ -489,6 +489,15 @@
 
         if (!newSection) return;
 
+        // The live places section is full of Leaflet DOM, so it never matches a fresh
+        // render. Compare its data instead; swapping it would throw the map away.
+        if (data.plugin === 'places') {
+            const sameData = ['places-data', 'places-config'].every((id) =>
+                (section.querySelector('#' + id)?.textContent || '').trim() ===
+                (newSection.querySelector('#' + id)?.textContent || '').trim());
+            if (sameData) return;
+        }
+
         // Nothing meaningful changed - do not rebuild, do not repack, do not jump.
         if (normalizePluginForCompare(section) === normalizePluginForCompare(newSection)) {
             return;
