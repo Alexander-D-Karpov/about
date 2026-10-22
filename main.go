@@ -338,8 +338,16 @@ const (
 	// Embedded assets change only on deploy and carry no cache-buster, so keep
 	// the window short enough that a deploy propagates within a week.
 	cacheShort = "public, max-age=604800"
-	cacheNone  = "no-cache, no-store, must-revalidate"
+	// Files the server regenerates in place under the same name (the BeatLeader
+	// cubes image) must expire quickly, or the edge and browsers keep the old one.
+	cacheGenerated = "public, max-age=300"
+	cacheNone      = "no-cache, no-store, must-revalidate"
 )
+
+// generatedMedia are /media paths rewritten in place by the server.
+var generatedMedia = map[string]bool{
+	"/media/bs.jpg": true,
+}
 
 // cacheAssetExts are the extensions treated as long-lived static assets.
 var cacheAssetExts = map[string]bool{
@@ -358,6 +366,8 @@ func cacheControlFor(urlPath string) string {
 		return cacheNone
 	}
 	switch {
+	case generatedMedia[urlPath]:
+		return cacheGenerated
 	case strings.HasPrefix(urlPath, "/media/"):
 		return cacheImmutable
 	case strings.HasPrefix(urlPath, "/static/libs/"):

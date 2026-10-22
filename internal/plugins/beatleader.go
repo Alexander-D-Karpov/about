@@ -277,7 +277,9 @@ func (p *BeatLeaderPlugin) saveCachedCubes() {
 func (p *BeatLeaderPlugin) calculateCubesSlicedBackground() {
 	time.Sleep(10 * time.Second)
 
-	ticker := time.NewTicker(24 * time.Hour)
+	// Check hourly against the stored timestamp: a fixed 24h ticker restarted with
+	// every deploy, so frequent deploys kept postponing the recalculation.
+	ticker := time.NewTicker(time.Hour)
 	defer ticker.Stop()
 
 	shouldRecalculate := false
@@ -302,7 +304,12 @@ func (p *BeatLeaderPlugin) calculateCubesSlicedBackground() {
 	}
 
 	for range ticker.C {
-		p.performCubesCalculation()
+		p.cubesMutex.RLock()
+		stale := time.Since(p.lastCubesCalculated) > 24*time.Hour
+		p.cubesMutex.RUnlock()
+		if stale {
+			p.performCubesCalculation()
+		}
 	}
 }
 
@@ -833,8 +840,9 @@ func (p *BeatLeaderPlugin) performCubesCalculation() {
 	for {
 		scores, metadata, err := p.fetchScoresPage(username, page, scoresPerPage)
 		if err != nil {
-			log.Printf("BeatLeader: Error fetching scores page %d: %v", page, err)
-			break
+			// A partial sum would overwrite the good cached total with a smaller one.
+			log.Printf("BeatLeader: Error fetching scores page %d: %v, keeping previous total", page, err)
+			return
 		}
 
 		if page == 1 {
@@ -978,7 +986,7 @@ func (p *BeatLeaderPlugin) generateCubesImage() error {
 	if lastCalc.IsZero() {
 		actualAt = "calculating..."
 	} else {
-		actualAt = fmt.Sprintf("accurate as of %s", lastCalc.Format("Jan 2, 2006 15:04 UTC"))
+		actualAt = fmt.Sprintf("accurate as of %s", lastCalc.UTC().Format("Jan 2, 2006 15:04 UTC"))
 	}
 
 	imgWidth := 1400

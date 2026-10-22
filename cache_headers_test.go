@@ -12,6 +12,7 @@ func TestCacheControlFor(t *testing.T) {
 		// file is always a new URL - safe to freeze.
 		{"media image is immutable", "/media/uploads/social/20260119110734_beat.png", cacheImmutable},
 		{"media jpg is immutable", "/media/uploads/meme/20260112051632_photo.jpg", cacheImmutable},
+		{"regenerated media is short-lived", "/media/bs.jpg", cacheGenerated},
 
 		// Third-party libs are NOT versioned in the path, so they must stay
 		// revalidatable or a Leaflet upgrade would strand cached clients.
