@@ -1129,7 +1129,20 @@ func (g *GitActivity) HandleDayAPI(w http.ResponseWriter, r *http.Request) {
 		itemPrivate = entry.Private
 	}
 
-	extras := g.feedExtrasForDate(date)
+	// Providers whose day details cover every event type (Gitea) already returned these.
+	seen := make(map[string]bool, len(items))
+	itemKey := func(it GitActivityItem) string {
+		return it.Source + "|" + it.Type + "|" + it.Title + "|" + strconv.FormatInt(it.Time.Unix(), 10)
+	}
+	for _, it := range items {
+		seen[itemKey(it)] = true
+	}
+	var extras []GitActivityItem
+	for _, it := range g.feedExtrasForDate(date) {
+		if !seen[itemKey(it)] {
+			extras = append(extras, it)
+		}
+	}
 
 	publicCount := 0
 	for _, it := range items {

@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-const gitDayStoreVersion = 2
+const gitDayStoreVersion = 3
 
 type gitDayEntry struct {
 	Items     []GitActivityItem `json:"items"`

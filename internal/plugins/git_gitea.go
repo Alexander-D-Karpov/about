@@ -99,126 +99,171 @@ func (p *GiteaProvider) FetchActivities(ctx context.Context, since time.Time, li
 		if f.Created.Before(since) {
 			continue
 		}
-
-		item := GitActivityItem{
-			Time:    f.Created,
-			Repo:    gitShortRepo(f.Repo.FullName),
-			URL:     f.Repo.HTMLURL,
-			Source:  p.Label(),
-			Color:   p.Color(),
-			Private: p.cfg.Private || f.Repo.Private,
-		}
-
-		issueTitle := func() (int, string) {
-			parts := strings.SplitN(f.Content, "|", 2)
-			idx := 0
-			title := f.Content
-			if len(parts) == 2 {
-				fmt.Sscanf(parts[0], "%d", &idx)
-				title = parts[1]
-			}
-			return idx, title
-		}
-
-		switch f.OpType {
-		case "commit_repo", "mirror_sync_push":
-			var pc struct {
-				Len     int `json:"Len"`
-				Commits []struct {
-					Sha1    string `json:"Sha1"`
-					Message string `json:"Message"`
-				} `json:"Commits"`
-				HeadCommit struct {
-					Sha1    string `json:"Sha1"`
-					Message string `json:"Message"`
-				} `json:"HeadCommit"`
-			}
-			json.Unmarshal([]byte(f.Content), &pc)
-			n := pc.Len
-			if n == 0 {
-				n = len(pc.Commits)
-			}
-			if n == 0 {
-				n = 1
-			}
-			item.Type = "push"
-			item.Commits = n
-			item.Ref = gitShortRef(f.RefName)
-			item.Title = fmt.Sprintf("Pushed %d commit%s to %s", n, gitPlural(n), item.Repo)
-
-			headSha := pc.HeadCommit.Sha1
-			headMsg := pc.HeadCommit.Message
-			if headSha == "" && len(pc.Commits) > 0 {
-				headSha = pc.Commits[0].Sha1
-				headMsg = pc.Commits[0].Message
-			}
-			if n == 1 {
-				if msg := gitFirstLine(headMsg); msg != "" {
-					item.Title = msg
-				}
-			}
-			if headSha != "" && f.Repo.HTMLURL != "" {
-				item.URL = f.Repo.HTMLURL + "/commit/" + headSha
-			}
-
-		case "create_repo":
-			item.Type = "create"
-			item.Title = "Created repository " + item.Repo
-
-		case "star_repo":
-			item.Type = "star"
-			item.Repo = f.Repo.FullName
-			item.Title = "Starred " + f.Repo.FullName
-
-		case "create_issue":
-			idx, title := issueTitle()
-			item.Type = "issue"
-			item.Title = fmt.Sprintf("Opened issue #%d: %s", idx, title)
-			if f.Repo.HTMLURL != "" && idx > 0 {
-				item.URL = fmt.Sprintf("%s/issues/%d", f.Repo.HTMLURL, idx)
-			}
-
-		case "close_issue":
-			idx, title := issueTitle()
-			item.Type = "issue"
-			item.Title = fmt.Sprintf("Closed issue #%d: %s", idx, title)
-			if f.Repo.HTMLURL != "" && idx > 0 {
-				item.URL = fmt.Sprintf("%s/issues/%d", f.Repo.HTMLURL, idx)
-			}
-
-		case "create_pull_request":
-			idx, title := issueTitle()
-			item.Type = "pr"
-			item.Title = fmt.Sprintf("Opened PR #%d: %s", idx, title)
-			if f.Repo.HTMLURL != "" && idx > 0 {
-				item.URL = fmt.Sprintf("%s/pulls/%d", f.Repo.HTMLURL, idx)
-			}
-
-		case "merge_pull_request", "auto_merge_pull_request":
-			idx, title := issueTitle()
-			item.Type = "merge"
-			item.Title = fmt.Sprintf("Merged PR #%d: %s", idx, title)
-			if f.Repo.HTMLURL != "" && idx > 0 {
-				item.URL = fmt.Sprintf("%s/pulls/%d", f.Repo.HTMLURL, idx)
-			}
-
-		case "publish_release":
-			item.Type = "release"
-			item.Title = fmt.Sprintf("Released %s in %s", gitShortRef(f.RefName), item.Repo)
-			if f.Repo.HTMLURL != "" && f.RefName != "" {
-				item.URL = f.Repo.HTMLURL + "/releases/tag/" + gitShortRef(f.RefName)
-			}
-
-		default:
+		item, ok := p.feedItem(f)
+		if !ok || item.Type == "delete" {
 			continue
 		}
-
 		items = append(items, item)
 		if len(items) >= limit {
 			break
 		}
 	}
 	return items, nil
+}
+
+// FetchDayDetails lists every action from the date's feed. The heatmap counts one contribution
+// per action of any kind, so anything left out here would be reported as private for that day.
+func (p *GiteaProvider) FetchDayDetails(ctx context.Context, date string) ([]GitActivityItem, error) {
+	var items []GitActivityItem
+	for page := 1; page <= 20; page++ {
+		var feeds []giteaFeed
+		endpoint := fmt.Sprintf("%s/api/v1/users/%s/activities/feeds?only-performed-by=true&date=%s&limit=50&page=%d",
+			p.base, url.PathEscape(p.cfg.Username), url.QueryEscape(date), page)
+		if err := gitFetchJSON(ctx, p.client, "GET", endpoint, p.headers(), nil, &feeds); err != nil {
+			if page == 1 {
+				return nil, err
+			}
+			break
+		}
+		for _, f := range feeds {
+			if f.Created.Local().Format("2006-01-02") != date {
+				continue
+			}
+			if item, ok := p.feedItem(f); ok {
+				items = append(items, item)
+			}
+		}
+		if len(feeds) < 50 {
+			break
+		}
+	}
+	return items, nil
+}
+
+func (p *GiteaProvider) feedItem(f giteaFeed) (GitActivityItem, bool) {
+	item := GitActivityItem{
+		Time:    f.Created,
+		Repo:    gitShortRepo(f.Repo.FullName),
+		URL:     f.Repo.HTMLURL,
+		Source:  p.Label(),
+		Color:   p.Color(),
+		Private: p.cfg.Private || f.Repo.Private,
+	}
+
+	issueTitle := func() (int, string) {
+		parts := strings.SplitN(f.Content, "|", 2)
+		idx := 0
+		title := f.Content
+		if len(parts) == 2 {
+			fmt.Sscanf(parts[0], "%d", &idx)
+			title = parts[1]
+		}
+		return idx, title
+	}
+	switch f.OpType {
+	case "commit_repo", "mirror_sync_push":
+		var pc struct {
+			Len     int `json:"Len"`
+			Commits []struct {
+				Sha1    string `json:"Sha1"`
+				Message string `json:"Message"`
+			} `json:"Commits"`
+			HeadCommit struct {
+				Sha1    string `json:"Sha1"`
+				Message string `json:"Message"`
+			} `json:"HeadCommit"`
+		}
+		json.Unmarshal([]byte(f.Content), &pc)
+		n := pc.Len
+		if n == 0 {
+			n = len(pc.Commits)
+		}
+		if n == 0 {
+			n = 1
+		}
+		item.Type = "push"
+		item.Commits = n
+		item.Ref = gitShortRef(f.RefName)
+		item.Title = fmt.Sprintf("Pushed %d commit%s to %s", n, gitPlural(n), item.Repo)
+
+		headSha := pc.HeadCommit.Sha1
+		headMsg := pc.HeadCommit.Message
+		if headSha == "" && len(pc.Commits) > 0 {
+			headSha = pc.Commits[0].Sha1
+			headMsg = pc.Commits[0].Message
+		}
+		if n == 1 {
+			if msg := gitFirstLine(headMsg); msg != "" {
+				item.Title = msg
+			}
+		}
+		if headSha != "" && f.Repo.HTMLURL != "" {
+			item.URL = f.Repo.HTMLURL + "/commit/" + headSha
+		}
+
+	case "create_repo":
+		item.Type = "create"
+		item.Title = "Created repository " + item.Repo
+
+	case "star_repo":
+		item.Type = "star"
+		item.Repo = f.Repo.FullName
+		item.Title = "Starred " + f.Repo.FullName
+
+	case "create_issue":
+		idx, title := issueTitle()
+		item.Type = "issue"
+		item.Title = fmt.Sprintf("Opened issue #%d: %s", idx, title)
+		if f.Repo.HTMLURL != "" && idx > 0 {
+			item.URL = fmt.Sprintf("%s/issues/%d", f.Repo.HTMLURL, idx)
+		}
+
+	case "close_issue":
+		idx, title := issueTitle()
+		item.Type = "issue"
+		item.Title = fmt.Sprintf("Closed issue #%d: %s", idx, title)
+		if f.Repo.HTMLURL != "" && idx > 0 {
+			item.URL = fmt.Sprintf("%s/issues/%d", f.Repo.HTMLURL, idx)
+		}
+
+	case "create_pull_request":
+		idx, title := issueTitle()
+		item.Type = "pr"
+		item.Title = fmt.Sprintf("Opened PR #%d: %s", idx, title)
+		if f.Repo.HTMLURL != "" && idx > 0 {
+			item.URL = fmt.Sprintf("%s/pulls/%d", f.Repo.HTMLURL, idx)
+		}
+
+	case "merge_pull_request", "auto_merge_pull_request":
+		idx, title := issueTitle()
+		item.Type = "merge"
+		item.Title = fmt.Sprintf("Merged PR #%d: %s", idx, title)
+		if f.Repo.HTMLURL != "" && idx > 0 {
+			item.URL = fmt.Sprintf("%s/pulls/%d", f.Repo.HTMLURL, idx)
+		}
+
+	case "publish_release":
+		item.Type = "release"
+		item.Title = fmt.Sprintf("Released %s in %s", gitShortRef(f.RefName), item.Repo)
+		if f.Repo.HTMLURL != "" && f.RefName != "" {
+			item.URL = f.Repo.HTMLURL + "/releases/tag/" + gitShortRef(f.RefName)
+		}
+
+	case "push_tag":
+		item.Type = "release"
+		item.Title = fmt.Sprintf("Pushed tag %s to %s", gitShortRef(f.RefName), item.Repo)
+		if f.Repo.HTMLURL != "" && f.RefName != "" {
+			item.URL = f.Repo.HTMLURL + "/src/tag/" + gitShortRef(f.RefName)
+		}
+
+	case "delete_tag", "delete_branch":
+		item.Type = "delete"
+		item.Title = fmt.Sprintf("Deleted %s %s in %s", strings.TrimPrefix(f.OpType, "delete_"), gitShortRef(f.RefName), item.Repo)
+
+	default:
+		return item, false
+	}
+	return item, true
 }
 
 func (p *GiteaProvider) listRepos(ctx context.Context) ([]giteaRepo, bool) {
