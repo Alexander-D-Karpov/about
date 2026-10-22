@@ -462,10 +462,10 @@ func estimateHeightFromHTML(name string, span, pluginWidth int, html string) int
 		rows := ceilDiv(max(stats, 1), 3)
 		h = 90 + rows*70
 		if strings.Contains(lower, "visitors-chart") {
-			h += 60
+			h += 125 // head + 64px bars + axis
 		}
 		if strings.Contains(lower, "visitors-map") {
-			h += 296
+			h += 220 // label row + map capped at 160px
 		}
 
 	case "services":

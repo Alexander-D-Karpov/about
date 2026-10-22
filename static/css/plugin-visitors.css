@@ -6,11 +6,18 @@
     overflow: hidden;
 }
 
+.visitors-card {
+    container-type: inline-size;
+    margin-top: 4px;
+    border-radius: 10px;
+    border: 1px solid var(--edge-0);
+    background: rgba(255, 255, 255, .01);
+    overflow: hidden;
+}
+
 .visitors-stats {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 8px;
-    margin-top: 4px;
 }
 
 .visitors-stats:has(> .visitor-stat:only-child) {
@@ -23,16 +30,13 @@
 
 .visitor-stat {
     text-align: center;
-    padding: 10px 4px;
-    border-radius: 10px;
-    background: transparent;
-    border: 1px solid var(--edge-0);
-    transition: border-color .15s ease;
+    padding: 12px 4px 10px;
     min-width: 0;
+    cursor: default;
 }
 
-.visitor-stat:hover {
-    border-color: var(--edge-1);
+.visitor-stat + .visitor-stat {
+    border-left: 1px solid var(--edge-0);
 }
 
 .visitor-number {
@@ -43,6 +47,7 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    font-variant-numeric: tabular-nums;
 }
 
 .visitor-label {
@@ -52,60 +57,7 @@
     font-family: var(--mono);
     text-transform: uppercase;
     letter-spacing: .5px;
-}
-
-.visitor-uptime {
-    font-size: 14px;
-    font-weight: 700;
-    color: var(--ink-2);
-}
-
-.visitor-stat[data-tooltip] {
-    cursor: help;
-    position: relative;
-}
-
-.visitor-stat[data-tooltip]::before {
-    content: attr(data-tooltip);
-    position: absolute;
-    bottom: calc(100% + 8px);
-    left: 50%;
-    transform: translateX(-50%);
-    background: var(--paper);
-    color: var(--ink);
-    padding: 8px 12px;
-    border-radius: 8px;
-    font-size: 12px;
-    font-weight: 600;
-    font-family: var(--mono);
     white-space: nowrap;
-    box-shadow: inset 0 0 0 1px var(--edge-1);
-    opacity: 0;
-    pointer-events: none;
-    transition: opacity .15s ease;
-    z-index: 100;
-}
-
-.visitor-stat[data-tooltip]:hover::before {
-    opacity: 1;
-}
-
-.visitor-stat[data-tooltip]::after {
-    content: '';
-    position: absolute;
-    bottom: calc(100% + 2px);
-    left: 50%;
-    transform: translateX(-50%);
-    border: 6px solid transparent;
-    border-top-color: var(--paper);
-    opacity: 0;
-    pointer-events: none;
-    transition: opacity .15s ease;
-    z-index: 100;
-}
-
-.visitor-stat[data-tooltip]:hover::after {
-    opacity: 1;
 }
 
 .visitors-block-label {
@@ -119,60 +71,91 @@
     display: flex;
     flex-direction: column;
     gap: 8px;
-    margin-top: 12px;
-    padding: 10px;
-    border-radius: 10px;
-    border: 1px solid var(--edge-0);
-    background: rgba(255, 255, 255, .01);
+    padding: 10px 12px 10px;
 }
 
-.visitors-heatmap {
+.visitors-stats + .visitors-chart {
+    border-top: 1px solid var(--edge-0);
+}
+
+.visitors-chart-head {
     display: flex;
-    flex-wrap: wrap;
-    gap: 3px;
-    max-width: 100%;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
 }
 
-.visitors-day {
-    width: 11px;
-    height: 11px;
-    border-radius: 3px;
-    background: rgba(255, 255, 255, .05);
-    flex: 0 0 auto;
+.visitors-chart-head .visitors-block-label {
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
-.visitors-heat-scale .visitors-day {
-    width: 8px;
-    height: 8px;
-    border-radius: 2px;
+.visitors-trend {
+    font: 700 10px/1 var(--mono);
+    padding: 3px 6px;
+    border-radius: 999px;
+    color: var(--muted);
+    background: color-mix(in oklch, var(--muted) 14%, transparent);
+    white-space: nowrap;
+    cursor: help;
 }
 
-.visitors-day[data-level="1"] {
-    background: color-mix(in oklch, var(--accent) 25%, transparent);
+.visitors-trend[data-dir="up"] {
+    color: var(--accent);
+    background: color-mix(in oklch, var(--accent) 16%, transparent);
 }
 
-.visitors-day[data-level="2"] {
-    background: color-mix(in oklch, var(--accent) 48%, transparent);
+.visitors-bars {
+    display: flex;
+    align-items: flex-end;
+    gap: 2px;
+    height: 64px;
+    padding-top: 4px;
+    border-bottom: 1px solid var(--edge-0);
 }
 
-.visitors-day[data-level="3"] {
-    background: color-mix(in oklch, var(--accent) 74%, transparent);
+.visitors-bar {
+    flex: 1 1 0;
+    min-width: 2px;
+    max-width: 18px;
+    height: max(var(--h), 4%);
+    border-radius: 2px 2px 0 0;
+    background: color-mix(in oklch, var(--accent) 55%, transparent);
+    transition: background .12s ease;
 }
 
-.visitors-day[data-level="4"] {
+.visitors-bar:hover {
     background: var(--accent);
 }
 
-.visitors-heatmap .visitors-day:hover {
-    outline: 1px solid var(--ink-2);
-    cursor: default;
+/* A day with no visits: no bar, just a faint tick on the baseline. */
+.visitors-bar.is-empty {
+    height: 2px;
+    background: var(--edge-1);
+}
+
+/* Today is still accumulating - outline it so a short bar doesn't read as a drop. */
+.visitors-bar.is-today {
+    background: transparent;
+    box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+.visitors-bars-axis {
+    display: flex;
+    justify-content: space-between;
+    gap: 6px;
+    white-space: nowrap;
+    font: 600 9px/1 var(--mono);
+    color: var(--muted);
+    margin-top: -2px;
 }
 
 .visitors-heat-scale {
     display: inline-flex;
     align-items: center;
     gap: 3px;
-    align-self: flex-end;
     font: 600 9px/1 var(--mono);
     color: var(--muted);
 }
@@ -211,9 +194,11 @@
     background: rgba(255, 255, 255, .01);
 }
 
+/* The map is context, not the headline: keep it shorter than the stats card. */
 .visitors-map {
-    aspect-ratio: 2.2 / 1;
-    min-height: 150px;
+    aspect-ratio: 2.8 / 1;
+    min-height: 110px;
+    max-height: 160px;
     border-radius: 8px;
     overflow: hidden;
     background: #0a0e14;
@@ -250,13 +235,26 @@
 }
 
 @media (prefers-color-scheme: light) {
-    .visitors-chart,
+    .visitors-card,
     .visitors-regions {
         background: rgba(0, 0, 0, .015);
     }
 
-    .visitors-day,
     .region-scale {
         background: rgba(0, 0, 0, .05);
+    }
+}
+/* Narrow tile: drop the axis peak note and tighten the counters. */
+@container (max-width: 260px) {
+    .visitors-axis-peak {
+        display: none;
+    }
+
+    .visitor-number {
+        font-size: 16px;
+    }
+
+    .visitor-label {
+        letter-spacing: .2px;
     }
 }

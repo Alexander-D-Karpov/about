@@ -25,7 +25,7 @@ const (
 	visitorsHistoryDays  = 365
 	visitorsGeoQueueSize = 256
 	visitorsGeoCacheCap  = 10000
-	visitorsHeatmapWeeks = 16
+	visitorsTrendDays    = 30
 )
 
 type VisitorsPlugin struct {
@@ -89,6 +89,11 @@ func normalizeVisitorIP(ip string) string {
 		return host
 	}
 	return ip
+}
+
+func isLoopbackIP(ip string) bool {
+	parsed := net.ParseIP(ip)
+	return parsed != nil && parsed.IsLoopback()
 }
 
 func visitorHash(ip, ua string) string {
@@ -421,64 +426,103 @@ func (p *VisitorsPlugin) saveVisitorsDataAsync(ctx context.Context) error {
 	return nil
 }
 
-type visitorsHeatDay struct {
-	Date   string
-	Count  int64
-	Unique int64
-	Level  int
+type visitorsBar struct {
+	Title  string
+	Height int // percent of the busiest day
+	Today  bool
 }
 
-func (p *VisitorsPlugin) buildHeatmapLocked(weeks int) []visitorsHeatDay {
+type visitorsTrend struct {
+	Bars       []visitorsBar
+	FromLabel  string
+	Peak       string
+	PeakDate   string
+	TrendLabel string
+	TrendDir   string // "up", "down", "flat" or "" when there is no previous week to compare
+}
+
+// buildTrendLocked charts unique visitors per day for the last `days` days. Unique rather
+// than raw visits: a single client polling the page used to add ~720 "visits" a day, which
+// flattened every real day to nothing. History starts at the first day with data.
+func (p *VisitorsPlugin) buildTrendLocked(days int) *visitorsTrend {
 	now := time.Now()
 	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
 
-	var out []visitorsHeatDay
-	var maxV int64
-
-	for w := weeks - 1; w >= 0; w-- {
-		end := today.AddDate(0, 0, -w*7)
-		start := end.AddDate(0, 0, -6)
-
-		var count, uniq int64
-		for d := start; !d.After(end); d = d.AddDate(0, 0, 1) {
-			date := d.Format("2006-01-02")
-			if date == p.currentDay {
-				count += p.todayCount
-				uniq += int64(len(p.uniqueToday))
-			} else {
-				count += p.dailyStats[date]
-				uniq += p.dailyUnique[date]
-			}
+	on := func(d time.Time) (visits, unique int64) {
+		date := d.Format("2006-01-02")
+		if date == p.currentDay {
+			return p.todayCount, int64(len(p.uniqueToday))
 		}
-
-		if count > maxV {
-			maxV = count
-		}
-
-		out = append(out, visitorsHeatDay{
-			Date:   start.Format("Jan 2") + " – " + end.Format("Jan 2"),
-			Count:  count,
-			Unique: uniq,
-		})
+		return p.dailyStats[date], p.dailyUnique[date]
 	}
 
-	for i := range out {
-		c := out[i].Count
-		if c <= 0 || maxV <= 0 {
-			continue
+	start := today.AddDate(0, 0, -(days - 1))
+	for !start.After(today) {
+		if _, u := on(start); u > 0 {
+			break
 		}
-		t := math.Log(float64(c)+1) / math.Log(float64(maxV)+1)
-		level := int(math.Ceil(t * 4))
-		if level < 1 {
-			level = 1
-		}
-		if level > 4 {
-			level = 4
-		}
-		out[i].Level = level
+		start = start.AddDate(0, 0, 1)
+	}
+	if start.After(today) {
+		return nil
 	}
 
-	return out
+	var peak int64
+	var peakDay time.Time
+	for d := start; !d.After(today); d = d.AddDate(0, 0, 1) {
+		if _, u := on(d); u > peak {
+			peak, peakDay = u, d
+		}
+	}
+
+	t := &visitorsTrend{
+		FromLabel: start.Format("Jan 2"),
+		Peak:      formatNumberWithCommas(peak),
+		PeakDate:  peakDay.Format("Jan 2"),
+	}
+
+	var week, prev int64
+	for i := 0; i < 14; i++ {
+		_, u := on(today.AddDate(0, 0, -i))
+		if i < 7 {
+			week += u
+		} else {
+			prev += u
+		}
+	}
+	// Only compare against a full previous week of data.
+	if prev > 0 && !start.After(today.AddDate(0, 0, -13)) {
+		pct := int(math.Round(float64(week-prev) / float64(prev) * 100))
+		switch {
+		case week >= 3*prev:
+			t.TrendDir = "up"
+			t.TrendLabel = fmt.Sprintf("▲ ×%d", int(math.Round(float64(week)/float64(prev))))
+		case pct > 0:
+			t.TrendDir = "up"
+			t.TrendLabel = fmt.Sprintf("▲ %d%%", pct)
+		case pct < 0:
+			t.TrendDir = "down"
+			t.TrendLabel = fmt.Sprintf("▼ %d%%", -pct)
+		default:
+			t.TrendDir = "flat"
+			t.TrendLabel = "= 0%"
+		}
+	}
+
+	for d := start; !d.After(today); d = d.AddDate(0, 0, 1) {
+		v, u := on(d)
+		h := 0
+		if peak > 0 {
+			h = int(math.Round(float64(u) / float64(peak) * 100))
+		}
+		isToday := d.Equal(today)
+		title := d.Format("Mon, Jan 2") + ": " + formatNumberWithCommas(u) + " unique · " + formatNumberWithCommas(v) + " visits"
+		if isToday {
+			title += " (so far)"
+		}
+		t.Bars = append(t.Bars, visitorsBar{Title: title, Height: h, Today: isToday})
+	}
+	return t
 }
 
 func (p *VisitorsPlugin) Render(ctx context.Context) (string, error) {
@@ -501,9 +545,9 @@ func (p *VisitorsPlugin) Render(ctx context.Context) (string, error) {
 	totalVisits := p.visitCount
 	todayVisits := p.todayCount
 	uniqueVisits := int64(len(p.uniqueToday))
-	var heatmap []visitorsHeatDay
+	var trend *visitorsTrend
 	if showHeatmap {
-		heatmap = p.buildHeatmapLocked(visitorsHeatmapWeeks)
+		trend = p.buildTrendLocked(visitorsTrendDays)
 	}
 	var countryCopy map[string]int64
 	if showRegions && len(p.countryStats) > 0 {
@@ -529,40 +573,49 @@ func (p *VisitorsPlugin) Render(ctx context.Context) (string, error) {
 		<h2 class="plugin-title">{{.SectionTitle}}</h2>
 	</header>
 	<div class="plugin__inner">
-		<div class="visitors-stats">
-			{{if .ShowTotal}}
-			<div class="visitor-stat" data-tooltip="Exact: {{.TotalExact}}">
-				<div class="visitor-number" data-stat="total">{{.TotalFormatted}}</div>
-				<div class="visitor-label">Total</div>
+		<div class="visitors-card">
+			{{if or .ShowTotal .ShowToday .ShowUnique}}
+			<div class="visitors-stats">
+				{{if .ShowTotal}}
+				<div class="visitor-stat" title="{{.TotalExact}} visits all time">
+					<div class="visitor-number" data-stat="total">{{.TotalFormatted}}</div>
+					<div class="visitor-label">Total</div>
+				</div>
+				{{end}}
+				{{if .ShowToday}}
+				<div class="visitor-stat" title="{{.TodayExact}} visits today">
+					<div class="visitor-number" data-stat="today">{{.TodayFormatted}}</div>
+					<div class="visitor-label">Today</div>
+				</div>
+				{{end}}
+				{{if .ShowUnique}}
+				<div class="visitor-stat" title="Unique visitors today">
+					<div class="visitor-number" data-stat="unique">{{.UniqueFormatted}}</div>
+					<div class="visitor-label">Unique</div>
+				</div>
+				{{end}}
 			</div>
 			{{end}}
-			{{if .ShowToday}}
-			<div class="visitor-stat" data-tooltip="Exact: {{.TodayExact}}">
-				<div class="visitor-number" data-stat="today">{{.TodayFormatted}}</div>
-				<div class="visitor-label">Today</div>
-			</div>
-			{{end}}
-			{{if .ShowUnique}}
-			<div class="visitor-stat" data-tooltip="Unique visitors today">
-				<div class="visitor-number" data-stat="unique">{{.UniqueFormatted}}</div>
-				<div class="visitor-label">Unique</div>
+			{{with .Trend}}
+			<div class="visitors-chart">
+				<div class="visitors-chart-head">
+					<span class="visitors-block-label">Unique visitors / day</span>
+					{{if .TrendDir}}<span class="visitors-trend" data-dir="{{.TrendDir}}" title="Unique visitors, last 7 days vs the 7 days before">{{.TrendLabel}}</span>{{end}}
+				</div>
+				<div class="visitors-bars" role="img" aria-label="Unique visitors per day since {{.FromLabel}}, peak {{.Peak}} on {{.PeakDate}}">
+					{{range .Bars}}<span class="visitors-bar{{if .Today}} is-today{{end}}{{if eq .Height 0}} is-empty{{end}}" style="--h: {{.Height}}%" title="{{.Title}}"></span>{{end}}
+				</div>
+				<div class="visitors-bars-axis"><span>{{.FromLabel}}</span><span class="visitors-axis-peak">peak {{.Peak}} · {{.PeakDate}}</span><span>today</span></div>
 			</div>
 			{{end}}
 		</div>
-		{{if .Heatmap}}
-		<div class="visitors-chart">
-			<span class="visitors-block-label">Visits · last {{.HeatmapWeeks}} weeks</span>
-			<div class="visitors-heatmap">
-				{{range .Heatmap}}<span class="visitors-day" data-level="{{.Level}}" title="{{.Date}}: {{.Count}} visits{{if .Unique}} / {{.Unique}} unique{{end}}"></span>{{end}}
-			</div>
-			<div class="visitors-heat-scale">Less<span class="visitors-day" data-level="1"></span><span class="visitors-day" data-level="2"></span><span class="visitors-day" data-level="3"></span><span class="visitors-day" data-level="4"></span>More</div>
-		</div>
-		{{end}}
 		{{if .ShowRegions}}
 		<div class="visitors-regions visitors-regions--map">
-			<span class="visitors-block-label">Regions · heatmap</span>
+			<div class="visitors-chart-head">
+				<span class="visitors-block-label">Regions</span>
+				<div class="visitors-heat-scale">Less<span class="region-scale" data-level="1"></span><span class="region-scale" data-level="2"></span><span class="region-scale" data-level="3"></span><span class="region-scale" data-level="4"></span>More</div>
+			</div>
 			<div class="visitors-map" data-countries="{{.CountriesJSON}}"></div>
-			<div class="visitors-heat-scale">Less<span class="region-scale" data-level="1"></span><span class="region-scale" data-level="2"></span><span class="region-scale" data-level="3"></span><span class="region-scale" data-level="4"></span>More</div>
 		</div>
 		{{end}}
 	</div>
@@ -579,8 +632,7 @@ func (p *VisitorsPlugin) Render(ctx context.Context) (string, error) {
 		TodayFormatted  string
 		TodayExact      string
 		UniqueFormatted string
-		Heatmap         []visitorsHeatDay
-		HeatmapWeeks    int
+		Trend           *visitorsTrend
 		CountriesJSON   string
 	}{
 		SectionTitle:    sectionTitle,
@@ -593,8 +645,7 @@ func (p *VisitorsPlugin) Render(ctx context.Context) (string, error) {
 		TodayFormatted:  formatNumber(todayVisits),
 		TodayExact:      formatNumberWithCommas(todayVisits),
 		UniqueFormatted: formatNumber(uniqueVisits),
-		Heatmap:         heatmap,
-		HeatmapWeeks:    visitorsHeatmapWeeks,
+		Trend:           trend,
 		CountriesJSON:   countriesJSON,
 	}
 
@@ -613,8 +664,10 @@ func (p *VisitorsPlugin) Render(ctx context.Context) (string, error) {
 
 func (p *VisitorsPlugin) RecordVisit(userAgent, ip string) {
 	countBots := p.getConfigBool(p.storage.GetPluginConfig(p.Name()).Settings, "ui.countBots", false)
-	bot := isBotUA(userAgent)
 	ip = normalizeVisitorIP(ip)
+	// Real visitors always arrive through nginx with their own address; a loopback
+	// client is something on the server polling the page (~720 hits a day).
+	bot := isBotUA(userAgent) || isLoopbackIP(ip)
 
 	p.mutex.Lock()
 
