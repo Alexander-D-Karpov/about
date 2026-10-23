@@ -138,3 +138,41 @@
         box-shadow: 0 3px 6px rgba(0, 0, 0, .12);
     }
 }
+/* Slightly smaller link tiles: 34px, 18px icons. */
+.plugin.social-section .social-links {
+    gap: 6px;
+}
+
+.plugin.social-section .social-link {
+    width: 34px;
+    height: 34px;
+    border-radius: 8px;
+}
+
+.plugin.social-section .social-link :is(img, svg) {
+    width: 18px;
+    height: 18px;
+}
+
+/* Small tiles: keep them close to the title bar. */
+.plugin.social-section .plugin__inner {
+    padding-top: 4px;
+}
+
+/* Phones: bigger, easier-to-hit tiles. */
+@media (max-width: 720px) {
+    .plugin.social-section .social-links {
+        gap: 8px;
+    }
+
+    .plugin.social-section .social-link {
+        width: 44px;
+        height: 44px;
+        border-radius: 10px;
+    }
+
+    .plugin.social-section .social-link :is(img, svg) {
+        width: 22px;
+        height: 22px;
+    }
+}

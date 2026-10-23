@@ -220,8 +220,9 @@
         return clamp(vw * 0.03, 12, 28);
     }
 
+    // Capped like .js .mosaic's max-width (MaxMosaicWidth in prebake.go).
     function mosaicWidthForViewport(vw) {
-        return Math.max(0, Math.floor(vw - viewportPadding(vw) * 2));
+        return Math.min(1680, Math.max(0, Math.floor(vw - viewportPadding(vw) * 2)));
     }
 
     function effectiveMosaicWidth() {
@@ -241,7 +242,8 @@
         const gap = parseFloat(gapStr.split(/\s+/)[0]) || 12;
         const minCol = readColMin();
 
-        cachedCols = w <= 0 ? 1 : Math.max(1, Math.floor((w + gap) / (minCol + gap)));
+        cachedCols = w <= 0 || vw <= 720 // phones: one column (PhoneMaxWidth in prebake.go)
+            ? 1 : Math.max(1, Math.floor((w + gap) / (minCol + gap)));
         cachedColsMosaic = w;
         cachedColsViewport = vw;
         return cachedCols;
@@ -274,7 +276,9 @@
 
     function setSpansForCols(items, cols) {
         items.forEach((el) => {
-            const baseSpan = clamp(+el.dataset.w || 1, 1, Math.min(3, cols));
+            // meme and visitors take the whole row on phones (fullWidthOnPhone in prebake.go)
+            const baseSpan = el.matches('.meme-section, .visitors-section') && window.innerWidth <= 720
+                ? cols : clamp(+el.dataset.w || 1, 1, Math.min(3, cols));
             el.dataset.mosaicSpan = String(baseSpan);
         });
     }
@@ -328,28 +332,20 @@
         return { heights, maxH };
     }
 
-    function expandHorizontally(placements, cols) {
-        placements.sort((a, b) => a.row - b.row || a.col - b.col);
-        for (let i = 0; i < placements.length; i++) {
-            const p = placements[i];
-            while (p.col + p.colSpan < cols) {
-                const nextCol = p.col + p.colSpan;
-                let canExpand = true;
-                for (let j = 0; j < placements.length; j++) {
-                    if (i === j) continue;
-                    const o = placements[j];
-                    const overlapsNext = o.col === nextCol || (o.col < nextCol && o.col + o.colSpan > nextCol);
-                    if (!overlapsNext) continue;
-                    if (!(p.row >= o.row + o.rowSpan || p.row + p.rowSpan <= o.row)) {
-                        canExpand = false;
-                        break;
-                    }
-                }
-                if (canExpand) p.colSpan++;
-                else break;
+
+    const placeCard = window.mosaicPlace || function (placements, cols, width, rowSpan) {
+        const fits = (col, row) => placements.every((o) =>
+            col + width <= o.col || o.col + o.colSpan <= col || row + rowSpan <= o.row || o.row + o.rowSpan <= row);
+        const candidates = [0, ...placements.map((o) => o.row + o.rowSpan)].sort((a, b) => a - b);
+        let best = { col: 0, row: Infinity };
+        for (let c = 0; c <= cols - width; c++) {
+            for (const row of candidates) {
+                if (row >= best.row) break;
+                if (fits(c, row)) { best = { col: c, row }; break; }
             }
         }
-    }
+        return best;
+    };
 
     function captureScrollAnchor() {
         if (window.scrollY <= 50) return null;
@@ -390,27 +386,17 @@
         setSpansForCols(items, cols);
         const { heights } = batchMeasureHeights(items);
 
-        const colHeights = new Array(cols).fill(0);
         const placements = [];
 
+        // Same hole-filling placement as the first paint (window.mosaicPlace in
+        // templates/main.html) and the server prebake.
         items.forEach((el) => {
             const w = Math.min(parseInt(el.dataset.mosaicSpan || el.dataset.w || '1', 10) || 1, cols);
             const hPx = heights.get(el) || 100;
             const rowSpan = Math.ceil((hPx + gap) / ROW_HEIGHT);
+            const spot = placeCard(placements, cols, w, rowSpan);
 
-            let bestCol = 0;
-            let bestHeight = Infinity;
-            for (let c = 0; c <= cols - w; c++) {
-                let maxH = 0;
-                for (let i = c; i < c + w; i++) if (colHeights[i] > maxH) maxH = colHeights[i];
-                if (maxH < bestHeight) { bestHeight = maxH; bestCol = c; }
-            }
-
-            const startRow = Math.ceil(bestHeight / ROW_HEIGHT);
-            const newHeight = bestHeight + hPx + gap;
-            for (let i = bestCol; i < bestCol + w; i++) colHeights[i] = newHeight;
-
-            placements.push({ el, col: bestCol, row: startRow, colSpan: w, rowSpan, height: hPx });
+            placements.push({ el, col: spot.col, row: spot.row, colSpan: w, rowSpan, height: hPx });
         });
 
 
@@ -640,8 +626,7 @@
         b.setAttribute('aria-label', title);
         b.title = title;
 
-        on(b, 'mouseenter', () => { b.textContent = ICONS[action] || ''; });
-        on(b, 'mouseleave', () => { b.textContent = ''; });
+        b.textContent = ICONS[action] || '';
         ['pointerdown', 'mousedown', 'click'].forEach((ev) => on(b, ev, (e) => e.stopPropagation()));
 
         on(b, 'click', (e) => {
@@ -677,15 +662,14 @@
             bar = document.createElement('div');
             bar.className = 'plugin-toolbar';
             headerRow.appendChild(bar);
-            const actions = ['collapse', 'w-dec', 'w-inc', 'expand'];
+            const actions = ['w-dec', 'w-inc', 'expand'];
             actions.forEach((a) => bar.append(makeDot(a, TITLES[a])));
             ['pointerdown', 'mousedown', 'click'].forEach((ev) =>
                 bar.addEventListener(ev, (e) => e.stopPropagation()));
         }
 
-        bar.style.display = 'flex';
-        bar.style.visibility = 'visible';
-        bar.style.opacity = '1';
+        // Visibility is CSS's call (revealed on header hover/focus).
+        bar.style.removeProperty('opacity');
 
         headerRow.classList.add('drag-handle');
         headerRow.removeAttribute('draggable');
@@ -1256,6 +1240,8 @@
         observe: observeElement,
         notifyContentChanged,
         notifyPluginAdded,
-        notifyPluginReplaced
+        notifyPluginReplaced,
+        clearLayoutState: clearMosaicLayoutState,
+        mountTail: mountProjectsTail,
     };
 })();

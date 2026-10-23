@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"html/template"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -108,6 +109,8 @@ func (p *PlacesPlugin) Render(ctx context.Context) (string, error) {
 		placesJSON = []byte("[]")
 	}
 
+	summary := summarizePlaces(places)
+
 	tmpl := `
 <section class="places-section section plugin" id="places-plugin" data-w="2">
     <header class="plugin-header">
@@ -134,6 +137,11 @@ func (p *PlacesPlugin) Render(ctx context.Context) (string, error) {
                 <span>Loading map...</span>
             </div>
         </div>
+        {{with .Summary}}{{if .TopCountries}}
+        <div class="places-countries">
+            {{range .TopCountries}}<span class="places-country" title="{{.Count}} place{{if ne .Count 1}}s{{end}}">{{.Name}}<em>{{.Count}}</em></span>{{end}}
+        </div>
+        {{end}}{{end}}
     </div>
 
     <script id="places-data" type="application/json">{{.PlacesJSON}}</script>
@@ -156,6 +164,7 @@ func (p *PlacesPlugin) Render(ctx context.Context) (string, error) {
 		HeatmapIntensity float64
 		HeatmapRadius    int
 		MarkerRadius     int
+		Summary          placesSummary
 	}{
 		SectionTitle:     sectionTitle,
 		PlacesJSON:       template.JS(placesJSON),
@@ -165,6 +174,7 @@ func (p *PlacesPlugin) Render(ctx context.Context) (string, error) {
 		HeatmapIntensity: heatmapIntensity,
 		HeatmapRadius:    heatmapRadius,
 		MarkerRadius:     markerRadius,
+		Summary:          summary,
 	}
 
 	t, err := template.New("places").Parse(tmpl)
@@ -384,4 +394,93 @@ func (p *PlacesPlugin) GetMetrics() map[string]interface{} {
 	metrics["cities_count"] = len(citiesMap)
 
 	return metrics
+}
+
+type placesCountry struct {
+	Name  string
+	Count int
+}
+
+type placesSummary struct {
+	Places       int
+	Countries    int
+	Cities       int
+	Since        string
+	TopCountries []placesCountry
+}
+
+// summarizePlaces counts what the card shows above and below the map: totals,
+// the earliest visit year and countries by number of places.
+func summarizePlaces(places []Place) placesSummary {
+	byCountry := map[string]int{}
+	cities := map[string]bool{}
+	since := ""
+	for _, pl := range places {
+		country := normalizeCountry(pl.Country)
+		if country != "" {
+			byCountry[country]++
+		}
+		if pl.City != "" {
+			cities[country+"|"+pl.City] = true
+		}
+		if len(pl.VisitedDate) >= 4 && (since == "" || pl.VisitedDate[:4] < since) {
+			since = pl.VisitedDate[:4]
+		}
+	}
+	top := make([]placesCountry, 0, len(byCountry))
+	for name, n := range byCountry {
+		top = append(top, placesCountry{name, n})
+	}
+	sort.Slice(top, func(i, j int) bool {
+		if top[i].Count != top[j].Count {
+			return top[i].Count > top[j].Count
+		}
+		return top[i].Name < top[j].Name
+	})
+	return placesSummary{
+		Places:       len(places),
+		Countries:    len(byCountry),
+		Cities:       len(cities),
+		Since:        since,
+		TopCountries: top,
+	}
+}
+
+// countryAliases folds the Russian spellings the places data mixes in, so
+// "Россия" and "Russia" count as one country.
+var countryAliases = map[string]string{
+	"россия":         "Russia",
+	"рф":             "Russia",
+	"турция":         "Turkey",
+	"türkiye":        "Turkey",
+	"кипр":           "Cyprus",
+	"норвегия":       "Norway",
+	"болгария":       "Bulgaria",
+	"великобритания": "United Kingdom",
+	"англия":         "United Kingdom",
+	"uk":             "United Kingdom",
+	"грузия":         "Georgia",
+	"япония":         "Japan",
+	"финляндия":      "Finland",
+	"эстония":        "Estonia",
+	"германия":       "Germany",
+	"франция":        "France",
+	"италия":         "Italy",
+	"испания":        "Spain",
+	"китай":          "China",
+	"казахстан":      "Kazakhstan",
+	"беларусь":       "Belarus",
+	"армения":        "Armenia",
+	"сербия":         "Serbia",
+	"оаэ":            "United Arab Emirates",
+	"египет":         "Egypt",
+	"таиланд":        "Thailand",
+}
+
+func normalizeCountry(name string) string {
+	name = strings.TrimSpace(name)
+	if v, ok := countryAliases[strings.ToLower(name)]; ok {
+		return v
+	}
+	return name
 }

@@ -335,3 +335,102 @@
     margin-right: 5px;
     vertical-align: -1px;
 }
+/* ---------------------------------------------------------------------------
+   Language bars: a segmented share bar on top, then one row per language —
+   colour dot, name and value on a line, a slim full-width bar under it.
+   --------------------------------------------------------------------------- */
+.plugin.code-section .code-langbar {
+    gap: 2px;
+    height: 10px;
+    border-radius: 5px;
+    background: transparent;
+    margin-bottom: 14px;
+}
+
+.plugin.code-section .code-langbar i {
+    min-width: 3px;
+    border-radius: 3px;
+}
+
+.plugin.code-section .code-langbar--thin {
+    height: 6px;
+}
+
+.plugin.code-section .code-lang-rows {
+    gap: 1px;
+}
+
+/* one line per language: dot + name | bar | value */
+.plugin.code-section .code-lang-row {
+    grid-template-columns: minmax(80px, 140px) 1fr auto;
+    grid-template-areas: "name bar val";
+    column-gap: 12px;
+    padding: 3px 8px;
+    margin: 0 -8px;
+    border-radius: 6px;
+    transition: background .12s ease;
+}
+
+.plugin.code-section .code-lang-row:hover {
+    background: var(--edge-0);
+}
+
+.plugin.code-section .code-lang-name {
+    grid-area: name;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    font: 600 12px/1.2 var(--font);
+    color: var(--ink);
+}
+
+.plugin.code-section .code-lang-name::before {
+    content: "";
+    flex: 0 0 auto;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--lc, var(--muted));
+}
+
+.plugin.code-section .code-lang-val {
+    grid-area: val;
+    min-width: 4.5em;
+    text-align: right;
+    font: 500 11px/1.2 var(--mono);
+    font-variant-numeric: tabular-nums;
+    color: var(--ink-2);
+}
+
+.plugin.code-section .code-lang-bar {
+    grid-area: bar;
+    height: 5px;
+    border-radius: 2px;
+    background: var(--edge-0);
+}
+
+.plugin.code-section .code-lang-bar i {
+    border-radius: 2px;
+    opacity: .9;
+}
+
+@media (prefers-color-scheme: light) {
+    .plugin.code-section .code-lang-bar {
+        background: rgba(0, 0, 0, .06);
+    }
+}
+
+/* Repo rows: the thin per-repo bar sits right under the name. The segmented
+   share bar's bottom margin above must not apply here. */
+.plugin.code-section .code-langbar--thin {
+    height: 4px;
+    gap: 1px;
+    margin: 5px 0 0 16px;
+}
+
+.plugin.code-section .code-repo--compact {
+    padding: 5px 4px;
+}

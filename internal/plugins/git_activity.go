@@ -102,6 +102,7 @@ func NewGitActivity(st *storage.Storage, hub *stream.Hub, pluginName string, sto
 	}
 	g.reloadSources(false)
 	g.loadFeedCache()
+	g.loadCalendarCache()
 	return g
 }
 
@@ -322,6 +323,7 @@ func (g *GitActivity) updateCalendars(ctx context.Context, providers []GitProvid
 	}
 	g.lastCalendar = time.Now()
 	g.mu.Unlock()
+	g.saveCalendarCache()
 
 	log.Printf("[Git] calendars updated for %d/%d sources in %v", len(fetched), len(providers), time.Since(start).Round(time.Millisecond))
 	return true
@@ -1226,6 +1228,43 @@ func (g *GitActivity) saveFeedCache() {
 	tmp := g.feedCachePath() + ".tmp"
 	if os.WriteFile(tmp, b, 0644) == nil {
 		os.Rename(tmp, g.feedCachePath())
+	}
+}
+
+// The contribution calendar is cached on disk like the feed: after a restart
+// the heatmap shows the last good data instead of going blank until every
+// source answers again (they can't while outbound network is down).
+func (g *GitActivity) calendarCachePath() string {
+	return filepath.Join(g.store.Dir(), "git_calendar.json")
+}
+
+func (g *GitActivity) loadCalendarCache() {
+	b, err := os.ReadFile(g.calendarCachePath())
+	if err != nil {
+		return
+	}
+	var cal map[string]map[string]int
+	if json.Unmarshal(b, &cal) != nil || len(cal) == 0 {
+		return
+	}
+	g.mu.Lock()
+	if len(g.calendar) == 0 {
+		g.calendar = cal
+	}
+	g.mu.Unlock()
+	log.Printf("[Git] calendar cache loaded: %d days", len(cal))
+}
+
+func (g *GitActivity) saveCalendarCache() {
+	g.mu.RLock()
+	b, err := json.Marshal(g.calendar)
+	g.mu.RUnlock()
+	if err != nil {
+		return
+	}
+	tmp := g.calendarCachePath() + ".tmp"
+	if os.WriteFile(tmp, b, 0644) == nil {
+		os.Rename(tmp, g.calendarCachePath())
 	}
 }
 

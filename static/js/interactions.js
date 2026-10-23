@@ -310,19 +310,37 @@
         });
     }
 
+    // The connection dot resets the window layout: drops the order and widths
+    // saved from dragging/resizing (windowManager.js) and reloads, so every
+    // window is back where and how wide the server puts it.
+    function resetWindowLayout() {
+        try {
+            ['mosaic.order', 'mosaic.widths', 'mosaic.spans'].forEach((k) => localStorage.removeItem(k));
+        } catch {}
+        location.reload();
+    }
+
     function initEasterEgg() {
         const statusIndicator = document.getElementById('connection-status');
         if (!statusIndicator) return;
 
         statusIndicator.addEventListener('click', function (e) {
-            if (this.classList.contains('status-online')) {
-                e.preventDefault();
-                e.stopPropagation();
-                shufflePlugins();
-            }
+            e.preventDefault();
+            e.stopPropagation();
+            resetWindowLayout();
         });
 
         statusIndicator.style.cursor = 'pointer';
+        statusIndicator.title = 'Reset window layout';
+        statusIndicator.setAttribute('role', 'button');
+        statusIndicator.setAttribute('aria-label', 'Reset window layout');
+        statusIndicator.tabIndex = 0;
+        statusIndicator.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                resetWindowLayout();
+            }
+        });
     }
 
     if (document.readyState === 'loading') {
@@ -332,6 +350,7 @@
     }
 
     window.shufflePlugins = shufflePlugins;
+    window.resetWindowLayout = resetWindowLayout;
 
     function init(){
         const waitForMosaic = () => {

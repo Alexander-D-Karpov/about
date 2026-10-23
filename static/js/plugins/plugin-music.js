@@ -326,7 +326,7 @@
 
             item.style.cursor = 'pointer';
             item.addEventListener('click', function () {
-                window.playTrack(`${trackArtist} ${trackName}`);
+                window.playTrack({artist: trackArtist, track: trackName});
             });
         });
     }
@@ -364,7 +364,7 @@
                 if (!item) return;
                 const name = item.querySelector('.music-recent__name')?.textContent?.trim() || '';
                 const artist = item.querySelector('.music-recent__artist')?.textContent?.trim() || '';
-                if (name && artist && window.playTrack) window.playTrack(artist + ' ' + name);
+                if (name && artist && window.playTrack) window.playTrack({artist, track: name});
             });
         }
 

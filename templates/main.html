@@ -71,6 +71,28 @@
 </main>
 
 <script>
+    // Masonry placement shared with windowManager.js and packForCols in
+    // internal/layout/prebake.go: each card goes to the highest spot where it
+    // fits, holes between placed cards included, so a narrow card can drop into
+    // the space a wide card left above a shorter column. Rows are 1px; a
+    // placement occupies [row, row + rowSpan) with the gap already in rowSpan.
+    window.mosaicPlace = function (placements, cols, width, rowSpan) {
+        const fits = (col, row) => placements.every((o) =>
+            col + width <= o.col || o.col + o.colSpan <= col || row + rowSpan <= o.row || o.row + o.rowSpan <= row);
+        const candidates = [0, ...placements.map((o) => o.row + o.rowSpan)].sort((a, b) => a - b);
+        let best = {col: 0, row: Infinity};
+        for (let c = 0; c <= cols - width; c++) {
+            for (const row of candidates) {
+                if (row >= best.row) break;
+                if (fits(c, row)) {
+                    best = {col: c, row};
+                    break;
+                }
+            }
+        }
+        return best;
+    };
+
     (function () {
         const docEl = document.documentElement;
         const mosaic = document.getElementById('main-mosaic');
@@ -175,33 +197,10 @@
             else if (window.innerWidth <= 780) minCol = 220;
             else if (window.innerWidth <= 900) minCol = 240;
             else if (window.innerWidth <= 1200) minCol = 260;
+            if (window.innerWidth <= 720) return 1; // phones: one column (PhoneMaxWidth)
             return Math.max(1, Math.floor((width + 12) / (minCol + 12)));
         }
 
-        function expandHorizontally(placements, cols) {
-            placements.sort((a, b) => a.row - b.row || a.col - b.col);
-            placements.forEach((p) => {
-                while (p.col + p.colSpan < cols) {
-                    const nextCol = p.col + p.colSpan;
-                    let canExpand = true;
-
-                    for (const other of placements) {
-                        if (other === p) continue;
-                        const overlapsNextCol = other.col === nextCol || (other.col < nextCol && other.col + other.colSpan > nextCol);
-                        if (!overlapsNextCol) continue;
-                        const pEnd = p.row + p.rowSpan;
-                        const oEnd = other.row + other.rowSpan;
-                        if (!(p.row >= oEnd || pEnd <= other.row)) {
-                            canExpand = false;
-                            break;
-                        }
-                    }
-
-                    if (!canExpand) break;
-                    p.colSpan += 1;
-                }
-            });
-        }
 
         function fitNeofetch() {
             document.querySelectorAll('.neofetch-section .terminal').forEach((term) => {
@@ -248,7 +247,9 @@
             const gap = 12;
 
             items.forEach((el) => {
-                const width = Math.min(clamp(+el.dataset.w || 1, 1, 3), cols);
+                // meme and visitors take the whole row on phones (fullWidthOnPhone in prebake.go)
+                const width = el.matches('.meme-section, .visitors-section') && window.innerWidth <= 720
+                    ? cols : Math.min(clamp(+el.dataset.w || 1, 1, 3), cols);
                 el.style.height = 'auto';
                 el.style.minHeight = '0px';
                 el.style.gridColumn = `auto / span ${width}`;
@@ -273,41 +274,26 @@
                 heights.set(el, height);
             });
 
-            const colHeights = new Array(cols).fill(0);
             const placements = [];
 
             items.forEach((el) => {
-                const width = Math.min(clamp(+el.dataset.w || 1, 1, 3), cols);
+                // meme and visitors take the whole row on phones (fullWidthOnPhone in prebake.go)
+                const width = el.matches('.meme-section, .visitors-section') && window.innerWidth <= 720
+                    ? cols : Math.min(clamp(+el.dataset.w || 1, 1, 3), cols);
                 const height = heights.get(el) || 100;
                 const rowSpan = Math.ceil(height + gap);
-
-                let bestCol = 0;
-                let bestHeight = Infinity;
-                for (let c = 0; c <= cols - width; c++) {
-                    const maxH = Math.max(...colHeights.slice(c, c + width));
-                    if (maxH < bestHeight) {
-                        bestHeight = maxH;
-                        bestCol = c;
-                    }
-                }
-
-                const startRow = Math.ceil(bestHeight);
-                const newHeight = bestHeight + height + gap;
-                for (let c = bestCol; c < bestCol + width; c++) {
-                    colHeights[c] = newHeight;
-                }
+                const spot = window.mosaicPlace(placements, cols, width, rowSpan);
 
                 placements.push({
                     el,
-                    col: bestCol,
-                    row: startRow,
+                    col: spot.col,
+                    row: spot.row,
                     colSpan: width,
                     rowSpan,
                     height
                 });
             });
 
-            expandHorizontally(placements, cols);
 
             placements.forEach((p) => {
                 p.el.style.gridColumn = `${p.col + 1} / span ${p.colSpan}`;

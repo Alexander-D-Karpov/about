@@ -8,7 +8,34 @@ import (
 	"net/url"
 	"os"
 	"time"
+
+	"golang.org/x/net/http/httpproxy"
 )
+
+// proxyFunc sends requests through proxyURL except for hosts listed in
+// NO_PROXY (comma-separated hosts, domains or CIDRs), which go direct. That
+// lets hosts reachable from this box skip the proxy while it is slow or down.
+// An empty proxyURL means no proxy at all.
+func proxyFunc(proxyURL string) func(*http.Request) (*url.URL, error) {
+	if proxyURL == "" {
+		return nil
+	}
+	noProxy := os.Getenv("NO_PROXY")
+	if noProxy == "" {
+		noProxy = os.Getenv("no_proxy")
+	}
+	f := (&httpproxy.Config{HTTPProxy: proxyURL, HTTPSProxy: proxyURL, NoProxy: noProxy}).ProxyFunc()
+	return func(r *http.Request) (*url.URL, error) { return f(r.URL) }
+}
+
+// envProxy is the proxy from HTTP_PROXY (or HTTPS_PROXY), honouring NO_PROXY.
+func envProxy() func(*http.Request) (*url.URL, error) {
+	proxyURL := os.Getenv("HTTP_PROXY")
+	if proxyURL == "" {
+		proxyURL = os.Getenv("HTTPS_PROXY")
+	}
+	return proxyFunc(proxyURL)
+}
 
 func NewHTTPClient() *http.Client {
 	transport := &http.Transport{
@@ -26,15 +53,7 @@ func NewHTTPClient() *http.Client {
 		ForceAttemptHTTP2:     false,
 	}
 
-	if proxyURL := os.Getenv("HTTP_PROXY"); proxyURL != "" {
-		if parsed, err := url.Parse(proxyURL); err == nil {
-			transport.Proxy = http.ProxyURL(parsed)
-		}
-	} else if proxyURL := os.Getenv("HTTPS_PROXY"); proxyURL != "" {
-		if parsed, err := url.Parse(proxyURL); err == nil {
-			transport.Proxy = http.ProxyURL(parsed)
-		}
-	}
+	transport.Proxy = envProxy()
 
 	return &http.Client{
 		Transport: transport,
@@ -58,15 +77,7 @@ func NewHTTPClientWithTimeout(timeout time.Duration) *http.Client {
 		ForceAttemptHTTP2:     true,
 	}
 
-	if proxyURL := os.Getenv("HTTP_PROXY"); proxyURL != "" {
-		if parsed, err := url.Parse(proxyURL); err == nil {
-			transport.Proxy = http.ProxyURL(parsed)
-		}
-	} else if proxyURL := os.Getenv("HTTPS_PROXY"); proxyURL != "" {
-		if parsed, err := url.Parse(proxyURL); err == nil {
-			transport.Proxy = http.ProxyURL(parsed)
-		}
-	}
+	transport.Proxy = envProxy()
 
 	return &http.Client{
 		Transport: transport,

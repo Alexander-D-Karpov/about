@@ -254,3 +254,29 @@
     .music-now__play { opacity: 1; }
     .music-now__cover:hover .music-now__play { opacity: 1; }
 }
+/* Cover on the left, track info on the right at every width; a centred big
+   cover on phones read as one dark block. */
+@media (max-width: 900px) {
+    .plugin.music-section .music-now {
+        flex-direction: row;
+        align-items: center;
+        text-align: left;
+    }
+
+    .plugin.music-section .music-now__cover {
+        width: 112px;
+        height: 112px;
+        flex: 0 0 auto;
+    }
+
+    .plugin.music-section .music-badges {
+        justify-content: flex-start;
+    }
+}
+
+@media (max-width: 520px) {
+    .plugin.music-section .music-now__cover {
+        width: 96px;
+        height: 96px;
+    }
+}

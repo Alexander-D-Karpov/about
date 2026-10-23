@@ -122,3 +122,12 @@
         font-size: 12px;
     }
 }
+/* No hover motion on the albums: no lift, no zoom. */
+.photos-card:hover {
+    transform: none;
+    box-shadow: none;
+}
+
+.photos-card:hover .photos-preview-item img {
+    transform: none;
+}

@@ -105,3 +105,12 @@
         max-height: 560px;
     }
 }
+/* The reroll die sits at the left edge of the title bar; the window icons own
+   the right edge. */
+.plugin.meme-section .meme-header .meme-refresh-btn {
+    position: absolute;
+    left: 10px;
+    top: 50%;
+    transform: translateY(-50%);
+    margin: 0;
+}

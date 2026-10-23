@@ -14,6 +14,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"unicode"
 
 	"github.com/Alexander-D-Karpov/about/internal/config"
 	"github.com/Alexander-D-Karpov/about/internal/storage"
@@ -1091,8 +1092,8 @@ func (p *MusicPlugin) fetchTrackLength(ctx context.Context, artist, trackName st
 	if err := json.NewDecoder(resp.Body).Decode(&searchResp); err != nil {
 		return 0
 	}
-	if len(searchResp.Songs) > 0 {
-		return searchResp.Songs[0].Length
+	if best := bestSongMatch(searchResp.Songs, artist, trackName, ""); best != nil {
+		return best.Length
 	}
 	return 0
 }
@@ -1674,7 +1675,7 @@ func (p *MusicPlugin) SearchAndPlayTrack(query string) (*AkarpovMusicTrack, erro
 	if len(response.Songs) == 0 {
 		return nil, fmt.Errorf("no tracks found")
 	}
-	best := &response.Songs[0]
+	best := bestSongMatch(response.Songs, "", "", query)
 	image := best.ImageCropped
 	if image != "" && !strings.HasPrefix(image, "http") {
 		image = "https://new.akarpov.ru" + image
@@ -2775,4 +2776,104 @@ func (p *MusicPlugin) akarpovAlbumImage(ctx context.Context, artist, album strin
 
 func normalizeMatch(s string) string {
 	return strings.ToLower(strings.TrimSpace(s))
+}
+
+var songVariantWords = []string{"remix", "live", "cover", "karaoke", "instrumental", "acoustic", "sped up",
+	"slowed", "nightcore", "edit", "version", "mix", "reprise", "demo", "remaster", "rework", "bootleg"}
+
+func normSongText(s string) string {
+	s = strings.ToLower(strings.ReplaceAll(s, "ё", "е"))
+	var b strings.Builder
+	space := false
+	for _, r := range s {
+		if unicode.IsLetter(r) || unicode.IsNumber(r) {
+			b.WriteRune(r)
+			space = false
+		} else if !space {
+			b.WriteByte(' ')
+			space = true
+		}
+	}
+	return strings.TrimSpace(b.String())
+}
+
+func songTokenOverlap(a, b string) float64 {
+	ta := map[string]bool{}
+	for _, t := range strings.Fields(a) {
+		ta[t] = true
+	}
+	tb := strings.Fields(b)
+	if len(ta) == 0 || len(tb) == 0 {
+		return 0
+	}
+	hit := 0
+	for _, t := range tb {
+		if ta[t] {
+			hit++
+		}
+	}
+	return float64(hit) / float64(max(len(ta), len(tb)))
+}
+
+// bestSongMatch picks the search result that is the requested track rather
+// than the first hit: title and artist must match, and remixes, live takes,
+// covers and the like lose unless the request names one. Pass artist+track
+// when known, otherwise the raw query. Mirrors bestMatch in music-player.js.
+func bestSongMatch(songs []AkarpovMusicTrack, artist, track, query string) *AkarpovMusicTrack {
+	if len(songs) == 0 {
+		return nil
+	}
+	wantArtist, wantTrack, wantQuery := normSongText(artist), normSongText(track), normSongText(query)
+	asked := wantTrack
+	if asked == "" {
+		asked = wantQuery
+	}
+
+	best, bestScore := 0, math.Inf(-1)
+	for i := range songs {
+		name := normSongText(songs[i].Name)
+		score := -float64(i) * 0.5
+
+		if wantTrack != "" {
+			switch {
+			case name == wantTrack:
+				score += 60
+			case strings.HasPrefix(name, wantTrack) || strings.HasPrefix(wantTrack, name):
+				score += 35
+			case strings.Contains(name, wantTrack) || strings.Contains(wantTrack, name):
+				score += 20
+			}
+			score += songTokenOverlap(name, wantTrack) * 20
+		} else {
+			score += songTokenOverlap(wantQuery, name) * 40
+		}
+
+		authorScore := 0.0
+		for _, a := range songs[i].Authors {
+			an := normSongText(a.Name)
+			if an == "" {
+				continue
+			}
+			switch {
+			case wantArtist != "" && an == wantArtist:
+				authorScore = math.Max(authorScore, 40)
+			case wantArtist != "" && (strings.Contains(an, wantArtist) || strings.Contains(wantArtist, an)):
+				authorScore = math.Max(authorScore, 25)
+			case wantArtist == "" && strings.Contains(wantQuery, an):
+				authorScore = math.Max(authorScore, 30)
+			}
+		}
+		score += authorScore
+
+		for _, w := range songVariantWords {
+			if strings.Contains(name, w) && !strings.Contains(asked, w) {
+				score -= 25
+			}
+		}
+
+		if score > bestScore {
+			best, bestScore = i, score
+		}
+	}
+	return &songs[best]
 }

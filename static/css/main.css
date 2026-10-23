@@ -6,7 +6,7 @@
 
     --ink: #e8eef5;
     --ink-2: #a8b4c0;
-    --muted: #5a6a7a;
+    --muted: #8b949e;
 
     --accent: #4d9fff;
     --accent-2: #b055ff;
@@ -254,6 +254,8 @@ body:has(#custom-music-player:not([style*="none"])) .container {
     row-gap: 0;
     column-gap: 12px;
     width: 100%;
+    max-width: 1680px; /* MaxMosaicWidth in prebake.go */
+    align-self: center;
     align-items: start;
     padding-bottom: 48px;
     overflow-x: clip;
@@ -1059,13 +1061,13 @@ body.scroll-locked {
     z-index: 1;
 
     width: 100%;
-    max-width: none;
+    max-width: 1680px;
 
     height: auto !important;
     min-height: 0 !important;
 
     margin: 0 0 24px;
-    align-self: stretch;
+    align-self: center;
 
     grid-column: auto !important;
     grid-row: auto !important;
@@ -1127,4 +1129,216 @@ body.scroll-locked {
     font: 800 13px/1.2 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
     letter-spacing: .18em;
     text-transform: uppercase;
+}
+
+/* ---------------------------------------------------------------------------
+   Readability. Selectors double up .plugin.plugin to outrank the per-plugin
+   stylesheets bundled after this file and still apply to the offscreen clones
+   the packers measure (those sit outside .container).
+   --------------------------------------------------------------------------- */
+.plugin.plugin :is(
+    .replay-indicator,
+    .bike-chip,
+    .bike-ride-date,
+    .code-lang-val,
+    .git-month,
+    .git-year,
+    .git-scale,
+    .git-weekdays span,
+    .health-card-label,
+    .health-card-sub,
+    .music-cover__plays,
+    .music-tag__count,
+    .summary-label,
+    .game-playtime,
+    .game-total,
+    .visitors-trend,
+    .visitor-label,
+    .code-stat-label,
+    .git-stat-label,
+    .bike-stat-label,
+    .stat-label,
+    .visitors-block-label,
+    .visitors-heat-scale,
+    .visitors-bars-axis,
+    .code-block-meta
+) {
+    font-size: 11px;
+}
+
+/* monospace is for numbers; words get the text face */
+.plugin.plugin :is(
+    .code-stat-label,
+    .git-stat-label,
+    .visitor-label,
+    .visitors-block-label,
+    .visitors-heat-scale,
+    .git-scale,
+    .git-month,
+    .git-year,
+    .git-weekdays span,
+    .git-src,
+    .code-lang-name,
+    .code-editor,
+    .info-label,
+    .bike-stat-label,
+    .stat-label,
+    .health-card-label
+) {
+    font-family: var(--font);
+}
+
+.plugin.plugin .git-weekdays span {
+    line-height: 1;
+    overflow: visible;
+}
+
+.plugin.plugin .code-lang-val {
+    white-space: nowrap;
+    text-align: right;
+}
+
+/* KPI rows wrap instead of running off narrow cards */
+.plugin.bike-section .bike-stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(90px, 1fr));
+    gap: 8px;
+}
+
+.plugin.bike-section .bike-stat {
+    min-width: 0;
+}
+
+.plugin.beatleader-section .stats-grid {
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+}
+
+/* Page Info on a narrow card: one value per row instead of broken words */
+.plugin.info-section .plugin__inner {
+    container-type: inline-size;
+}
+
+@container (max-width: 380px) {
+    .plugin.plugin .info-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* Connection status: a small pill in the corner instead of a bar over the
+   content. The green dot keeps its shuffle easter egg. */
+.status-bar {
+    left: auto;
+    right: 12px;
+    bottom: 12px;
+    margin: 0;
+    padding: 5px 9px;
+    gap: 6px;
+    font-size: 11px;
+    border-radius: 999px;
+    opacity: .85;
+}
+
+.status-bar:hover {
+    opacity: 1;
+}
+
+@media (max-width: 720px) {
+    .status-bar {
+        right: 8px;
+        bottom: 8px;
+    }
+}
+
+/* Cards are one flat colour: no top-to-bottom gradient on the card, its title
+   bar, or the per-plugin section backgrounds. .plugin.plugin outranks the
+   plugin stylesheets bundled after this file. */
+:root {
+    --card: var(--bg-3);
+    --card-edge: var(--edge-1);
+}
+
+@media (prefers-color-scheme: light) {
+    :root {
+        --card: var(--paper);
+        --card-edge: rgba(0, 0, 0, .09);
+    }
+}
+
+.plugin.plugin {
+    background: var(--card);
+    border-color: var(--card-edge);
+    box-shadow: none;
+}
+
+.plugin.plugin .plugin-header {
+    background: none;
+}
+
+/* Window title bar: centred title; the window actions (collapse, narrower,
+   wider, expand) are quiet icons at the right edge, revealed on hover over the
+   plugin's own header info. They take no space, so the title stays centred. */
+.plugin.plugin .plugin-header {
+    gap: 8px;
+    padding: 8px 16px;
+    border-radius: 0;
+    box-shadow: inset 0 -1px 0 var(--edge-0);
+    min-height: 38px;
+}
+
+.plugin-header .plugin-toolbar {
+    position: absolute;
+    left: auto;
+    right: 8px;
+    top: 50%;
+    transform: translateY(-50%);
+    gap: 2px;
+    padding-left: 6px;
+    background: var(--card);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity .15s ease;
+}
+
+.plugin-header:hover .plugin-toolbar,
+.plugin-header:focus-within .plugin-toolbar {
+    pointer-events: auto;
+}
+
+.plugin-header:hover .plugin-toolbar,
+.plugin-header:focus-within .plugin-toolbar {
+    opacity: 1;
+}
+
+.plugin-header .plugin-btn,
+.plugin-header .plugin-btn[data-action] {
+    width: 24px;
+    height: 24px;
+    border-radius: 6px;
+    background: transparent;
+    box-shadow: none;
+    color: var(--muted);
+    font: 600 13px/1 var(--font);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.plugin-header .plugin-btn:hover,
+.plugin-header .plugin-btn:focus-visible {
+    transform: none;
+    color: var(--ink);
+    background: var(--edge-1);
+}
+
+/* Headers with their own link pinned at the right edge (GitHub on coding
+   stats, the album link on photos): the window icons sit left of it. */
+.plugin-header:has(.code-header-link, .plugin-header-link) .plugin-toolbar {
+    right: 46px;
+}
+
+/* Phones: one column, every card full width (PhoneMaxWidth in prebake.go). */
+@media (max-width: 720px) {
+    .js .mosaic {
+        grid-template-columns: minmax(0, 1fr);
+    }
 }

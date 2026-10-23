@@ -48,7 +48,7 @@ func NewServicesPlugin(storage *storage.Storage, hub *stream.Hub, proxyURL strin
 	// logged and ignored rather than failing every check silently.
 	if proxyURL != "" {
 		if u, err := url.Parse(proxyURL); err == nil && u.Scheme != "" && u.Host != "" {
-			client.Transport = &http.Transport{Proxy: http.ProxyURL(u)}
+			client.Transport = &http.Transport{Proxy: proxyFunc(u.String())}
 			log.Printf("[Services] routing checks through proxy %s", u.Redacted())
 		} else {
 			log.Printf("[Services] ignoring invalid SERVICES_PROXY_URL %q: %v", proxyURL, err)
@@ -97,7 +97,7 @@ func (p *ServicesPlugin) Render(ctx context.Context) (string, error) {
 	}
 
 	const tmpl = `
-<section class="services-section section plugin {{if .Compact}}is-compact{{end}}" data-w="2" aria-labelledby="services-title" {{if .Stale}}data-stale="true"{{end}}>
+<section class="services-section section plugin {{if .Compact}}is-compact{{end}}" data-w="3" aria-labelledby="services-title" {{if .Stale}}data-stale="true"{{end}}>
 	<header class="plugin-header services-header">
 		<h2 id="services-title" class="plugin-title">{{.SectionTitle}}</h2>
 		<div class="services-header__meta">
@@ -323,7 +323,7 @@ func (p *ServicesPlugin) Render(ctx context.Context) (string, error) {
 }
 
 func (p *ServicesPlugin) renderNoServices() string {
-	return `<section class="services-section section plugin" data-w="2" aria-labelledby="services-title">
+	return `<section class="services-section section plugin" data-w="3" aria-labelledby="services-title">
 		<header class="plugin-header services-header">
 			<h2 id="services-title" class="plugin-title">Services</h2>
 		</header>

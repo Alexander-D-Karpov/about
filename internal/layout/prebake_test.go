@@ -54,6 +54,10 @@ func TestBucketsAreNarrowEnoughForOneSampleToRepresentThem(t *testing.T) {
 		if hi <= lo {
 			continue
 		}
+		// past the width cap every viewport lays out identically
+		if _, mw := layoutStateForViewport(lo); mw >= MaxMosaicWidth {
+			continue
+		}
 		if ratio := float64(hi) / float64(lo); ratio > maxBucketWidthRatio+0.001 {
 			t.Errorf("bucket %s spans %d..%d (ratio %.3f), wider than %.2f",
 				b.Name, lo, hi, ratio, maxBucketWidthRatio)
@@ -289,10 +293,11 @@ func TestPrebakedPlacementMatchesClientPackFromSameHeights(t *testing.T) {
 		h    int
 	}
 	// Heights a headless Chrome measured for the live page at a 2000px
-	// viewport; the client settled on exactly these.
+	// viewport; the client settled on exactly these. The meme is left out: its
+	// height comes from the served image by design, so it never matches a store.
 	page := []plugin{
 		{"webring", 2, 122}, {"profile", 2, 235}, {"social", 1, 223}, {"tech", 1, 360},
-		{"health", 2, 131}, {"bike", 2, 749}, {"music", 2, 564}, {"meme", 1, 327},
+		{"health", 2, 131}, {"bike", 2, 749}, {"music", 2, 564},
 		{"visitors", 1, 468}, {"code", 2, 1482}, {"neofetch", 2, 497}, {"places", 2, 398},
 		{"steam", 2, 740}, {"services", 2, 1085}, {"info", 2, 224}, {"beatleader", 2, 733},
 		{"photos", 2, 557},
@@ -301,8 +306,9 @@ func TestPrebakedPlacementMatchesClientPackFromSameHeights(t *testing.T) {
 	// was taken
 	bucket := bucketFor(2000)
 	bucketName := bucket.Name
-	if bucket.Cols != 6 {
-		t.Fatalf("2000px resolves to %s with %d columns, expected six", bucketName, bucket.Cols)
+	// the mosaic is capped at 1680px: five 300px columns
+	if bucket.Cols != 5 {
+		t.Fatalf("2000px resolves to %s with %d columns, expected five", bucketName, bucket.Cols)
 	}
 
 	store := fakeLookup{}
@@ -346,4 +352,25 @@ func regexpFind(s, pat string) string {
 		return ""
 	}
 	return m[1]
+}
+
+// A narrow card fills the hole a wide card leaves above the shorter column
+// (the meme next to coding stats). Shortest-column masonry put it at the bottom.
+func TestPackFillsHolesLeftByWideCards(t *testing.T) {
+	in := []PluginLayout{
+		{Name: "short", Width: 1, Height: 100, Order: 0},
+		{Name: "tall", Width: 1, Height: 500, Order: 1},
+		{Name: "wide", Width: 2, Height: 100, Order: 2},
+		{Name: "narrow", Width: 1, Height: 100, Order: 3},
+	}
+	got := map[string]Placement{}
+	for _, p := range packForCols(in, 2) {
+		got[p.Name] = p
+	}
+	if got["wide"].Row != 500+Gap {
+		t.Fatalf("wide card at row %d, want under the tall one at %d", got["wide"].Row, 500+Gap)
+	}
+	if n := got["narrow"]; n.Col != 0 || n.Row != 100+Gap {
+		t.Fatalf("narrow card at col %d row %d, want the hole at col 0 row %d", n.Col, n.Row, 100+Gap)
+	}
 }

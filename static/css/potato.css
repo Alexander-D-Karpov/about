@@ -1146,3 +1146,18 @@ body.potato-mode .preview-badge span {
     letter-spacing: .18em;
     text-transform: uppercase;
 }
+
+/* Header buttons pinned with position:absolute (meme reroll, GitHub link)
+   need the title bar as their box, or they fly off across the page. */
+body.potato-mode .plugin-header {
+    position: relative;
+}
+
+body.potato-mode .plugin-header .code-header-link {
+    width: 28px;
+    height: 24px;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}

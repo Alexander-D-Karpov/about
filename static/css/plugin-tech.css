@@ -94,3 +94,36 @@
         filter: brightness(10);
     }
 }
+/* Smaller tiles: 40px buttons, 22px icons. */
+.plugin.tech-section .tech-grid {
+    grid-template-columns: repeat(auto-fill, minmax(40px, 1fr));
+    gap: 6px;
+}
+
+.plugin.tech-section .tech-item {
+    width: 40px;
+    height: 40px;
+}
+
+.plugin.tech-section .tech-item img {
+    width: 22px;
+    height: 22px;
+}
+
+/* Phones: bigger tiles. */
+@media (max-width: 720px) {
+    .plugin.tech-section .tech-grid {
+        grid-template-columns: repeat(auto-fill, minmax(48px, 1fr));
+        gap: 8px;
+    }
+
+    .plugin.tech-section .tech-item {
+        width: 48px;
+        height: 48px;
+    }
+
+    .plugin.tech-section .tech-item img {
+        width: 28px;
+        height: 28px;
+    }
+}

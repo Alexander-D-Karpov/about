@@ -280,14 +280,12 @@ func (m *Manager) GetRenderedPlugins(ctx context.Context) []template.HTML {
 	renderCtx, cancel := context.WithTimeout(ctx, 4*time.Second)
 	defer cancel()
 
+	// A plugin that can't render in time (its data source hanging behind a
+	// dead proxy, say) must not take the rest of the page with it: each render
+	// has its own timeout, a failed or slow render falls back to that plugin's
+	// last good HTML, and once the page budget is spent the remaining plugins
+	// come from that cache instead of being dropped.
 	for _, plugin := range enabledPlugins {
-		select {
-		case <-renderCtx.Done():
-			fmt.Printf("Rendering timeout, returning %d plugins\n", len(renderedPlugins))
-			return renderedPlugins
-		default:
-		}
-
 		pluginName := plugin.Name()
 
 		m.mutex.RLock()
@@ -295,33 +293,45 @@ func (m *Manager) GetRenderedPlugins(ctx context.Context) []template.HTML {
 		cacheAge := time.Since(m.cacheTimestamp)
 		m.mutex.RUnlock()
 
-		if pluginName == "meme" || pluginName == "info" || pluginName == "visitors" || pluginName == "services" {
-			rendered := m.renderPluginWithTimeout(plugin, ctx, 1500*time.Millisecond)
-			if rendered != "" {
-				renderedPlugins = append(renderedPlugins, template.HTML(rendered))
+		if renderCtx.Err() != nil {
+			if hasCached {
+				renderedPlugins = append(renderedPlugins, cachedRender)
 			}
 			continue
 		}
 
-		if hasCached && !m.cacheTimestamp.IsZero() && cacheAge < 3*time.Minute {
+		alwaysFresh := pluginName == "meme" || pluginName == "info" || pluginName == "visitors" || pluginName == "services"
+		if !alwaysFresh && hasCached && !m.cacheTimestamp.IsZero() && cacheAge < 3*time.Minute {
 			renderedPlugins = append(renderedPlugins, cachedRender)
 			continue
 		}
 
-		rendered := m.renderPluginWithTimeout(plugin, ctx, 2000*time.Millisecond)
-		if rendered != "" {
-			renderedHTML := template.HTML(rendered)
-			renderedPlugins = append(renderedPlugins, renderedHTML)
-
-			m.mutex.Lock()
-			m.renderedCache[pluginName] = renderedHTML
-			if m.cacheTimestamp.IsZero() {
-				m.cacheTimestamp = time.Now()
-			}
-			m.mutex.Unlock()
+		timeout := 2000 * time.Millisecond
+		if alwaysFresh {
+			timeout = 1500 * time.Millisecond
 		}
+		rendered := m.renderPluginWithTimeout(plugin, renderCtx, timeout)
+		if rendered == "" {
+			if hasCached {
+				renderedPlugins = append(renderedPlugins, cachedRender)
+			}
+			continue
+		}
+
+		renderedHTML := template.HTML(rendered)
+		renderedPlugins = append(renderedPlugins, renderedHTML)
+
+		m.mutex.Lock()
+		m.renderedCache[pluginName] = renderedHTML
+		if m.cacheTimestamp.IsZero() {
+			m.cacheTimestamp = time.Now()
+		}
+		m.mutex.Unlock()
 	}
 
+	if renderCtx.Err() != nil {
+		fmt.Printf("Rendering budget spent, filled the rest of %d plugins from cache\n", len(renderedPlugins))
+	}
 	return renderedPlugins
 }
 
@@ -347,11 +357,19 @@ func (m *Manager) renderPluginWithTimeout(plugin Plugin, ctx context.Context, ti
 		}
 	}()
 
+	// Wait for this plugin's own timeout, not just the page deadline, so one
+	// hung plugin can't eat the whole render budget.
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+
 	select {
 	case rendered := <-resultChan:
 		return rendered
 	case err := <-errorChan:
 		fmt.Printf("Error rendering %s plugin: %v\n", plugin.Name(), err)
+		return ""
+	case <-timer.C:
+		fmt.Printf("Timeout rendering %s plugin\n", plugin.Name())
 		return ""
 	case <-ctx.Done():
 		fmt.Printf("Timeout rendering %s plugin\n", plugin.Name())
@@ -406,7 +424,7 @@ func (m *Manager) getEnabledPluginsLocked() []Plugin {
 
 	for _, plugin := range m.plugins {
 		config := m.storage.GetPluginConfig(plugin.Name())
-		if config.Enabled {
+		if config.Enabled && !hiddenPlugins[plugin.Name()] {
 			enabled = append(enabled, plugin)
 			order[plugin.Name()] = config.Order
 		}
@@ -417,8 +435,15 @@ func (m *Manager) getEnabledPluginsLocked() []Plugin {
 	// draw. Two plugins sharing an Order then swap places between page loads,
 	// which reshuffles the whole packed layout. Break ties by name so a given
 	// config always renders the same page.
+	//
+	// Between the fixed edges (webring first, then profile; projects last) the
+	// page reads as groups: who I am, what's happening now, stats,
+	// infrastructure, gallery. The configured order sorts within a group.
 	sort.Slice(enabled, func(i, j int) bool {
 		nameI, nameJ := enabled[i].Name(), enabled[j].Name()
+		if gi, gj := pluginGroup(nameI), pluginGroup(nameJ); gi != gj {
+			return gi < gj
+		}
 		if order[nameI] != order[nameJ] {
 			return order[nameI] < order[nameJ]
 		}
@@ -450,6 +475,28 @@ func (m *Manager) getEnabledPluginsLocked() []Plugin {
 	result = append(result, projects...)
 
 	return result
+}
+
+// hiddenPlugins stay off the page whatever their config says. Health is
+// hidden for now; drop it from here to bring the card back.
+var hiddenPlugins = map[string]bool{
+	"health": true,
+}
+
+// pluginGroups ranks the middle of the page into sections.
+var pluginGroups = map[string]int{
+	"social": 0, "techstack": 0,
+	"music": 1, "steam": 1, "health": 1,
+	"code": 2, "bike": 2, "beatleader": 2, "visitors": 2,
+	"services": 3, "neofetch": 3, "info": 3,
+	"photos": 4, "places": 4, "meme": 4, "personal": 4,
+}
+
+func pluginGroup(name string) int {
+	if g, ok := pluginGroups[name]; ok {
+		return g
+	}
+	return 4
 }
 
 func (m *Manager) GetEnabledPlugins() []Plugin {

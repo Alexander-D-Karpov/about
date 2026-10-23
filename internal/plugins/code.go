@@ -552,7 +552,7 @@ func (p *CodePlugin) Render(ctx context.Context) (string, error) {
 				{{end}}
 				<div class="code-lang-rows">
 					{{range .WakaLangs}}
-					<div class="code-lang-row">
+					<div class="code-lang-row" style="--lc:{{.Color}}">
 						<span class="code-lang-name">{{.Name}}</span>
 						<div class="code-lang-bar"><i style="width:{{.Width}}%;background:{{.Color}}"></i></div>
 						<span class="code-lang-val">{{.Text}}</span>
@@ -576,9 +576,10 @@ func (p *CodePlugin) Render(ctx context.Context) (string, error) {
 				</div>
 				<div class="code-lang-rows">
 					{{range .Languages}}
-					<div class="code-lang-row">
-						<span class="code-lang-name">{{.Name}} <em>{{.Percent}}</em></span>
+					<div class="code-lang-row" style="--lc:{{.Color}}">
+						<span class="code-lang-name">{{.Name}}</span>
 						<div class="code-lang-bar"><i style="width:{{.Width}}%;background:{{.Color}}"></i></div>
+						<span class="code-lang-val">{{.Percent}}</span>
 					</div>
 					{{end}}
 				</div>

@@ -256,11 +256,15 @@
             // enough, so the map sat zoomed in and clipped east Asia off the
             // right edge.
             minZoom: 0,
-            maxZoom: 5,
+            // Deep enough to tell European countries apart, no further: past
+            // this the choropleth is just one country's fill.
+            maxZoom: 4,
             zoomSnap: 0,
-            // +/- buttons plus the default double-click and pinch handlers give
-            // a way to zoom in. Wheel zoom stays off so scrolling the page over
-            // this small embedded map does not get trapped into zooming it.
+            zoomDelta: 0.5,
+            wheelPxPerZoomLevel: 120,
+            // +/- buttons, double-click and pinch zoom always work. Wheel zoom
+            // turns on once the map is clicked and off when the pointer leaves,
+            // so scrolling the page across the map never gets trapped.
             zoomControl: true,
             attributionControl: false,
             scrollWheelZoom: false,
@@ -273,6 +277,14 @@
             map.setView([20, 0], 1, {animate: false});
         }
 
+        // Phones, like the bike map: one finger scrolls the page instead of
+        // getting trapped panning the map; two fingers pinch-zoom and move it.
+        if (L.Browser && L.Browser.mobile) {
+            map.dragging.disable();
+            if (map.tap) map.tap.disable();
+            el.style.touchAction = 'pan-y';
+        }
+
         // A resize changes how much of the world fits, so re-frame it — unless
         // the visitor has zoomed or panned the map themselves, in which case a
         // resize must not snap their view back to the whole world.
@@ -282,6 +294,9 @@
             el.addEventListener(evt, () => { userMoved = true; }, {passive: true});
         });
         map.on('zoomstart dragstart', () => { userMoved = true; });
+
+        map.on('click focus', () => map.scrollWheelZoom.enable());
+        el.addEventListener('mouseleave', () => map.scrollWheelZoom.disable());
 
         function applySize() {
             // pan defaults to true, keeping the center across a resize instead

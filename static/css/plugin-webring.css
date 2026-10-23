@@ -171,3 +171,21 @@
         background: color-mix(in oklch, var(--accent) 90%, black);
     }
 }
+/* Compact: a slim title bar and one row of 32px links. */
+.plugin.webring-section {
+    min-height: 0;
+}
+
+.plugin.webring-section .plugin-header {
+    margin-bottom: 0;
+}
+
+.plugin.webring-section .plugin__inner {
+    padding: 8px 14px 10px;
+}
+
+.plugin.webring-section :is(.webring-prev, .webring-home, .webring-next) {
+    height: 32px;
+    padding: 0 14px;
+    font-size: 12px;
+}

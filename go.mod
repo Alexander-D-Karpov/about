@@ -30,7 +30,7 @@ require (
 	github.com/tdewolff/minify/v2 v2.24.17 // indirect
 	github.com/tdewolff/parse/v2 v2.8.16 // indirect
 	go.yaml.in/yaml/v2 v2.4.4 // indirect
-	golang.org/x/net v0.56.0 // indirect
+	golang.org/x/net v0.56.0
 	golang.org/x/sys v0.47.0 // indirect
 	golang.org/x/text v0.41.0 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect

@@ -498,6 +498,14 @@
             if (sameData) return;
         }
 
+        // Same for bike: its section is mostly Leaflet and chart DOM. The rides
+        // payload is versioned in #bike-data's data-src; unchanged means keep the
+        // live map instead of swapping in an empty container.
+        if (data.plugin === 'bike') {
+            const src = (el) => el.querySelector('#bike-data')?.getAttribute('data-src') || '';
+            if (src(section) && src(section) === src(newSection)) return;
+        }
+
         // Nothing meaningful changed - do not rebuild, do not repack, do not jump.
         if (normalizePluginForCompare(section) === normalizePluginForCompare(newSection)) {
             return;
@@ -530,8 +538,8 @@
 
         if (data.plugin === 'projects') {
             newSection.dataset.fixedTail = '1';
-            clearMosaicLayoutState(newSection);
-            mountProjectsTail();
+            window.mosaicUtils?.clearLayoutState?.(newSection);
+            window.mosaicUtils?.mountTail?.();
         }
 
         if (typeof window.initTechFiltering === 'function' && data.plugin === 'techstack') {
@@ -540,6 +548,9 @@
             window.initCodeToggles();
         } else if (data.plugin === 'music' && typeof window.initMusicInteractions === 'function') {
             window.initMusicInteractions();
+        } else if (data.plugin === 'bike' && typeof window.reinitBikeMap === 'function') {
+            // the swapped-in section has an empty map container
+            window.reinitBikeMap();
         }
 
         requestAnimationFrame(() => {

@@ -64,7 +64,75 @@
             }
         }
 
-        playTrack(`${artist} ${track}`, startAt);
+        const duration = prog ? parseInt(prog.dataset.duration || '0', 10) : 0;
+        playTrack({artist, track, duration}, startAt);
+    }
+
+    // Picks the search result that is actually the requested track instead of
+    // the first hit: the title and artist must match, and remixes, live takes,
+    // covers and the like lose unless the request asked for one.
+    const VARIANT_WORDS = ['remix', 'live', 'cover', 'karaoke', 'instrumental', 'acoustic', 'sped up',
+        'slowed', 'nightcore', 'edit', 'version', 'mix', 'reprise', 'demo', 'remaster', 'rework', 'bootleg'];
+
+    function normText(s) {
+        return String(s || '').toLowerCase().normalize('NFKD').replace(/[\u0300-\u036f]/g, '')
+            .replace(/ё/g, 'е').replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+    }
+
+    function tokenOverlap(a, b) {
+        const ta = new Set(normText(a).split(' ').filter(Boolean));
+        const tb = normText(b).split(' ').filter(Boolean);
+        if (!ta.size || !tb.length) return 0;
+        return tb.filter((t) => ta.has(t)).length / Math.max(ta.size, tb.length);
+    }
+
+    function scoreSong(song, want, index) {
+        const name = normText(song.name);
+        const authors = (song.authors || []).map((a) => normText(a.name));
+        let score = -index * 0.5;
+
+        if (want.track) {
+            const t = normText(want.track);
+            if (name === t) score += 60;
+            else if (name.startsWith(t) || t.startsWith(name)) score += 35;
+            else if (name.includes(t) || t.includes(name)) score += 20;
+            score += tokenOverlap(name, t) * 20;
+        } else {
+            score += tokenOverlap(want.query, name) * 40;
+        }
+
+        if (want.artist) {
+            const a = normText(want.artist);
+            if (authors.some((x) => x === a)) score += 40;
+            else if (authors.some((x) => x && (x.includes(a) || a.includes(x)))) score += 25;
+        } else if (authors.some((x) => x && normText(want.query).includes(x))) {
+            score += 30;
+        }
+
+        const asked = normText(want.track || want.query);
+        VARIANT_WORDS.forEach((w) => {
+            if (name.includes(w) && !asked.includes(w)) score -= 25;
+        });
+
+        if (want.duration > 0 && song.length > 0) {
+            const diff = Math.abs(song.length - want.duration);
+            if (diff <= 3) score += 15;
+            else if (diff > 30) score -= 10;
+        }
+        return score;
+    }
+
+    function bestMatch(songs, want) {
+        let best = songs[0];
+        let bestScore = -Infinity;
+        songs.forEach((song, i) => {
+            const s = scoreSong(song, want, i);
+            if (s > bestScore) {
+                bestScore = s;
+                best = song;
+            }
+        });
+        return best;
     }
 
     async function playTrack(searchInfo, startAt) {
@@ -77,7 +145,7 @@
         if (typeof searchInfo === 'string') {
             searchQuery = searchInfo;
         } else if (typeof searchInfo === 'object' && searchInfo !== null) {
-            searchQuery = `${searchInfo.artist} - ${searchInfo.track}`;
+            searchQuery = `${searchInfo.artist} ${searchInfo.track}`;
             trackDetails = searchInfo;
         }
 
@@ -96,20 +164,12 @@
                 return;
             }
 
-            let track = data.songs[0];
-            if (trackDetails.artist && trackDetails.track && data.songs.length > 1) {
-                const targetArtist = trackDetails.artist.toLowerCase();
-                const targetTrack = trackDetails.track.toLowerCase();
-
-                const exactMatch = data.songs.find(s =>
-                    s.name.toLowerCase() === targetTrack &&
-                    s.authors.some(a => a.name.toLowerCase() === targetArtist)
-                );
-
-                if (exactMatch) {
-                    track = exactMatch;
-                }
-            }
+            const track = bestMatch(data.songs, {
+                artist: trackDetails.artist || '',
+                track: trackDetails.track || '',
+                duration: trackDetails.duration || 0,
+                query: searchQuery,
+            });
 
             let imageURL = track.image_cropped || '';
             if (imageURL && !imageURL.startsWith('http')) {

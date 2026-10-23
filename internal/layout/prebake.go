@@ -18,7 +18,7 @@ type PluginLayout struct {
 
 type Placement struct {
 	Name    string
-	Order   int // original plugin index; preserved across expandHorizontally's sort
+	Order   int // original plugin index, used to restore render order after packing
 	Col     int
 	Row     int
 	ColSpan int
@@ -239,10 +239,20 @@ func colMinForViewport(viewportWidth int) int {
 	}
 }
 
+// MaxMosaicWidth caps the mosaic (main.css .js .mosaic max-width): ultrawide
+// screens get the same five columns as a 1680px one instead of a wall of
+// narrow columns with holes between them. windowManager.js uses the same cap.
+const MaxMosaicWidth = 1680
+
 func layoutStateForViewport(viewportWidth int) (cols, mosaicWidth int) {
 	padding := containerPaddingForViewport(viewportWidth)
-	mosaicWidth = max(0, floorInt(float64(viewportWidth)-padding*2))
+	mosaicWidth = min(MaxMosaicWidth, max(0, floorInt(float64(viewportWidth)-padding*2)))
 	cols = max(1, (mosaicWidth+Gap)/(colMinForViewport(viewportWidth)+Gap))
+	// Phones get one column: two ~170px columns squeezed cards (tech icons two
+	// to a row) and left holes next to anything wider.
+	if viewportWidth <= PhoneMaxWidth {
+		cols = 1
+	}
 	return cols, mosaicWidth
 }
 
@@ -283,9 +293,11 @@ func splitByWidthRatio(lo, hi int) []widthRange {
 }
 
 func buildViewportBuckets() []ViewportBucket {
+	// Past the width cap every viewport lays out identically: one run, unsplit.
 	type state struct {
 		Cols   int
 		MinCol int
+		Capped bool
 	}
 
 	var minWidths []int
@@ -293,10 +305,11 @@ func buildViewportBuckets() []ViewportBucket {
 	initialized := false
 
 	for viewportWidth := 0; viewportWidth <= maxPrebakeViewport; viewportWidth++ {
-		cols, _ := layoutStateForViewport(viewportWidth)
+		cols, mosaicWidth := layoutStateForViewport(viewportWidth)
 		current := state{
 			Cols:   cols,
 			MinCol: colMinForViewport(viewportWidth),
+			Capped: mosaicWidth >= MaxMosaicWidth,
 		}
 
 		if !initialized || current != lastState {
@@ -322,7 +335,11 @@ func buildViewportBuckets() []ViewportBucket {
 		// plugin measured at its midpoint came out hundreds of pixels off at
 		// either end. Slice the run geometrically so each bucket covers a small
 		// relative width change, and measure each slice separately.
-		for s, sub := range splitByWidthRatio(rangeStart, rangeEnd) {
+		subs := splitByWidthRatio(rangeStart, rangeEnd)
+		if _, mw := layoutStateForViewport(rangeStart); mw >= MaxMosaicWidth {
+			subs = []widthRange{{rangeStart, rangeEnd}}
+		}
+		for s, sub := range subs {
 			bucketMin := sub.start
 			if s == 0 {
 				// keep the run's own boundary, so bucket 0 still starts at 0
@@ -403,17 +420,18 @@ func estimateHeightFromHTML(name string, span, pluginWidth int, html string) int
 	case "social":
 		icons := countToken(lower, "social-link")
 		pages := countToken(lower, "social-page-link")
-		iconRows := ceilDiv(max(icons, 1), itemsPerRowByPixelWidth(usableWidth, 48, 8))
+		iconRows := ceilDiv(max(icons, 1), itemsPerRowByPixelWidth(usableWidth, 40, 0)) // 34px tiles, 6px gap
 		pageRows := 0
 		if pages > 0 {
 			pageRows = ceilDiv(pages, itemsPerRowByPixelWidth(usableWidth, 170, 3))
 		}
-		h = 100 + iconRows*56 + pageRows*42
+		h = 90 + iconRows*40 + pageRows*42
 
 	case "tech":
 		items := countToken(lower, "tech-item")
-		rows := ceilDiv(max(items, 1), itemsPerRowByPixelWidth(usableWidth, 92, 6))
-		h = 100 + rows*60
+		// 40px tiles in a 46px pitch (plugin-tech.css)
+		rows := ceilDiv(max(items, 1), itemsPerRowByPixelWidth(usableWidth, 46, 0))
+		h = 100 + rows*46
 
 	case "projects":
 		items := countToken(lower, "project-card")
@@ -434,7 +452,8 @@ func estimateHeightFromHTML(name string, span, pluginWidth int, html string) int
 
 	case "places":
 		mapH := 320
-		h = mapH + 80
+		chipRows := ceilDiv(countToken(lower, `class="places-country"`), itemsPerRowByPixelWidth(usableWidth, 110, 0))
+		h = mapH + 80 + chipRows*32
 
 	case "health":
 		cards := countToken(lower, `data-metric=`)
@@ -572,7 +591,7 @@ func estimateHeightFromHTML(name string, span, pluginWidth int, html string) int
 		h = 440
 
 	case "webring":
-		h = 116
+		h = 88 // 38px title bar + 32px links + padding
 	}
 
 	h += 16
@@ -601,6 +620,16 @@ func ViewportBuckets() []ViewportBucket {
 // PluginWidth is the exported column-pixel width of a span in this bucket.
 func (b ViewportBucket) PluginWidth(span int) int { return b.pluginWidth(span) }
 
+// PhoneMaxWidth is the widest viewport treated as a phone.
+const PhoneMaxWidth = 720
+
+// fullWidthOnPhone: on phones the meme and visitors take the whole row instead
+// of sharing it with a narrow neighbour or an empty column. The client packers
+// apply the same rule.
+func fullWidthOnPhone(name string, viewportWidth int) bool {
+	return (name == "meme" || name == "visitors") && viewportWidth <= PhoneMaxWidth
+}
+
 func ExtractLayout(html string, order int, bucket ViewportBucket, store HeightLookup) PluginLayout {
 	name := extractPluginName(html)
 
@@ -610,6 +639,9 @@ func ExtractLayout(html string, order int, bucket ViewportBucket, store HeightLo
 	}
 
 	w := clamp(baseWidth, 1, max(1, bucket.Cols))
+	if fullWidthOnPhone(name, bucket.SampleWidth) {
+		w = max(1, bucket.Cols)
+	}
 	pluginWidth := bucket.pluginWidth(w)
 
 	height := 0
@@ -654,96 +686,62 @@ func ExtractLayout(html string, order int, bucket ViewportBucket, store HeightLo
 	}
 }
 
+// packForCols places each plugin, in order, at the highest spot where it fits,
+// including holes left between cards already placed. Plain shortest-column
+// masonry can't do that: a 2-column card lands under the taller of its two
+// columns and buries the free space above the shorter one, and a later narrow
+// card never sees that hole. The client packers (templates/main.html and
+// windowManager.js) run the same algorithm; keep them in step.
 func packForCols(plugins []PluginLayout, cols int) []Placement {
 	placements := make([]Placement, 0, len(plugins))
-	colHeights := make([]int, cols)
+
+	// rows are in RowHeight units; a card occupies [Row, Row+RowSpan) and the
+	// span already includes the gap below it
+	fits := func(col, w, row, span int) bool {
+		for _, o := range placements {
+			if col < o.Col+o.ColSpan && o.Col < col+w && row < o.Row+o.RowSpan && o.Row < row+span {
+				return false
+			}
+		}
+		return true
+	}
 
 	for _, p := range plugins {
-		w := p.Width
-		if w > cols {
-			w = cols
+		w := min(max(p.Width, 1), cols)
+		span := int(math.Ceil(float64(p.Height+Gap) / float64(RowHeight)))
+
+		// a card can only start at the top or right below another card
+		candidates := []int{0}
+		for _, o := range placements {
+			candidates = append(candidates, o.Row+o.RowSpan)
 		}
+		sort.Ints(candidates)
 
-		bestCol := 0
-		bestHeight := math.MaxInt32
-
+		bestCol, bestRow := 0, math.MaxInt32
 		for c := 0; c <= cols-w; c++ {
-			maxH := 0
-			for i := c; i < c+w; i++ {
-				if colHeights[i] > maxH {
-					maxH = colHeights[i]
+			for _, row := range candidates {
+				if row >= bestRow {
+					break
+				}
+				if fits(c, w, row, span) {
+					bestCol, bestRow = c, row
+					break
 				}
 			}
-			if maxH < bestHeight {
-				bestHeight = maxH
-				bestCol = c
-			}
-		}
-
-		startRow := int(math.Ceil(float64(bestHeight) / float64(RowHeight)))
-		rowSpan := int(math.Ceil(float64(p.Height+Gap) / float64(RowHeight)))
-		newHeight := bestHeight + p.Height + Gap
-
-		for i := bestCol; i < bestCol+w; i++ {
-			colHeights[i] = newHeight
 		}
 
 		placements = append(placements, Placement{
 			Name:    p.Name,
 			Order:   p.Order,
 			Col:     bestCol,
-			Row:     startRow,
+			Row:     bestRow,
 			ColSpan: w,
-			RowSpan: rowSpan,
+			RowSpan: span,
 			Height:  p.Height,
 		})
 	}
 
-	expandHorizontally(placements, cols)
 	return placements
-}
-
-func expandHorizontally(placements []Placement, cols int) {
-	sort.Slice(placements, func(i, j int) bool {
-		if placements[i].Row != placements[j].Row {
-			return placements[i].Row < placements[j].Row
-		}
-		return placements[i].Col < placements[j].Col
-	})
-
-	for i := range placements {
-		p := &placements[i]
-
-		for p.Col+p.ColSpan < cols {
-			nextCol := p.Col + p.ColSpan
-			canExpand := true
-
-			for j := range placements {
-				if i == j {
-					continue
-				}
-				other := &placements[j]
-
-				overlapsNextCol := other.Col == nextCol || (other.Col < nextCol && other.Col+other.ColSpan > nextCol)
-				if !overlapsNextCol {
-					continue
-				}
-
-				pEnd := p.Row + p.RowSpan
-				oEnd := other.Row + other.RowSpan
-				if !(p.Row >= oEnd || pEnd <= other.Row) {
-					canExpand = false
-					break
-				}
-			}
-
-			if canExpand {
-				p.ColSpan++
-			} else {
-				break
-			}
-		}
-	}
 }
 
 // fixedEdgePackOrder returns plugin indices in the order the client packs them
@@ -791,8 +789,7 @@ func Prebake(pluginHTMLs []template.HTML, store HeightLookup) []template.HTML {
 		for pos, idx := range packSeq {
 			packInput[pos] = layouts[idx]
 		}
-		// packForCols runs expandHorizontally, which sorts by (row,col); each
-		// Placement carries its original plugin index in Order, so re-index by
+		// Each Placement carries its original plugin index in Order; re-index by
 		// Order to restore plugin-i alignment for the emit loop below.
 		packed := packForCols(packInput, bucket.Cols)
 		ordered := make([]Placement, len(pluginHTMLs))

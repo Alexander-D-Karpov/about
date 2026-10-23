@@ -258,3 +258,23 @@
         letter-spacing: .2px;
     }
 }
+
+/* The card's own padding doubled the inner one (gap under the title bar,
+   squeezed map); the title bar and .plugin__inner pad it like every card. */
+.plugin.visitors-section {
+    padding: 0;
+}
+
+/* An explicit width stops browsers from turning min-height through the
+   aspect-ratio into a min-width (110px x 2.8 = 308px), which pushed the map
+   past its panel on narrow phone cards. The panel clips as a last resort. */
+.plugin.visitors-section .visitors-map {
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+}
+
+.plugin.visitors-section .visitors-regions {
+    overflow: hidden;
+    min-width: 0;
+}
