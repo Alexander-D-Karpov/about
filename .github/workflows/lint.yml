@@ -16,7 +16,7 @@ jobs:
     - name: Set up Go
       uses: actions/setup-go@v5
       with:
-        go-version: '1.25'
+        go-version: '1.26'
 
     # v2 action installs golangci-lint v2, which is required for a go-1.25 module
     # (the v1 binary is built with go 1.24 and refuses it).
