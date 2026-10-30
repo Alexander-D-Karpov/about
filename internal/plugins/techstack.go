@@ -200,7 +200,7 @@ func lookupTechIcon(index map[string]string, name string) string {
 
 var projectTechIcons = map[string]string{
 	"bubbletea":     "/static/icons/bubbletea.png",
-	"chromium":      "/static/icons/chromium.svg",
+	"chromium":      "/static/icons/chromium-transparent.svg",
 	"drf":           "/static/icons/django.svg",
 	"ffmpeg":        "/static/icons/ffmpeg.svg",
 	"fyne":          "/static/icons/fyne.png",
