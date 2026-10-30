@@ -116,10 +116,10 @@ func (p *ProjectsPlugin) Render(ctx context.Context) (string, error) {
 				{{range .Projects}}
 				<article class="project-card">
 					{{if .Image}}
-					<div class="project-image">
+					<button type="button" class="project-image" data-original="{{.OriginalImage}}" aria-label="View full image: {{.Name}}">
 						{{if .Placeholder}}<img class="project-image__placeholder" src="{{.Placeholder}}" alt="" aria-hidden="true">{{end}}
 						<img class="project-image__photo" src="{{.Image}}" alt="{{.Name}}" loading="lazy" decoding="async">
-					</div>
+					</button>
 					{{end}}
 					<div class="project-content">
 						<h3 class="project-title">{{.Name}}</h3>
@@ -173,16 +173,17 @@ func (p *ProjectsPlugin) Render(ctx context.Context) (string, error) {
 	}
 
 	type project struct {
-		Name         string
-		Description  string
-		Image        string
-		Placeholder  template.URL
-		GitHub       string
-		Live         string
-		Technologies []projectTech
-		Created      string
-		Updated      string
-		upd          time.Time // sort key (unexported; ignored by template)
+		Name          string
+		Description   string
+		Image         string
+		OriginalImage string
+		Placeholder   template.URL
+		GitHub        string
+		Live          string
+		Technologies  []projectTech
+		Created       string
+		Updated       string
+		upd           time.Time // sort key (unexported; ignored by template)
 	}
 
 	iconIndex := TechIconIndex(p.storage)
@@ -197,6 +198,10 @@ func (p *ProjectsPlugin) Render(ctx context.Context) (string, error) {
 		name, _ := projMap["name"].(string)
 		desc, _ := projMap["description"].(string)
 		image, _ := projMap["image"].(string)
+		originalImage, _ := projMap["image_original"].(string)
+		if originalImage == "" {
+			originalImage = image
+		}
 		blurhash, _ := projMap["blurhash"].(string)
 		github, _ := projMap["github"].(string)
 		live, _ := projMap["live"].(string)
@@ -214,16 +219,17 @@ func (p *ProjectsPlugin) Render(ctx context.Context) (string, error) {
 
 		updT, _ := parseProjectDate(updated)
 		projectList = append(projectList, project{
-			Name:         name,
-			Description:  desc,
-			Image:        image,
-			Placeholder:  projectPlaceholder(blurhash),
-			GitHub:       github,
-			Live:         live,
-			Technologies: technologies,
-			Created:      fmtProjectDate(created),
-			Updated:      fmtProjectDate(updated),
-			upd:          updT,
+			Name:          name,
+			Description:   desc,
+			Image:         image,
+			OriginalImage: originalImage,
+			Placeholder:   projectPlaceholder(blurhash),
+			GitHub:        github,
+			Live:          live,
+			Technologies:  technologies,
+			Created:       fmtProjectDate(created),
+			Updated:       fmtProjectDate(updated),
+			upd:           updT,
 		})
 	}
 

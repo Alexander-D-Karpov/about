@@ -207,6 +207,10 @@ var projectTechIcons = map[string]string{
 	"jupyter":       "/static/icons/jupyter.svg",
 	"osm":           "/static/icons/openstreetmap.svg",
 	"overpassturbo": "/static/icons/overpassturbo.ico",
+	"webassembly":   "/static/icons/webassembly.svg",
+	"platformio":    "/static/icons/platformio.svg",
+	"esp8266":       "/static/icons/espressif.svg",
+	"raspberry pi":  "/static/icons/raspberrypi.svg",
 }
 
 // techCategoryOrder is the display order of the built-in categories; any other

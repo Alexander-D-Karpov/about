@@ -27,6 +27,61 @@
     });
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', retryAlreadyFailedImages);
     else retryAlreadyFailedImages();
+
+    // One floating preview is shared by all project cards, including live updates.
+    // The original is requested only when needed; keep the thumbnail while it loads.
+    let projectPreview, projectPreviewOwner, projectPreviewVersion = 0;
+    function hideProjectPreview() {
+        projectPreviewVersion++;
+        projectPreviewOwner = null;
+        if (projectPreview) projectPreview.remove();
+        projectPreview = null;
+    }
+    function showProjectPreview(owner) {
+        if (!owner || owner === projectPreviewOwner) return;
+        hideProjectPreview();
+        const photo = owner.querySelector('.project-image__photo');
+        if (!photo) return;
+        let original;
+        try {
+            original = new URL(owner.dataset.original || photo.src, document.baseURI);
+            if (!['http:', 'https:'].includes(original.protocol)) return;
+        } catch { return; }
+        projectPreviewOwner = owner;
+        projectPreview = document.createElement('div');
+        projectPreview.className = 'project-image-preview';
+        projectPreview.setAttribute('aria-hidden', 'true');
+        const img = document.createElement('img');
+        img.alt = '';
+        img.src = photo.currentSrc || photo.src;
+        projectPreview.appendChild(img);
+        document.body.appendChild(projectPreview);
+        const version = projectPreviewVersion;
+        const full = new Image();
+        full.onload = () => { if (projectPreviewVersion === version) img.src = full.src; };
+        full.src = original.href;
+    }
+    document.addEventListener('pointerover', (event) => {
+        if (event.pointerType !== 'mouse' && event.pointerType !== 'pen') return;
+        showProjectPreview(event.target.closest?.('.project-image'));
+    });
+    document.addEventListener('pointerout', (event) => {
+        if (projectPreviewOwner && projectPreviewOwner.contains(event.target) && !projectPreviewOwner.contains(event.relatedTarget)) hideProjectPreview();
+    });
+    document.addEventListener('focusin', (event) => {
+        if (event.target.matches?.('.project-image:focus-visible')) showProjectPreview(event.target);
+    });
+    document.addEventListener('focusout', (event) => { if (event.target === projectPreviewOwner) hideProjectPreview(); });
+    document.addEventListener('click', (event) => {
+        const owner = event.target.closest?.('.project-image');
+        if (!owner) { hideProjectPreview(); return; }
+        if (window.matchMedia('(hover: none)').matches) {
+            if (owner === projectPreviewOwner) hideProjectPreview();
+            else showProjectPreview(owner);
+        }
+    });
+    document.addEventListener('keydown', (event) => { if (event.key === 'Escape') hideProjectPreview(); });
+    window.addEventListener('scroll', hideProjectPreview, {passive: true});
     const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
     const now = () => Date.now();
 
