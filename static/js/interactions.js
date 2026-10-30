@@ -28,14 +28,25 @@
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', retryAlreadyFailedImages);
     else retryAlreadyFailedImages();
 
-    // One floating preview is shared by all project cards, including live updates.
-    // The original is requested only when needed; keep the thumbnail while it loads.
+    // Animate from the card's own image, without changing the masonry layout.
+    // Request the original only on interaction; display the thumbnail meanwhile.
     let projectPreview, projectPreviewOwner, projectPreviewVersion = 0;
+    function setPreviewRect(preview, rect) {
+        preview.style.left = `${rect.left}px`;
+        preview.style.top = `${rect.top}px`;
+        preview.style.width = `${rect.width}px`;
+        preview.style.height = `${rect.height}px`;
+    }
     function hideProjectPreview() {
         projectPreviewVersion++;
+        const preview = projectPreview;
+        const owner = projectPreviewOwner;
         projectPreviewOwner = null;
-        if (projectPreview) projectPreview.remove();
         projectPreview = null;
+        if (!preview) return;
+        if (owner?.isConnected) setPreviewRect(preview, owner.getBoundingClientRect());
+        preview.style.opacity = '0';
+        setTimeout(() => preview.remove(), 250);
     }
     function showProjectPreview(owner) {
         if (!owner || owner === projectPreviewOwner) return;
@@ -56,6 +67,22 @@
         img.src = photo.currentSrc || photo.src;
         projectPreview.appendChild(img);
         document.body.appendChild(projectPreview);
+        const preview = projectPreview;
+        const rect = owner.getBoundingClientRect();
+        setPreviewRect(preview, rect);
+        // Grow around the original card, clamping only when near a screen edge.
+        const ratio = photo.naturalWidth && photo.naturalHeight ? photo.naturalWidth / photo.naturalHeight : rect.width / rect.height;
+        let width = Math.min(rect.width * 1.9, 720, window.innerWidth - 24);
+        let height = width / ratio;
+        if (height > window.innerHeight * .72) {
+            height = window.innerHeight * .72;
+            width = height * ratio;
+        }
+        const left = Math.max(12, Math.min(rect.left + (rect.width - width) / 2, window.innerWidth - width - 12));
+        const top = Math.max(12, Math.min(rect.top + (rect.height - height) / 2, window.innerHeight - height - 12));
+        requestAnimationFrame(() => requestAnimationFrame(() => {
+            if (projectPreview === preview) setPreviewRect(preview, {left, top, width, height});
+        }));
         const version = projectPreviewVersion;
         const full = new Image();
         full.onload = () => { if (projectPreviewVersion === version) img.src = full.src; };
