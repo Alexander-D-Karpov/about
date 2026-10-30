@@ -10,6 +10,7 @@ import (
 	"image/jpeg"
 	"io"
 	"log"
+	"math"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -375,36 +376,36 @@ func (p *BeatLeaderPlugin) Render(ctx context.Context) (string, error) {
 			{{if .ProfileURL}}
 			<a class="stat-item" href="{{.ProfileURL}}" target="_blank" rel="noopener noreferrer">
 				<div class="stat-label">Global Rank</div>
-				<div class="stat-value">#{{.PlayerData.Rank}}</div>
+				<div class="stat-value"><span class="stat-pre">#</span><span class="stat-num">{{commas .PlayerData.Rank}}</span></div>
 			</a>
 			<a class="stat-item" href="{{.ProfileURL}}" target="_blank" rel="noopener noreferrer">
-				<div class="stat-label">{{.PlayerData.Country}} Rank</div>
-				<div class="stat-value">#{{.PlayerData.CountryRank}}</div>
+				<div class="stat-label">{{countryFlag .PlayerData.Country}}{{.PlayerData.Country}} Rank</div>
+				<div class="stat-value"><span class="stat-pre">#</span><span class="stat-num">{{commas .PlayerData.CountryRank}}</span></div>
 			</a>
 			<a class="stat-item" href="{{.ProfileURL}}" target="_blank" rel="noopener noreferrer">
 				<div class="stat-label">Performance Points</div>
-				<div class="stat-value">{{printf "%.0f" .PlayerData.PP}}pp</div>
+				<div class="stat-value"><span class="stat-num">{{commas .PlayerData.PP}}</span><span class="stat-unit">pp</span></div>
 			</a>
 			<a class="stat-item" href="{{.ProfileURL}}" target="_blank" rel="noopener noreferrer" data-tooltip="Exact: {{.CubesExact}}">
 				<div class="stat-label">Cubes Sliced</div>
-				<div class="stat-value" data-cubes="{{.CubesSliced}}">{{.CubesFormatted}}</div>
+				<div class="stat-value" data-cubes="{{.CubesSliced}}"><span class="stat-num">{{.CubesExact}}</span></div>
 			</a>
 			{{else}}
 			<div class="stat-item">
 				<div class="stat-label">Global Rank</div>
-				<div class="stat-value">#{{.PlayerData.Rank}}</div>
+				<div class="stat-value"><span class="stat-pre">#</span><span class="stat-num">{{commas .PlayerData.Rank}}</span></div>
 			</div>
 			<div class="stat-item">
-				<div class="stat-label">{{.PlayerData.Country}} Rank</div>
-				<div class="stat-value">#{{.PlayerData.CountryRank}}</div>
+				<div class="stat-label">{{countryFlag .PlayerData.Country}}{{.PlayerData.Country}} Rank</div>
+				<div class="stat-value"><span class="stat-pre">#</span><span class="stat-num">{{commas .PlayerData.CountryRank}}</span></div>
 			</div>
 			<div class="stat-item">
 				<div class="stat-label">Performance Points</div>
-				<div class="stat-value">{{printf "%.0f" .PlayerData.PP}}pp</div>
+				<div class="stat-value"><span class="stat-num">{{commas .PlayerData.PP}}</span><span class="stat-unit">pp</span></div>
 			</div>
 			<div class="stat-item" data-tooltip="Exact: {{.CubesExact}}">
 				<div class="stat-label">Cubes Sliced</div>
-				<div class="stat-value" data-cubes="{{.CubesSliced}}">{{.CubesFormatted}}</div>
+				<div class="stat-value" data-cubes="{{.CubesSliced}}"><span class="stat-num">{{.CubesExact}}</span></div>
 			</div>
 			{{end}}
 		</div>
@@ -421,16 +422,14 @@ func (p *BeatLeaderPlugin) Render(ctx context.Context) (string, error) {
 					<div class="map-info">
 						<div class="map-name">{{.Leaderboard.Song.Name}}</div>
 						<div class="map-stats">
-							<span>{{.Leaderboard.Difficulty.DifficultyName}}</span>
-							{{if gt .Leaderboard.Difficulty.Stars 0.0}}
-							<span>{{printf "%.1f" .Leaderboard.Difficulty.Stars}}⭐</span>
-							{{end}}
-							<span>{{printf "%.1f" (mul .Accuracy 100)}}%</span>
-							{{if .PP}}<span>{{printf "%.0f" .PP}}pp</span>{{end}}
-							{{if .FullCombo}}<span>FC</span>{{end}}
-							{{if .ReplayURL}}<span class="replay-indicator">🎬</span>{{end}}
+							<span class="map-diff" data-diff="{{.Leaderboard.Difficulty.DifficultyName}}">{{.Leaderboard.Difficulty.DifficultyName}}</span>
+							{{if gt .Leaderboard.Difficulty.Stars 0.0}}<span class="map-stars">{{printf "%.1f" .Leaderboard.Difficulty.Stars}}★</span>{{end}}
+							<span class="map-acc">{{printf "%.1f" (mul .Accuracy 100)}}%</span>
+							{{if .PP}}<span class="map-pp">{{printf "%.0f" .PP}}<small>pp</small></span>{{end}}
+							{{if .FullCombo}}<span class="map-fc">FC</span>{{end}}
 						</div>
 					</div>
+					<span class="map-replay" title="Watch replay" aria-label="Watch replay">🎬</span>
 				</a>
 				{{else}}
 				<div class="map-item">
@@ -440,13 +439,11 @@ func (p *BeatLeaderPlugin) Render(ctx context.Context) (string, error) {
 					<div class="map-info">
 						<div class="map-name">{{.Leaderboard.Song.Name}}</div>
 						<div class="map-stats">
-							<span>{{.Leaderboard.Difficulty.DifficultyName}}</span>
-							{{if gt .Leaderboard.Difficulty.Stars 0.0}}
-							<span>{{printf "%.1f" .Leaderboard.Difficulty.Stars}}⭐</span>
-							{{end}}
-							<span>{{printf "%.1f" (mul .Accuracy 100)}}%</span>
-							{{if .PP}}<span>{{printf "%.0f" .PP}}pp</span>{{end}}
-							{{if .FullCombo}}<span>FC</span>{{end}}
+							<span class="map-diff" data-diff="{{.Leaderboard.Difficulty.DifficultyName}}">{{.Leaderboard.Difficulty.DifficultyName}}</span>
+							{{if gt .Leaderboard.Difficulty.Stars 0.0}}<span class="map-stars">{{printf "%.1f" .Leaderboard.Difficulty.Stars}}★</span>{{end}}
+							<span class="map-acc">{{printf "%.1f" (mul .Accuracy 100)}}%</span>
+							{{if .PP}}<span class="map-pp">{{printf "%.0f" .PP}}<small>pp</small></span>{{end}}
+							{{if .FullCombo}}<span class="map-fc">FC</span>{{end}}
 						</div>
 					</div>
 				</div>
@@ -483,6 +480,18 @@ func (p *BeatLeaderPlugin) Render(ctx context.Context) (string, error) {
 		"mul":    func(a, b float64) float64 { return a * b },
 		"printf": fmt.Sprintf,
 		"gt":     func(a, b float64) bool { return a > b },
+		"countryFlag": countryFlagHTML,
+		"commas": func(v interface{}) string {
+			switch n := v.(type) {
+			case int:
+				return formatNumberWithCommas(int64(n))
+			case int64:
+				return formatNumberWithCommas(n)
+			case float64:
+				return formatNumberWithCommas(int64(math.Round(n)))
+			}
+			return fmt.Sprint(v)
+		},
 	}
 
 	profileURL := ""
@@ -521,6 +530,21 @@ func (p *BeatLeaderPlugin) Render(ctx context.Context) (string, error) {
 	var buf strings.Builder
 	err = t.Execute(&buf, data)
 	return buf.String(), err
+}
+
+// countryFlagHTML draws a small flag before a country rank. Russia gets an
+// inline SVG tricolour (flag emoji are letters on Windows); other countries
+// fall back to the regional-indicator emoji.
+func countryFlagHTML(code string) template.HTML {
+	code = strings.ToUpper(strings.TrimSpace(code))
+	if code == "RU" {
+		return template.HTML(`<svg class="stat-flag" viewBox="0 0 9 6" width="15" height="10" aria-hidden="true"><rect width="9" height="2" fill="#fff"/><rect y="2" width="9" height="2" fill="#0039a6"/><rect y="4" width="9" height="2" fill="#d52b1e"/></svg>`)
+	}
+	if len(code) != 2 || code[0] < 'A' || code[0] > 'Z' || code[1] < 'A' || code[1] > 'Z' {
+		return ""
+	}
+	flag := string([]rune{rune(code[0]) - 'A' + 0x1F1E6, rune(code[1]) - 'A' + 0x1F1E6})
+	return template.HTML(`<span class="stat-flag" aria-hidden="true">` + flag + `</span>`)
 }
 
 func formatNumberWithCommas(n int64) string {

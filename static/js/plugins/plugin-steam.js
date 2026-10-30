@@ -6,7 +6,7 @@
         if (!section) return;
 
         section.querySelectorAll('.game-item').forEach(item => {
-            item.style.cursor = 'default';
+            item.style.cursor = 'pointer';
 
             item.addEventListener('mouseenter', () => {
                 item.style.transform = 'translateY(-2px)';

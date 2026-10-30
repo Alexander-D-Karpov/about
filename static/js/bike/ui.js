@@ -331,7 +331,7 @@
             }
 
             item.addEventListener('mouseenter', function () {
-                if (!NS.state.hiddenRides.has(idx)) NS.highlightRide(idx);
+                if (!NS.state.hiddenRides.has(idx)) NS.highlightRide(idx, { fromList: true });
             });
             item.addEventListener('mouseleave', function () {
                 NS.resetHighlight();

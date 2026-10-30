@@ -125,7 +125,7 @@ func (p *ProjectsPlugin) Render(ctx context.Context) (string, error) {
 						{{if .Technologies}}
 						<div class="project-tech">
 							{{range .Technologies}}
-							<span class="tech-tag">{{.}}</span>
+							{{if .Icon}}<span class="tech-tag tech-tag--icon" title="{{.Name}}"><img src="{{.Icon}}" alt="" width="16" height="16" loading="lazy" decoding="async"><span class="tech-tag__name">{{.Name}}</span></span>{{else}}<span class="tech-tag">{{.Name}}</span>{{end}}
 							{{end}}
 						</div>
 						{{end}}
@@ -144,17 +144,27 @@ func (p *ProjectsPlugin) Render(ctx context.Context) (string, error) {
 		</div>
 	</div>`
 
+	// Tags draw as the technology's icon when the Technologies card has one;
+	// the name stays in the markup (hidden) for the title, screen readers
+	// and the click-to-filter, which matches on the tag's text.
+	type projectTech struct {
+		Name string
+		Icon string
+	}
+
 	type project struct {
 		Name         string
 		Description  string
 		Image        string
 		GitHub       string
 		Live         string
-		Technologies []string
+		Technologies []projectTech
 		Created      string
 		Updated      string
 		upd          time.Time // sort key (unexported; ignored by template)
 	}
+
+	iconIndex := TechIconIndex(p.storage)
 
 	var projectList []project
 	for _, proj := range projects {
@@ -171,11 +181,11 @@ func (p *ProjectsPlugin) Render(ctx context.Context) (string, error) {
 		created, _ := projMap["created"].(string)
 		updated, _ := projMap["updated"].(string)
 
-		var technologies []string
+		var technologies []projectTech
 		if techs, ok := projMap["technologies"].([]interface{}); ok {
 			for _, tech := range techs {
 				if techStr, ok := tech.(string); ok {
-					technologies = append(technologies, techStr)
+					technologies = append(technologies, projectTech{Name: techStr, Icon: lookupTechIcon(iconIndex, techStr)})
 				}
 			}
 		}

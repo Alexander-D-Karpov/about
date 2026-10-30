@@ -171,8 +171,21 @@
 
         ensurePluginIds();
 
+        // A saved (dragged) order only applies on top of the server order it
+        // was made from. When the server's order changes (cards reordered in
+        // the config), the stale local order is dropped instead of freezing
+        // the old layout forever.
+        const serverOrder = $$('.plugin', mosaic).map((n) => n.id);
+        window.__serverPluginOrder = serverOrder;
         const savedWidths = safeJSON(readStorage('mosaic.widths')) || {};
-        const savedOrder = safeJSON(readStorage('mosaic.order')) || [];
+        let savedOrder = safeJSON(readStorage('mosaic.order')) || [];
+        if (savedOrder.length && readStorage('mosaic.order.base') !== JSON.stringify(serverOrder)) {
+            savedOrder = [];
+            try {
+                localStorage.removeItem('mosaic.order');
+                localStorage.removeItem('mosaic.order.base');
+            } catch {}
+        }
 
         function isProjectPlugin(el) {
             return !!el && el.classList.contains('projects-section');
@@ -237,7 +250,11 @@
                 const key = Object.keys(defaultWidths).find((k) => el.classList.contains(k));
                 const baseWidth = clamp(+el.dataset.w || (key ? defaultWidths[key] : 1), 1, 3);
                 const savedWidth = clamp(savedWidths[el.id] || baseWidth, 1, 3);
-                el.dataset.w = String(Math.min(savedWidth, cols));
+                // Keep the card's own width; pack() clamps to the columns
+                // when placing. Writing min(width, cols) here stored "1" on
+                // a phone-width load, and the desktop never got it back
+                // when the window was widened.
+                el.dataset.w = String(savedWidth);
             });
         }
 

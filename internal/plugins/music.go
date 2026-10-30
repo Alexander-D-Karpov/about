@@ -90,12 +90,12 @@ const musicTemplate = `<section class="music-section section plugin" data-w="2" 
           <span class="badge loved {{if not .Now.LovedLastfm}}is-off{{end}}" data-music-loved title="Loved on Last.fm">{{heartIcon}}</span>
           <span class="badge liked {{if not .Now.LikedSpot}}is-off{{end}}" data-music-liked title="Saved on Spotify">{{spotifyIcon}}</span>
         </div>
-        <div class="music-progress" data-music-progress data-started="{{.Now.Started}}" data-duration="{{.Now.Duration}}">
-          <div class="music-progress__fill" data-music-fill style="width:{{.Now.ProgressPct}}%"></div>
-        </div>
-        <div class="music-progress__time">
-          <span data-music-elapsed>{{.Now.ElapsedText}}</span>
-          <span data-music-total>{{.Now.DurationText}}</span>
+        <div class="music-progress-row">
+          <span class="music-progress__t" data-music-elapsed>{{.Now.ElapsedText}}</span>
+          <div class="music-progress" data-music-progress data-started="{{.Now.Started}}" data-duration="{{.Now.Duration}}">
+            <div class="music-progress__fill" data-music-fill style="width:{{.Now.ProgressPct}}%"></div>
+          </div>
+          <span class="music-progress__t" data-music-total>{{.Now.DurationText}}</span>
         </div>
       </div>
     </div>
@@ -105,7 +105,7 @@ const musicTemplate = `<section class="music-section section plugin" data-w="2" 
     {{if .Recent}}
     <ul class="music-recent" id="music-recent" data-music-recent>
       {{range .Recent}}
-      <li class="music-recent__item">
+      <li class="music-recent__item" data-ts="{{.Ts}}">
         <span class="music-recent__cover">
           {{if .Image}}<img src="{{.Image}}" alt="" width="40" height="40" loading="lazy">{{else}}<span class="music-recent__ph" style="background:{{.Color}}">{{.Initial}}</span>{{end}}
         </span>
@@ -1134,6 +1134,7 @@ type recentVM struct {
 	Initial     string
 	Color       string
 	Time        string
+	Ts          int64 // scrobble time (unix), 0 when unknown
 	LovedLastfm bool
 	LikedSpot   bool
 }
@@ -1336,6 +1337,7 @@ func (p *MusicPlugin) buildRecent(current *MusicTrack, recent []MusicTrack) []re
 			Artist:      t.Artist.Text,
 			Image:       shrinkArtworkURL(p.imageForVM(t.Artist.Text, t.Name, image), artRecentPx),
 			Time:        p.getRelativeTimeForTrack(t),
+			Ts:          trackUnix(t),
 			LovedLastfm: p.isLovedTrack(t.Artist.Text, t.Name),
 			LikedSpot:   p.isTrackLikedCached(t.Artist.Text, t.Name),
 		}
@@ -1559,6 +1561,7 @@ func (p *MusicPlugin) buildTrackPayload(track *MusicTrack, recent []MusicTrack, 
 			"loved":        p.isLovedTrack(t.Artist.Text, t.Name),
 			"liked":        p.isTrackLikedCached(t.Artist.Text, t.Name),
 			"relativeTime": p.getRelativeTimeForTrack(t),
+			"ts":           trackUnix(t),
 		}
 		if img != "" {
 			item["image"] = img
@@ -1922,6 +1925,12 @@ func (p *MusicPlugin) relativePlayedAt(t *MusicTrack) string {
 		return "recently"
 	}
 	return p.getRelativeTimeForTrack(t)
+}
+
+// trackUnix is the scrobble time of t, or 0 for a track without one.
+func trackUnix(t *MusicTrack) int64 {
+	sec, _ := strconv.ParseInt(strings.TrimSpace(t.Date.Uts), 10, 64)
+	return sec
 }
 
 func (p *MusicPlugin) getRelativeTimeForTrack(t *MusicTrack) string {

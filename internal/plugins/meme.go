@@ -121,12 +121,12 @@ func (p *MemePlugin) Render(ctx context.Context) (string, error) {
 		<div class="meme-content">
 			{{if eq .Meme.Type "image"}}
 			<div class="meme-image">
-				<img src="{{.Meme.Image}}" alt="{{.Meme.Text}}" loading="lazy">
+				<img src="{{.Meme.Image}}" alt="{{.Meme.Text}}"{{if gt .Meme.ImgW 0}} width="{{.Meme.ImgW}}" height="{{.Meme.ImgH}}"{{end}} decoding="async">
 				{{if .Meme.Text}}<p class="meme-caption">{{.Meme.Text}}</p>{{end}}
 			</div>
 			{{else if eq .Meme.Type "gif"}}
 			<div class="meme-gif">
-				<img src="{{.Meme.Image}}" alt="{{.Meme.Text}}" loading="lazy">
+				<img src="{{.Meme.Image}}" alt="{{.Meme.Text}}"{{if gt .Meme.ImgW 0}} width="{{.Meme.ImgW}}" height="{{.Meme.ImgH}}"{{end}} decoding="async">
 				{{if .Meme.Text}}<p class="meme-caption">{{.Meme.Text}}</p>{{end}}
 			</div>
 			{{else}}

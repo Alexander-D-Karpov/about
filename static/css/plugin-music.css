@@ -250,9 +250,14 @@
     }
 }
 
+/* Touch screens: the play button stays hidden over the cover (it used to
+   sit there permanently) and shows while the cover is touched; a tap on
+   the cover's centre still hits it. */
 @media (hover: none) {
-    .music-now__play { opacity: 1; }
-    .music-now__cover:hover .music-now__play { opacity: 1; }
+    .music-now__play { opacity: 0; }
+    .music-now__cover:hover .music-now__play { opacity: 0; }
+    .music-now__cover:active .music-now__play,
+    .music-now__play:focus-visible { opacity: 1; }
 }
 /* Cover on the left, track info on the right at every width; a centred big
    cover on phones read as one dark block. */
@@ -278,5 +283,57 @@
     .plugin.music-section .music-now__cover {
         width: 96px;
         height: 96px;
+    }
+}
+
+/* Now-playing progress: times flank the bar on one line; the track is a
+   visible groove and the fill ends in a glowing playhead. */
+.music-progress-row {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    align-items: center;
+    gap: 10px;
+    margin-top: 10px;
+}
+
+.music-progress__t {
+    min-width: 30px;
+    font: 600 10.5px/1 var(--mono);
+    font-variant-numeric: tabular-nums;
+    color: var(--muted);
+}
+
+.music-progress__t[data-music-total] {
+    text-align: right;
+}
+
+.music-progress {
+    position: relative;
+    margin: 0;
+    height: 4px;
+    border-radius: 99px;
+    background: rgba(255, 255, 255, .08);
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .02);
+    overflow: visible;
+}
+
+.music-progress__fill {
+    height: 100%;
+    border-radius: 99px;
+    background: var(--ink-2);
+    transition: width 1s linear, background .2s ease;
+}
+
+.music-now.is-playing .music-progress__fill {
+    background: var(--ink);
+}
+
+.music-now.is-playing .music-progress__t[data-music-elapsed] {
+    color: var(--ink-2);
+}
+
+@media (prefers-color-scheme: light) {
+    .music-progress {
+        background: rgba(0, 0, 0, .1);
     }
 }

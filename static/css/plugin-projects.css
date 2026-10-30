@@ -179,3 +179,33 @@
         padding: 12px;
     }
 }
+/* Technology tags as icons: a small square tile per technology; the name
+   is kept for the tooltip, screen readers and the click-to-filter. */
+.tech-tag--icon {
+    display: inline-grid;
+    place-items: center;
+    width: 26px;
+    height: 26px;
+    padding: 0;
+    border-radius: 7px;
+}
+
+.tech-tag--icon img {
+    width: 16px;
+    height: 16px;
+    object-fit: contain;
+}
+
+.tech-tag--icon .tech-tag__name {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+}
+
+.tech-tag--icon:hover {
+    background: color-mix(in srgb, var(--accent) 16%, transparent);
+    border-color: color-mix(in srgb, var(--accent) 50%, transparent);
+}

@@ -363,3 +363,37 @@
         background: rgba(0, 0, 0, .04);
     }
 }
+
+/* A chip lights with its country on the map (and the other way round). */
+.places-country {
+    cursor: default;
+    transition: background .15s ease, color .15s ease, box-shadow .15s ease;
+}
+
+.places-country:hover,
+.places-country.is-lit {
+    background: color-mix(in oklch, var(--accent) 16%, transparent);
+    box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--accent) 45%, transparent);
+    color: var(--ink);
+}
+
+/* Country chips: the count is plain muted text after the name, not a
+   ringed badge. */
+.places-country {
+    gap: 7px;
+    padding: 5px 11px;
+    box-shadow: none;
+}
+
+.places-country em {
+    padding: 0;
+    border-radius: 0;
+    background: none;
+    color: var(--muted);
+    font: 600 11px/1 var(--mono);
+}
+
+.places-country:hover em,
+.places-country.is-lit em {
+    color: var(--accent);
+}

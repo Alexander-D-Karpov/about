@@ -251,8 +251,9 @@
 }
 
 @media (max-width: 520px) {
+    /* phones: two cards per row */
     .services-grid {
-        grid-template-columns: 1fr;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
         gap: 8px;
     }
 
@@ -273,4 +274,60 @@
 .sr-only {
     position: absolute !important; width: 1px; height: 1px; padding: 0; margin: -1px;
     overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0;
+}
+/* Response time rides in the card's top-right corner; the per-card status
+   code and "checked just now" chips are gone (the header already says when
+   the whole list was last checked). */
+.service-head .chip-rt {
+    align-self: flex-start;
+    margin-left: auto;
+    flex-shrink: 0;
+    font-family: var(--mono);
+    font-variant-numeric: tabular-nums;
+}
+
+.service-item[data-status="offline"] .chip-rt {
+    color: var(--bad);
+}
+
+/* Health: one small "12/12 up" chip in the header next to the update time,
+   instead of a summary block under the cards. */
+.services-health {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font: 600 11px/1 var(--mono);
+    color: var(--muted);
+    white-space: nowrap;
+}
+
+.services-health b {
+    color: var(--ink);
+    font-weight: 700;
+}
+
+.services-health__dot {
+    width: 6px;
+    height: 6px;
+    margin-right: 2px;
+    border-radius: 50%;
+    background: var(--good);
+}
+
+.services-health.has-offline .services-health__dot {
+    background: var(--warn);
+}
+
+.services-health .offline-count {
+    color: var(--bad);
+}
+
+/* Two-up on phones: tighter cards so name, status and the ms chip fit. */
+@media (max-width: 520px) {
+    .services-section .service-item { padding: 10px; gap: 6px; }
+    .services-section .service-head { gap: 8px; }
+    .services-section .service-icon { width: 26px; height: 26px; font-size: 16px; }
+    .services-section .service-title, .services-section .service-title-link { font-size: 12.5px; }
+    .services-section .service-head .chip-rt { font-size: 9px; padding: 2px 4px; }
+    .services-section .service-description { font-size: 11px; }
 }

@@ -56,46 +56,47 @@ func (p *ProfilePlugin) Render(ctx context.Context) (string, error) {
 <section class="profile-section section plugin" data-w="2">
 	<div class="plugin__inner">
 		<div class="profile-content">
-			<div class="profile-text">
-				<h1 class="profile-name">{{.Name}}</h1>
-
-				<div class="profile-titles">
-					{{if .Title}}
-					<div class="profile-title">
-						{{if .TitleFirst}}
-						<span class="profile-title-web">{{.TitleFirst}}</span>
-						{{end}}
-						{{if .TitleRest}}
-						<span class="profile-title-rest">{{.TitleRest}}</span>
-						{{end}}
-						{{if not .TitleFirst}}
-						{{.Title}}
-						{{end}}
-					</div>
-					{{end}}
-
-					{{if .Subtitle}}
-					<div class="profile-subtitle">
-						{{if .SubtitleDev}}
-						<span class="subtitle-dev">{{.SubtitleDev}}</span><!--
-						--><span class="subtitle-sec">{{.SubtitleSec}}</span><!--
-						--><span class="subtitle-ops">{{.SubtitleOps}}</span>
-						{{else}}
-						{{.Subtitle}}
-						{{end}}
-					</div>
-					{{end}}
+			<div class="profile-head">
+				{{if .ProfileImage}}
+				<div class="profile-image">
+					<img src="{{.ProfileImage}}" alt="{{.Name}}" width="88" height="88" loading="lazy">
 				</div>
-
-				{{if .Bio}}
-				<div class="profile-bio">{{.Bio}}</div>
 				{{end}}
+				<div class="profile-text">
+					<h1 class="profile-name">{{.Name}}</h1>
+
+					<div class="profile-titles">
+						{{if .Title}}
+						<div class="profile-title">
+							{{if .TitleFirst}}
+							<span class="profile-title-web">{{.TitleFirst}}</span>
+							{{end}}
+							{{if .TitleRest}}
+							<span class="profile-title-rest">{{.TitleRest}}</span>
+							{{end}}
+							{{if not .TitleFirst}}
+							{{.Title}}
+							{{end}}
+						</div>
+						{{end}}
+
+						{{if .Subtitle}}
+						<div class="profile-subtitle">
+							{{if .SubtitleDev}}
+							<span class="subtitle-dev">{{.SubtitleDev}}</span><!--
+							--><span class="subtitle-sec">{{.SubtitleSec}}</span><!--
+							--><span class="subtitle-ops">{{.SubtitleOps}}</span>
+							{{else}}
+							{{.Subtitle}}
+							{{end}}
+						</div>
+						{{end}}
+					</div>
+				</div>
 			</div>
 
-			{{if .ProfileImage}}
-			<div class="profile-image">
-				<img src="{{.ProfileImage}}" alt="{{.Name}}" width="88" height="88" loading="lazy">
-			</div>
+			{{if .Bio}}
+			<div class="profile-bio">{{.Bio}}</div>
 			{{end}}
 		</div>
 	</div>

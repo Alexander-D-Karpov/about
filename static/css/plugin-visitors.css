@@ -278,3 +278,26 @@
     overflow: hidden;
     min-width: 0;
 }
+
+/* The world (-58..74 lat, the fitted band) is ~1.92:1 in Mercator. A wider
+   box left black bars beside it once the tiles stopped wrapping, so the box
+   now has the world's own proportions, and the leftover sliver, if any, is
+   ocean-coloured rather than black. */
+.plugin.visitors-section .visitors-map {
+    aspect-ratio: 1.92 / 1;
+    max-height: none;
+    background: #1d242a;
+}
+
+.plugin.visitors-section .visitors-map .leaflet-container {
+    background: #1d242a;
+}
+
+/* On a full-row card (phones) the 1.92:1 map grew ~400px tall. Cap its
+   height and keep the width in proportion, centred, so it neither towers
+   over the stats nor gets side bars. */
+.plugin.visitors-section .visitors-map {
+    width: min(100%, 384px);
+    max-height: 200px;
+    margin: 0 auto;
+}

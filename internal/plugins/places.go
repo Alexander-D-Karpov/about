@@ -139,7 +139,7 @@ func (p *PlacesPlugin) Render(ctx context.Context) (string, error) {
         </div>
         {{with .Summary}}{{if .TopCountries}}
         <div class="places-countries">
-            {{range .TopCountries}}<span class="places-country" title="{{.Count}} place{{if ne .Count 1}}s{{end}}">{{.Name}}<em>{{.Count}}</em></span>{{end}}
+            {{range .TopCountries}}<span class="places-country" data-country="{{.Name}}" title="{{.Count}} place{{if ne .Count 1}}s{{end}}">{{.Name}}<em>{{.Count}}</em></span>{{end}}
         </div>
         {{end}}{{end}}
     </div>
@@ -417,6 +417,9 @@ func summarizePlaces(places []Place) placesSummary {
 	since := ""
 	for _, pl := range places {
 		country := normalizeCountry(pl.Country)
+		if country == "" && (pl.Lat != 0 || pl.Lng != 0) {
+			country = countryAt(pl.Lat, pl.Lng)
+		}
 		if country != "" {
 			byCountry[country]++
 		}

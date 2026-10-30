@@ -21,11 +21,132 @@
         return n.toLocaleString('en-US');
     }
 
+    // ---- Track change transitions -------------------------------------
+    // captureMusicState() snapshots the now-playing block before an update;
+    // playMusicTransition() runs after the new track is in the DOM:
+    //   finished (played to the end): the old track drops into the top of
+    //     the recent list, the list shifts down and its last row falls off;
+    //   skipped (changed early): the old card swipes off sideways and the
+    //     new one slides in.
+    function musicKey(now) {
+        if (!now) return '';
+        const n = (now.querySelector('[data-music-name]')?.textContent || '').trim();
+        const a = (now.querySelector('[data-music-artist]')?.textContent || '').trim();
+        return n + '|' + a;
+    }
+
+    function captureMusicState(section) {
+        const now = section && section.querySelector('[data-music-now]');
+        if (!now) return null;
+        const prog = now.querySelector('[data-music-progress]');
+        const started = parseInt(prog?.dataset.started || '0', 10);
+        const duration = parseInt(prog?.dataset.duration || '0', 10);
+        const playing = now.classList.contains('is-playing');
+        let mode = 'fade';
+        if (playing) {
+            const left = duration - (Date.now() / 1000 - started);
+            mode = (!started || !duration || left <= 8) ? 'drop' : 'swipe';
+        }
+        const items = Array.from(section.querySelectorAll('.music-recent__item'));
+        const last = items[items.length - 1] || null;
+        return {
+            key: musicKey(now),
+            name: (now.querySelector('[data-music-name]')?.textContent || '').trim(),
+            artist: (now.querySelector('[data-music-artist]')?.textContent || '').trim(),
+            image: now.querySelector('[data-music-cover] img')?.getAttribute('src') || '',
+            mode,
+            sectionRect: section.getBoundingClientRect(),
+            nowRect: now.getBoundingClientRect(),
+            nowClone: now.cloneNode(true),
+            lastRect: last ? last.getBoundingClientRect() : null,
+            lastClone: last ? last.cloneNode(true) : null,
+        };
+    }
+
+    function placeGhost(section, clone, rect, snapSectionRect) {
+        const host = section.getBoundingClientRect();
+        // the section may have been swapped for a new node at the same spot
+        const dx = host.left - snapSectionRect.left, dy = host.top - snapSectionRect.top;
+        clone.removeAttribute('id');
+        clone.querySelectorAll('[id]').forEach(el => el.removeAttribute('id'));
+        clone.setAttribute('aria-hidden', 'true');
+        Object.assign(clone.style, {
+            position: 'absolute', margin: '0', pointerEvents: 'none', zIndex: '5',
+            left: (rect.left - host.left + dx) + 'px', top: (rect.top - host.top + dy) + 'px',
+            width: rect.width + 'px', height: rect.height + 'px', boxSizing: 'border-box',
+        });
+        section.appendChild(clone);
+        return clone;
+    }
+
+    function playMusicTransition(snap, section) {
+        if (!snap || !section || typeof Element.prototype.animate !== 'function') return;
+        if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+        const now = section.querySelector('[data-music-now]');
+        if (!now || musicKey(now) === snap.key || !snap.key) return;
+
+        const ease = 'cubic-bezier(.2, .8, .2, 1)';
+        if (getComputedStyle(section).position === 'static') section.style.position = 'relative';
+
+        if (snap.mode === 'swipe') {
+            const ghost = placeGhost(section, snap.nowClone, snap.nowRect, snap.sectionRect);
+            ghost.animate([
+                {transform: 'none', opacity: 1},
+                {transform: 'translateX(-70%) rotate(-5deg)', opacity: 0},
+            ], {duration: 420, easing: 'cubic-bezier(.5, 0, .75, 0)', fill: 'forwards'})
+                .finished.then(() => ghost.remove(), () => ghost.remove());
+            now.animate([
+                {transform: 'translateX(36px)', opacity: 0},
+                {transform: 'none', opacity: 1},
+            ], {duration: 420, delay: 120, easing: ease, fill: 'backwards'});
+            return;
+        }
+
+        if (snap.mode === 'drop') {
+            rememberPlayed({name: snap.name, artist: snap.artist, image: snap.image, ts: Math.floor(Date.now() / 1000)});
+            applyLocalPlayed(section);
+            const items = Array.from(section.querySelectorAll('.music-recent__item'));
+            if (items.length) {
+                const first = items[0].getBoundingClientRect();
+                const step = items[1] ? items[1].getBoundingClientRect().top - first.top : first.height + 6;
+                const fromY = snap.nowRect.top - snap.sectionRect.top - (first.top - section.getBoundingClientRect().top);
+                items[0].animate([
+                    {transform: `translateY(${fromY}px) scale(.96)`, opacity: .4},
+                    {transform: 'none', opacity: 1},
+                ], {duration: 560, easing: ease});
+                items.slice(1).forEach((li, i) => li.animate([
+                    {transform: `translateY(${-step}px)`},
+                    {transform: 'none'},
+                ], {duration: 520, delay: 20 * i, easing: ease}));
+            }
+            if (snap.lastClone && snap.lastRect) {
+                const ghost = placeGhost(section, snap.lastClone, snap.lastRect, snap.sectionRect);
+                ghost.animate([
+                    {transform: 'none', opacity: 1},
+                    {transform: 'translateY(22px) scale(.97)', opacity: 0},
+                ], {duration: 420, easing: 'ease-in', fill: 'forwards'})
+                    .finished.then(() => ghost.remove(), () => ghost.remove());
+            }
+            now.animate([
+                {transform: 'translateY(-12px)', opacity: 0},
+                {transform: 'none', opacity: 1},
+            ], {duration: 460, delay: 180, easing: ease, fill: 'backwards'});
+            return;
+        }
+
+        now.animate([{opacity: 0}, {opacity: 1}], {duration: 360, easing: 'ease-out'});
+    }
+
+    window.captureMusicState = captureMusicState;
+    window.playMusicTransition = playMusicTransition;
+
+
     function updateMusicNow(data) {
         const section = document.getElementById('music-section');
         if (!section) return;
         const now = section.querySelector('[data-music-now]');
         if (!now) return;
+        const snap = captureMusicState(section);
 
         now.classList.toggle('is-playing', !!data.isPlaying);
 
@@ -89,6 +210,8 @@
         }
 
         renderMusicRecent(section, data.recentTracks || []);
+        applyLocalPlayed(section);
+        playMusicTransition(snap, section);
     }
 
     async function musicChangePeriod(period) {
@@ -217,8 +340,14 @@
         if (!list) return;
         list.innerHTML = '';
         items.slice(0, 5).forEach(function (it) {
+            list.appendChild(makeRecentItem(it));
+        });
+    }
+
+    function makeRecentItem(it) {
             const li = document.createElement('li');
             li.className = 'music-recent__item';
+            li.dataset.ts = String(it.ts || 0);
 
             const cover = document.createElement('span');
             cover.className = 'music-recent__cover';
@@ -269,9 +398,62 @@
             li.appendChild(text);
             li.appendChild(badges);
             li.appendChild(time);
-            list.appendChild(li);
-        });
+            return li;
     }
+
+    // ---- Tracks played to the end on this page -------------------------
+    // Last.fm doesn't always scrobble a track that was played through (short
+    // tracks, scrobble lag), so the next server update used to pull a track
+    // straight back out of the list it had just dropped into. A track seen
+    // finishing here stays in the recent list until the page is reloaded,
+    // placed by when it finished among the server's rows.
+    const localPlayed = [];
+
+    function recentKey(name, artist) {
+        return (String(artist || '') + '|' + String(name || '')).trim().toLowerCase();
+    }
+
+    function relTime(ts) {
+        const d = Math.max(0, Math.floor(Date.now() / 1000) - ts);
+        if (d < 60) return 'just now';
+        if (d < 3600) return Math.floor(d / 60) + 'm ago';
+        return Math.floor(d / 3600) + 'h ago';
+    }
+
+    function rememberPlayed(entry) {
+        const key = recentKey(entry.name, entry.artist);
+        if (!key || key === '|') return;
+        const i = localPlayed.findIndex(e => e.key === key);
+        if (i >= 0) localPlayed.splice(i, 1);
+        localPlayed.unshift(Object.assign({key}, entry));
+        localPlayed.length = Math.min(localPlayed.length, 5);
+    }
+
+    function applyLocalPlayed(section) {
+        const list = section && section.querySelector('[data-music-recent]');
+        if (!list || !localPlayed.length) return;
+        const nowKey = recentKey(
+            section.querySelector('[data-music-name]')?.textContent?.trim(),
+            section.querySelector('[data-music-artist]')?.textContent?.trim());
+        const keyOf = li => recentKey(
+            li.querySelector('.music-recent__name')?.textContent?.trim(),
+            li.querySelector('.music-recent__artist')?.textContent?.trim());
+        const have = new Set(Array.from(list.querySelectorAll('.music-recent__item')).map(keyOf));
+        // oldest first, so each insert lands above the older local ones
+        localPlayed.slice().reverse().forEach(e => {
+            if (have.has(e.key) || e.key === nowKey) return;
+            const li = makeRecentItem({name: e.name, artist: e.artist, image: e.image, relativeTime: relTime(e.ts), ts: e.ts});
+            li.dataset.local = '1';
+            const before = Array.from(list.querySelectorAll('.music-recent__item'))
+                .find(x => (parseInt(x.dataset.ts || '0', 10) || 0) < e.ts);
+            list.insertBefore(li, before || null);
+            have.add(e.key);
+        });
+        const rows = list.querySelectorAll('.music-recent__item');
+        for (let i = rows.length - 1; i >= 5; i--) rows[i].remove();
+    }
+
+    window.applyMusicLocalPlayed = applyLocalPlayed;
 
     function updateMusicStats(data) {
         const section = document.getElementById('music-section');

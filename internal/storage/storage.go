@@ -718,6 +718,7 @@ func (s *Storage) applyEnvOverrides() {
 	s.setPluginNestedString("code", []string{"github", "username"}, os.Getenv("GITHUB_USERNAME"))
 	s.setPluginNestedString("code", []string{"github", "token"}, os.Getenv("GITHUB_TOKEN"))
 	s.setPluginNestedString("code", []string{"wakatime", "api_key"}, os.Getenv("WAKATIME_API_KEY"))
+	s.setPluginNestedString("code", []string{"wakatime", "api_url"}, os.Getenv("WAKATIME_API_URL"))
 
 	if j := os.Getenv("GIT_SOURCES_JSON"); j != "" {
 		var arr []map[string]interface{}

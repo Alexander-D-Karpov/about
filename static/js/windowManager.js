@@ -64,10 +64,18 @@
         enforceFixedEdgeOrder(mosaic);
         const order = pluginList().map((n) => n.id);
         storageSet(orderStoreKey, JSON.stringify(order));
+        // remember which server order this was made from (see main.html)
+        if (window.__serverPluginOrder) {
+            storageSet(orderStoreKey + '.base', JSON.stringify(window.__serverPluginOrder));
+        }
     }, 200);
 
     const savedWidths = safeJSON(storageGet(widthsStoreKey)) || {};
-    const savedOrder = safeJSON(storageGet(orderStoreKey)) || [];
+    let savedOrder = safeJSON(storageGet(orderStoreKey)) || [];
+    if (savedOrder.length && window.__serverPluginOrder &&
+        storageGet(orderStoreKey + '.base') !== JSON.stringify(window.__serverPluginOrder)) {
+        savedOrder = []; // made against an older server order
+    }
 
     const MIN_COL_FALLBACK = 280;
     const ROW_HEIGHT = 1;
@@ -249,10 +257,15 @@
         return cachedCols;
     }
 
+    // Clamps each card to the current column count, starting from its
+    // preferred width every time. It used to clamp data-w in place, so a
+    // narrow window (one column) overwrote every card's width with 1 and
+    // widening the window again left the whole desktop in single-span cards.
     function clampSpansToCols() {
         const cols = colCount();
         pluginList().forEach((el) => {
-            let w = clamp(+el.dataset.w || 1, 1, 3);
+            const pref = preferredWidths.get(el.id);
+            let w = clamp(pref != null ? pref : (+el.dataset.w || 1), 1, 3);
             if (w > cols) w = cols;
             el.dataset.w = String(w);
         });
@@ -638,7 +651,7 @@
     }
 
     function ensureToolbar(el) {
-        if (el.classList.contains('profile-section')) return;
+        if (el.classList.contains('profile-section') || el.classList.contains('webring-section')) return;
 
         let titleEl = $('h1,h2,h3,h4', el.querySelector('.plugin__inner'));
         if (!titleEl) {

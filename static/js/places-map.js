@@ -114,6 +114,74 @@
         });
     }
 
+    // Country names as the places data writes them -> the GeoJSON's names.
+    const GEO_NAME_ALIASES = {
+        'united states': 'united states of america',
+        'usa': 'united states of america',
+        'serbia': 'republic of serbia',
+        'czechia': 'czech republic',
+        'türkiye': 'turkey',
+        'north macedonia': 'macedonia',
+        'tanzania': 'united republic of tanzania',
+        'uk': 'united kingdom',
+    };
+
+    function geoKey(name) {
+        const k = String(name || '').trim().toLowerCase();
+        return GEO_NAME_ALIASES[k] || k;
+    }
+
+    // Visited countries light up on hover - over the country on the map or
+    // over its chip under the map - and the matching chip lights with it.
+    function setupCountryHighlight() {
+        const section = document.getElementById('places-plugin') || document.querySelector('.places-section');
+        const chips = section ? Array.from(section.querySelectorAll('.places-country[data-country]')) : [];
+        if (!chips.length || !map) return;
+
+        const chipByKey = new Map(chips.map(c => [geoKey(c.dataset.country), c]));
+        const loader = window.loadCountriesGeo
+            ? window.loadCountriesGeo()
+            : fetch('/static/libs/geo/countries.geo.json').then(r => r.json());
+
+        const accent = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#4d9fff';
+        const idle = {stroke: false, fillOpacity: 0};
+        const lit = {stroke: true, color: accent, weight: 1.5, opacity: .9, fillColor: accent, fillOpacity: .22};
+        const layerByKey = new Map();
+        let current = null;
+
+        function light(key) {
+            if (current === key) return;
+            if (current) {
+                layerByKey.get(current)?.setStyle(idle);
+                chipByKey.get(current)?.classList.remove('is-lit');
+            }
+            current = key;
+            if (!key) return;
+            layerByKey.get(key)?.setStyle(lit);
+            chipByKey.get(key)?.classList.add('is-lit');
+        }
+
+        loader.then(geo => {
+            if (!map || !geo || !geo.features) return;
+            const visited = geo.features.filter(f => chipByKey.has(geoKey(f.properties && f.properties.name)));
+            L.geoJSON({type: 'FeatureCollection', features: visited}, {
+                style: () => idle,
+                onEachFeature: (f, layer) => {
+                    const key = geoKey(f.properties.name);
+                    layerByKey.set(key, layer);
+                    layer.on('mouseover', () => light(key));
+                    layer.on('mouseout', () => light(null));
+                }
+            }).addTo(map);
+        }).catch(err => console.debug('[Places] country shapes unavailable:', err));
+
+        chips.forEach(chip => {
+            const key = geoKey(chip.dataset.country);
+            chip.addEventListener('mouseenter', () => light(key));
+            chip.addEventListener('mouseleave', () => light(null));
+        });
+    }
+
     function createMap(container) {
         const defaultLat = config.defaultLat ?? 25;
         const defaultLng = config.defaultLng ?? 0;
@@ -127,6 +195,11 @@
             attributionControl: true,
             minZoom: 2,
             maxZoom: 18,
+            // One world only: without bounds the map panned sideways forever
+            // through endless copies of the tiles.
+            worldCopyJump: false,
+            maxBounds: [[-85, -180], [85, 180]],
+            maxBoundsViscosity: 1.0,
             preferCanvas: true // OPTIMIZATION: Use Canvas instead of SVGs for vector layers
         });
 
@@ -151,7 +224,9 @@
         tileErrors = 0;
         tileLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
             attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-            maxZoom: 18
+            maxZoom: 18,
+            noWrap: true,
+            bounds: [[-85, -180], [85, 180]]
         }).addTo(map);
         tileLayer.on('tileerror', () => { tileErrors++; });
 
@@ -175,6 +250,7 @@
         setupControls();
         setupInteractionHandling();
         addPlacesFullscreenControl(fullscreenTarget);
+        setupCountryHighlight();
 
         if (mapResizeCleanup) {
             mapResizeCleanup();
@@ -566,19 +642,18 @@
             map.getContainer().addEventListener(evt, markUserMoved, {passive: true});
         });
 
-        function interactionStart() {
-            if (!isHeatmapMode || !heatLayer) return;
-            ensureHeatCanvasConfig();
-            setHeatVisible(false);
-        }
+        // The heat canvas is no longer hidden while the map moves: it was
+        // faded out on movestart and back in on a timer after moveend, and
+        // whenever that pair didn't complete (a cancelled zoom, a resize
+        // mid-pan) the heatmap stayed invisible. Leaflet.heat follows zoom
+        // animations itself; just make sure it is visible and redrawn.
+        function interactionStart() {}
 
         function interactionEnd() {
             if (!isHeatmapMode || !heatLayer) return;
-            clearTimeout(interactionTimeout);
-            interactionTimeout = setTimeout(() => {
-                ensureHeatCanvasConfig();
-                setHeatVisible(true);
-            }, 60);
+            ensureHeatCanvasConfig();
+            setHeatVisible(true);
+            heatLayer.redraw();
         }
 
         map.on('movestart', interactionStart);

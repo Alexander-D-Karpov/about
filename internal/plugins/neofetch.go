@@ -40,7 +40,7 @@ func (p *NeofetchPlugin) Render(ctx context.Context) (string, error) {
 
 	type vm struct {
 		Name   string
-		Output string
+		Output template.HTML
 	}
 	machines := make([]vm, 0, len(rawMachines))
 
@@ -51,7 +51,7 @@ func (p *NeofetchPlugin) Render(ctx context.Context) (string, error) {
 		}
 		name := p.get(m, "name", "Machine")
 		out := p.get(m, "output", "")
-		machines = append(machines, vm{Name: name, Output: out})
+		machines = append(machines, vm{Name: name, Output: highlightNeofetch(out)})
 	}
 
 	if len(machines) == 0 {

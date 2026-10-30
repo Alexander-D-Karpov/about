@@ -526,7 +526,13 @@
             });
         }
 
+        const musicSnap = data.plugin === 'music' && window.captureMusicState
+            ? window.captureMusicState(oldEl) : null;
+
         oldEl.replaceWith(newSection);
+
+        if (data.plugin === 'music' && window.applyMusicLocalPlayed) window.applyMusicLocalPlayed(newSection);
+        if (musicSnap && window.playMusicTransition) window.playMusicTransition(musicSnap, newSection);
 
         if (data.plugin === 'music' && musicDetails) {
             newSection.querySelectorAll('details').forEach((d) => {
@@ -994,29 +1000,29 @@
 
         const statItems = section.querySelectorAll('.stat-item');
         if (statItems.length >= 4) {
-            const rankStat = statItems[0].querySelector('.stat-value');
-            const countryRankStat = statItems[1].querySelector('.stat-value');
-            const ppStat = statItems[2].querySelector('.stat-value');
-            const cubesStat = statItems[3].querySelector('.stat-value');
+            // Values are "<pre>#</pre><num>4,518</num><unit>pp</unit>"; only the
+            // number span changes. Older markup without it gets the whole text.
+            const setNum = (item, num, pre, unit) => {
+                const v = item.querySelector('.stat-value');
+                if (!v) return null;
+                const n = v.querySelector('.stat-num');
+                if (n) n.textContent = num;
+                else v.textContent = (pre || '') + num + (unit || '');
+                return v;
+            };
+            const fmt = n => Math.round(Number(n) || 0).toLocaleString('en-US');
 
-            if (rankStat) {
-                rankStat.textContent = '#' + data.rank;
-                rankStat.dataset.rawValue = String(data.rank);
-            }
-            if (countryRankStat) {
-                countryRankStat.textContent = '#' + data.countryRank;
-                countryRankStat.dataset.rawValue = String(data.countryRank);
-            }
-            if (ppStat) {
-                ppStat.textContent = Math.round(data.pp) + 'pp';
-                ppStat.dataset.rawValue = String(Math.round(data.pp));
-            }
-            if (cubesStat && data.cubes) {
-                cubesStat.textContent = data.formatted || formatNumberWithDecimals(data.cubes);
-                cubesStat.dataset.cubes = String(data.cubes);
-                const parent = cubesStat.parentElement;
-                if (parent && data.cubes) {
-                    parent.setAttribute('data-tooltip', 'Exact: ' + data.cubes.toLocaleString());
+            const rankStat = setNum(statItems[0], fmt(data.rank), '#');
+            if (rankStat) rankStat.dataset.rawValue = String(data.rank);
+            const countryRankStat = setNum(statItems[1], fmt(data.countryRank), '#');
+            if (countryRankStat) countryRankStat.dataset.rawValue = String(data.countryRank);
+            const ppStat = setNum(statItems[2], fmt(data.pp), '', 'pp');
+            if (ppStat) ppStat.dataset.rawValue = String(Math.round(data.pp));
+            if (data.cubes) {
+                const cubesStat = setNum(statItems[3], fmt(data.cubes));
+                if (cubesStat) {
+                    cubesStat.dataset.cubes = String(data.cubes);
+                    cubesStat.parentElement?.setAttribute('data-tooltip', 'Exact: ' + fmt(data.cubes));
                 }
             }
         }
@@ -1114,14 +1120,12 @@
                 const headerElement = section.querySelector('.plugin-header');
                 if (headerElement) {
                     const statusHTML = `
-                    <div class="player-status">
-                        <div class="status-info">
-                            <span class="status-indicator status-${getPersonaStateClass(data.personaState)}"></span>
-                            <span class="status-text">${getPersonaStateText(data.personaState)}</span>
-                        </div>
+                    <div class="player-status" data-state="${getPersonaStateBucket(data.personaState)}">
+                        <span class="status-indicator status-${getPersonaStateClass(data.personaState)}"></span>
+                        <span class="status-text">${getPersonaStateText(data.personaState)}</span>
                     </div>
                 `;
-                    headerElement.insertAdjacentHTML('afterend', statusHTML);
+                    headerElement.insertAdjacentHTML('beforeend', statusHTML);
                 }
             } else {
                 const statusIndicator = playerStatusDiv.querySelector('.status-indicator');
@@ -1132,7 +1136,8 @@
                 if (statusText) {
                     statusText.textContent = getPersonaStateText(data.personaState);
                 }
-                playerStatusDiv.style.display = 'block';
+                playerStatusDiv.dataset.state = getPersonaStateBucket(data.personaState);
+                playerStatusDiv.style.display = '';
             }
         }
 
@@ -1144,6 +1149,16 @@
         switch (state) {
             case 1: return 'online';
             case 2: case 3: case 4: case 5: case 6: return 'loading';
+            default: return 'offline';
+        }
+    }
+
+    // matches steamStatusState in steam_render.go
+    function getPersonaStateBucket(state) {
+        switch (state) {
+            case 1: case 5: case 6: return 'online';
+            case 3: case 4: return 'idle';
+            case 2: return 'busy';
             default: return 'offline';
         }
     }
@@ -1186,7 +1201,7 @@
             }
 
             if (prevText) {
-                const newText = `← ${data.prev.name}`;
+                const newText = data.prev.name;
                 if (prevText.textContent !== newText) {
                     prevText.textContent = newText;
                     updated = true;
@@ -1210,7 +1225,7 @@
             }
 
             if (nextText) {
-                const newText = `${data.next.name} →`;
+                const newText = data.next.name;
                 if (nextText.textContent !== newText) {
                     nextText.textContent = newText;
                     updated = true;
@@ -1384,7 +1399,7 @@
         if (meme.type === 'image' || meme.type === 'gif') {
             newContent = `
             <div class="meme-${meme.type}">
-                <img src="${meme.image}" alt="${meme.text}" loading="lazy">
+                <img src="${meme.image}" alt="${meme.text}"${meme.imgW > 0 ? ` width="${meme.imgW}" height="${meme.imgH}"` : ''} decoding="async">
                 ${meme.text ? `<p class="meme-caption">${meme.text}</p>` : ''}
             </div>
         `;
@@ -1594,7 +1609,7 @@
                         }
 
                         if (prevText) {
-                            const newText = `← ${data.prev.name}`;
+                            const newText = data.prev.name;
                             if (prevText.textContent !== newText) {
                                 prevText.textContent = newText;
                                 updated = true;
@@ -1623,7 +1638,7 @@
                         }
 
                         if (nextText) {
-                            const newText = `${data.next.name} →`;
+                            const newText = data.next.name;
                             if (nextText.textContent !== newText) {
                                 nextText.textContent = newText;
                                 updated = true;

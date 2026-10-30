@@ -101,6 +101,9 @@ func (p *ServicesPlugin) Render(ctx context.Context) (string, error) {
 	<header class="plugin-header services-header">
 		<h2 id="services-title" class="plugin-title">{{.SectionTitle}}</h2>
 		<div class="services-header__meta">
+			<span class="services-health{{if .OfflineCount}} has-offline{{end}}" title="{{.OnlineCount}} online, {{.OfflineCount}} offline">
+				<i class="services-health__dot"></i><b><span class="online-count">{{.OnlineCount}}</span>/<span class="total-count">{{.TotalCount}}</span></b> up{{if .OfflineCount}} · <b class="offline-count">{{.OfflineCount}}</b> down{{end}}
+			</span>
 			<span class="services-updated" aria-live="polite" title="Last update">{{.LastUpdatedText}}</span>
 		</div>
 	</header>
@@ -138,41 +141,17 @@ func (p *ServicesPlugin) Render(ctx context.Context) (string, error) {
 						</span>
 						{{end}}
 					</div>
+					{{if and $.ShowResponseTime .ResponseTime}}
+					<span class="chip chip-rt service-response-time"{{if .StatusCode}} title="HTTP {{.StatusCode}}"{{end}}>{{.ResponseTime}}ms</span>
+					{{end}}
 				</div>
 
 				{{if .Description}}
 				<p class="service-description">{{.Description}}</p>
 				{{end}}
-
-				<div class="service-stats">
-					{{if and $.ShowResponseTime .ResponseTime}}
-						<span class="chip chip-rt">{{.ResponseTime}}ms</span>
-					{{end}}
-					{{if .StatusCode}}
-						<span class="chip chip-code" data-code="{{.StatusCode}}">{{.StatusCode}}</span>
-					{{end}}
-					{{if .LastCheckedText}}
-						<span class="chip chip-last">{{.LastCheckedText}}</span>
-					{{end}}
-				</div>
 			</div>
 			{{end}}
 		</div>
-
-		<footer class="services-summary" aria-label="Summary">
-			<div class="summary-item">
-				<span class="summary-count online-count">{{.OnlineCount}}</span>
-				<span class="summary-label">Online</span>
-			</div>
-			<div class="summary-item">
-				<span class="summary-count offline-count">{{.OfflineCount}}</span>
-				<span class="summary-label">Offline</span>
-			</div>
-			<div class="summary-item">
-				<span class="summary-count total-count">{{.TotalCount}}</span>
-				<span class="summary-label">Total</span>
-			</div>
-		</footer>
 	</div>
 </section>`
 

@@ -12,6 +12,12 @@ const steamSectionTemplate = `
 <section class="steam-section section plugin" data-w="2">
 	<header class="plugin-header">
 		<h2 class="plugin-title">{{.SectionTitle}}</h2>
+		{{if and .PlayerSummary (not .IsPlayingNow)}}
+		<div class="player-status" data-state="{{.PlayerStatusState}}">
+			<span class="status-indicator {{.PlayerStatusClass}}"></span>
+			<span class="status-text">{{.PlayerStatusText}}</span>
+		</div>
+		{{end}}
 	</header>
 
 	<div class="plugin__inner">
@@ -45,33 +51,22 @@ const steamSectionTemplate = `
 					</div>
 			</div>
 		</div>
-		{{else if .PlayerSummary}}
-		<div class="player-status">
-			<div class="status-info">
-				<span class="status-indicator {{.PlayerStatusClass}}"></span>
-				<span class="status-text">{{.PlayerStatusText}}</span>
-			</div>
-		</div>
 		{{end}}
 
 		{{if .RecentGames}}
 		<div class="recent-games">
-			<h3>Recently Played Games</h3>
+			<h3 class="steam-sub">Recently played</h3>
 			<div class="games-list">
 				{{range .RecentGames}}
 				<div class="game-item" data-app-id="{{.AppID}}">
+					<a class="game-link" href="https://store.steampowered.com/app/{{.AppID}}/" target="_blank" rel="noopener" aria-label="{{.Name}} on Steam"></a>
 					{{if .Icon}}
 					<img src="{{.Icon}}" alt="{{.Name}}" class="game-icon" width="40" height="40" loading="lazy">
 					{{end}}
 					<div class="game-info">
 						<div class="game-name">{{.Name}}</div>
-						<div class="game-stats">
-							<a class="steam-stat-link" href="https://store.steampowered.com/app/{{.AppID}}/" target="_blank" rel="noopener">
-								<span class="game-playtime">{{.RecentHours}}h last 2 weeks</span>
-							</a>
-							<a class="steam-stat-link" href="https://store.steampowered.com/app/{{.AppID}}/" target="_blank" rel="noopener">
-								<span class="game-total">{{.TotalHours}}h total</span>
-							</a>
+						<div class="game-meta">
+							<span><b>{{.RecentHours}}h</b> past 2 weeks</span><i aria-hidden="true">·</i><span><b>{{.TotalHours}}h</b> total</span>
 						</div>
 					</div>
 					<div class="game-actions">
@@ -86,20 +81,19 @@ const steamSectionTemplate = `
 		{{end}}
 
 		{{if .TopGames}}
-		<div class="recent-games">
-			<h3>Top Games by Playtime</h3>
+		<div class="recent-games top-games">
+			<h3 class="steam-sub">Most played</h3>
 			<div class="games-list">
 				{{range .TopGames}}
 				<div class="game-item" data-app-id="{{.AppID}}">
+					<a class="game-link" href="https://store.steampowered.com/app/{{.AppID}}/" target="_blank" rel="noopener" aria-label="{{.Name}} on Steam"></a>
 					{{if .Icon}}
 					<img src="{{.Icon}}" alt="{{.Name}}" class="game-icon" width="40" height="40" loading="lazy">
 					{{end}}
 					<div class="game-info">
 						<div class="game-name">{{.Name}}</div>
-						<div class="game-stats">
-							<a class="steam-stat-link" href="https://store.steampowered.com/app/{{.AppID}}/" target="_blank" rel="noopener">
-								<span class="game-total">{{.TotalHours}}h total</span>
-							</a>
+						<div class="game-meta">
+							<span><b>{{.TotalHours}}h</b> played</span>
 						</div>
 					</div>
 					<div class="game-actions">
@@ -111,6 +105,14 @@ const steamSectionTemplate = `
 				{{end}}
 			</div>
 		</div>
+		{{end}}
+
+		{{if or (gt (len .RecentGames) 2) (gt (len .TopGames) 4)}}
+		<button type="button" class="steam-more-btn" aria-expanded="false"
+		        onclick="var o=this.closest('.steam-section').classList.toggle('is-open');this.setAttribute('aria-expanded',o)">
+			<span class="steam-more-open">Show all games</span><span class="steam-more-close">Show less</span>
+			<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+		</button>
 		{{end}}
 
 		<div class="steam-actions">
@@ -225,12 +227,13 @@ func (p *SteamPlugin) Render(_ context.Context) (string, error) {
 		CurrentGameImage       string
 		PlayerStatusClass      string
 		PlayerStatusText       string
+		PlayerStatusState      string
 		CurrentGameStoreURL    string
 		HasLibrary             bool
 		LibraryCount           int
 	}{
 		SectionTitle:           sectionTitle,
-		RecentGames:            steamGameViews(recent, 3),
+		RecentGames:            steamGameViews(recent, 6),
 		TopGames:               steamGameViews(top, 9),
 		PlayerSummary:          summary,
 		IsPlayingNow:           isPlayingNow,
@@ -239,6 +242,7 @@ func (p *SteamPlugin) Render(_ context.Context) (string, error) {
 		CurrentGameImage:       currentGameImage,
 		PlayerStatusClass:      playerStatusClass,
 		PlayerStatusText:       playerStatusText,
+		PlayerStatusState:      steamStatusState(playerStatusText),
 		CurrentGameStoreURL:    currentGameStoreURL,
 		HasLibrary:             libraryCount > 0,
 		LibraryCount:           libraryCount,
@@ -254,6 +258,21 @@ func (p *SteamPlugin) Render(_ context.Context) (string, error) {
 		return "", err
 	}
 	return buf.String(), nil
+}
+
+// steamStatusState buckets a persona state into the colour the status pill
+// uses: online, idle (away, snooze), busy, or offline.
+func steamStatusState(text string) string {
+	switch text {
+	case "Online", "Looking to play", "Looking to trade":
+		return "online"
+	case "Away", "Snooze":
+		return "idle"
+	case "Busy":
+		return "busy"
+	default:
+		return "offline"
+	}
 }
 
 func (p *SteamPlugin) renderNoAPI(sectionTitle string) string {

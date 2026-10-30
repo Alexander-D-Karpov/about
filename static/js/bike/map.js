@@ -443,10 +443,25 @@
 
         if (scrollIntoView && activeItem) {
             requestAnimationFrame(function () {
-                activeItem.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'smooth' });
+                scrollListTo(activeItem);
             });
         }
     };
+
+    // Brings a ride row into view inside the rides list only. Element.
+    // scrollIntoView also scrolls every scrollable ancestor - the page
+    // included - so hovering rows while scrolling the list kept yanking the
+    // whole page up and down.
+    function scrollListTo(item) {
+        const list = item.closest('.bike-rides-list');
+        if (!list) return;
+        const lr = list.getBoundingClientRect();
+        const ir = item.getBoundingClientRect();
+        let delta = 0;
+        if (ir.top < lr.top) delta = ir.top - lr.top - 4;
+        else if (ir.bottom > lr.bottom) delta = ir.bottom - lr.bottom + 4;
+        if (delta) list.scrollBy({ top: delta, behavior: 'smooth' });
+    }
 
     NS.applyMapMode = function () {
         const st = NS.state;
@@ -557,9 +572,11 @@
         NS.applyMapMode();
     };
 
-    NS.highlightRide = function (idx) {
+    // opts.fromList: the hover came from the row itself, which is already
+    // under the cursor - scrolling to it would fight the user's own scroll.
+    NS.highlightRide = function (idx, opts) {
         NS.state.hoveredRideIndex = idx;
-        NS.syncRideHighlight({ scrollIntoView: true });
+        NS.syncRideHighlight({ scrollIntoView: !(opts && opts.fromList) });
     };
 
     NS.resetHighlight = function () {

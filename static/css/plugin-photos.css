@@ -15,119 +15,139 @@
     color: var(--accent);
 }
 
+/* Folders: each album is a folder with its newest photos tossed in -
+   tilted and shifted per photo (the angles come from the server, seeded
+   by folder) - and the front flap over the bottom of the pile. */
 .photos-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
-    gap: 12px;
+    grid-template-columns: repeat(var(--photo-cols, auto-fill), minmax(104px, 1fr));
+    gap: 16px 14px;
+    padding: 0 2px 2px;
 }
 
 .photos-card {
-    display: block;
-    position: relative;
-    border-radius: 8px;
-    overflow: hidden;
-    background: var(--bg-2);
-    border: 1px solid var(--edge-0);
-    transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+    --folder: #d98a3d;
+    --folder-back: #b96d2a;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    color: var(--ink-2);
     text-decoration: none;
 }
 
-.photos-card:hover {
-    transform: translateY(-2px);
-    border-color: var(--edge-1);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
-}
-
-.photos-cover {
-    aspect-ratio: 1;
-    width: 100%;
+.photos-folder {
     position: relative;
-    overflow: hidden;
-    background: var(--bg-3);
-}
-
-.photos-preview-grid {
-    display: grid;
-    grid-template-columns: repeat(2, 1fr);
-    grid-template-rows: repeat(2, 1fr);
     width: 100%;
-    height: 100%;
-    gap: 2px;
+    max-width: 240px;
+    aspect-ratio: 5 / 4;
 }
 
-.photos-preview-item {
-    overflow: hidden;
-    background: var(--bg-3);
+/* back wall with its tab, a shade darker than the front */
+.photos-folder__back {
+    position: absolute;
+    inset: 22% 0 0;
+    border-radius: 3px 8px 8px 8px;
+    background: linear-gradient(180deg, color-mix(in srgb, var(--folder-back) 92%, white), var(--folder-back));
 }
 
-.photos-preview-item img {
-    width: 100%;
-    height: 100%;
+.photos-folder__back::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    bottom: calc(100% - 1px);
+    width: 38%;
+    height: 11%;
+    min-height: 8px;
+    border-radius: 5px 6px 0 0;
+    background: color-mix(in srgb, var(--folder-back) 92%, white);
+    clip-path: polygon(0 0, 80% 0, 100% 100%, 0 100%);
+}
+
+/* photos stand inside the folder, between the walls, and peek out above
+   the back wall a little */
+.photos-slip {
+    position: absolute;
+    left: 50%;
+    bottom: 20%;
+    width: 64%;
+    aspect-ratio: 4 / 3;
     object-fit: cover;
-    transition: transform 0.3s ease;
+    border: 2px solid #f4f1ea;
+    border-radius: 3px;
+    background: #ddd;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, .35);
+    transform: translateX(calc(-50% + var(--dx, 0%))) translateY(var(--dy, 0px)) rotate(var(--rot, 0deg));
+    transform-origin: 50% 100%;
+    transition: transform .25s cubic-bezier(.2, .8, .2, 1);
 }
 
-.photos-card:hover .photos-preview-item img {
-    transform: scale(1.05);
+/* front wall: full width, flat top edge with a light rim */
+.photos-folder__front {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 42%;
+    z-index: 6;
+    border-radius: 4px 4px 8px 8px;
+    background: linear-gradient(180deg, color-mix(in srgb, var(--folder) 80%, white) 0, var(--folder) 10%, color-mix(in srgb, var(--folder) 92%, black) 100%);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, .35), 0 -2px 6px rgba(0, 0, 0, .22);
 }
 
-.photos-no-preview {
-    width: 100%;
-    height: 100%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: var(--muted);
+.photos-card:hover .photos-slip {
+    transform: translateX(calc(-50% + var(--dx, 0%) * 1.3)) translateY(calc(var(--dy, 0px) - 8px)) rotate(calc(var(--rot, 0deg) * 1.3));
 }
 
 .photos-badge {
     position: absolute;
-    bottom: 6px;
-    right: 6px;
-    background: rgba(0, 0, 0, 0.7);
-    backdrop-filter: blur(4px);
-    color: white;
-    font-size: 11px;
-    font-weight: 700;
-    padding: 3px 8px;
-    border-radius: 4px;
-    font-family: var(--mono);
-}
-
-.photos-info {
-    padding: 10px 12px;
+    right: 7px;
+    bottom: 7px;
+    z-index: 7;
+    padding: 2px 6px;
+    border-radius: 99px;
+    background: rgba(0, 0, 0, .28);
+    color: #fff;
+    font: 700 10px/1.3 var(--mono);
 }
 
 .photos-name {
-    display: block;
-    color: var(--ink);
-    font-size: 13px;
+    max-width: 100%;
+    font-size: 12.5px;
     font-weight: 600;
-    white-space: nowrap;
+    line-height: 1.3;
+    text-align: center;
+    overflow-wrap: anywhere;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
     overflow: hidden;
-    text-overflow: ellipsis;
 }
 
-@media (max-width: 520px) {
-    .photos-grid {
-        grid-template-columns: repeat(2, 1fr);
-        gap: 10px;
-    }
-
-    .photos-info {
-        padding: 8px 10px;
-    }
-
-    .photos-name {
-        font-size: 12px;
-    }
-}
-/* No hover motion on the albums: no lift, no zoom. */
-.photos-card:hover {
-    transform: none;
-    box-shadow: none;
+.photos-card:hover .photos-name {
+    color: var(--accent);
 }
 
-.photos-card:hover .photos-preview-item img {
-    transform: none;
+/* Bigger folders get proportionally bigger labels and badge. */
+.photos-grid { container-type: inline-size; }
+.photos-name { font-size: clamp(12.5px, 1.6cqi, 14px); }
+.photos-badge { font-size: clamp(10px, 1.3cqi, 12px); }
+
+/* Folder colours from the site's palette instead of stock orange: a muted
+   steel blue on the dark theme, a soft blue-grey on the light one. */
+.photos-card {
+    --folder: #3d5a86;
+    --folder-back: #2b4164;
+}
+
+@media (prefers-color-scheme: light) {
+    .photos-card {
+        --folder: #a9c0e4;
+        --folder-back: #88a5d3;
+    }
+
+    .photos-badge {
+        background: rgba(20, 40, 80, .35);
+    }
 }

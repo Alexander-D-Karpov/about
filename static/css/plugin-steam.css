@@ -236,9 +236,6 @@
 }
 
 @media (max-width: 780px) {
-    .games-list {
-        grid-template-columns: 1fr 1fr;
-    }
 
     .game-icon {
         width: 36px;
@@ -250,11 +247,7 @@
     }
 }
 
-@media (max-width: 520px) {
-    .games-list {
-        grid-template-columns: 1fr;
-    }
-}
+
 
 /* Actions row: the two links are peers, so they share the quiet bordered style
    already used by the profile link rather than a filled slab. */
@@ -333,4 +326,204 @@
     .steam-section .steam-all-games-btn:hover {
         border-color: var(--accent);
     }
+}
+
+/* Collapsing follows the card's own width, not the screen's: where the
+   lists run three games to a row everything shows (six recent, the full
+   top list); on a narrower card recent keeps two, top keeps four, and one
+   button below both opens the rest. */
+.steam-section .plugin__inner {
+    container-type: inline-size;
+}
+
+.steam-section .steam-more-btn {
+    display: none;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    width: 100%;
+    height: 34px;
+    margin-top: 10px;
+    border: 1px dashed var(--edge-1);
+    border-radius: 8px;
+    background: transparent;
+    color: var(--ink-2);
+    font: inherit;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.steam-section .steam-more-btn:hover {
+    border-color: var(--accent);
+    color: var(--ink);
+}
+
+.steam-section .steam-more-btn svg {
+    transition: transform .2s ease;
+}
+
+.steam-section .steam-more-close,
+.steam-section.is-open .steam-more-open {
+    display: none;
+}
+
+.steam-section.is-open .steam-more-close {
+    display: inline;
+}
+
+.steam-section.is-open .steam-more-btn svg {
+    transform: rotate(180deg);
+}
+
+@container (max-width: 615px) {
+    .steam-section .steam-more-btn {
+        display: inline-flex;
+    }
+
+    .steam-section:not(.is-open) .recent-games:not(.top-games) .game-item:nth-child(n+3),
+    .steam-section:not(.is-open) .top-games .game-item:nth-child(n+5) {
+        display: none;
+    }
+}
+
+/* Section labels: both lists get the same small left-aligned label. */
+.steam-section .recent-games h3.steam-sub {
+    margin: 14px 0 8px;
+    font: 700 10.5px/1.2 var(--mono);
+    text-transform: uppercase;
+    letter-spacing: .7px;
+    text-align: left;
+    color: var(--muted);
+}
+
+/* Game captions: one quiet line - numbers in the text colour, words muted -
+   instead of two blue code chips. */
+.steam-section .game-meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 2px 6px;
+    margin-top: 3px;
+    font-size: 11.5px;
+    line-height: 1.3;
+    color: var(--muted);
+}
+
+.steam-section .game-meta b {
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    color: var(--ink-2);
+}
+
+.steam-section .game-meta i {
+    font-style: normal;
+    opacity: .6;
+}
+
+.steam-section .game-name {
+    font-size: 13px;
+    font-weight: 600;
+    line-height: 1.25;
+}
+
+/* The whole game card opens its Steam store page. */
+.steam-section .game-item {
+    cursor: pointer;
+}
+
+.steam-section .game-link {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    border-radius: inherit;
+}
+
+.steam-section .game-actions {
+    position: relative;
+    z-index: 2;
+}
+
+.steam-section .game-item:hover .game-name {
+    color: var(--accent);
+}
+
+/* Status: a compact pill tinted by state (online green, away/snooze amber,
+   busy red, offline grey) instead of a full-width bordered bar. */
+.steam-section .player-status {
+    --st: var(--muted);
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    margin: 2px 0 4px;
+    padding: 5px 11px 5px 9px;
+    border: 0 !important;
+    border-radius: 99px;
+    background: color-mix(in srgb, var(--st) 13%, transparent) !important;
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--st) 30%, transparent) !important;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--st);
+}
+
+.steam-section .player-status[data-state="online"] { --st: var(--good); }
+.steam-section .player-status[data-state="idle"] { --st: var(--warn); }
+.steam-section .player-status[data-state="busy"] { --st: var(--bad); }
+
+.steam-section .player-status .status-indicator {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--st) !important;
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--st) 22%, transparent);
+    animation: none;
+}
+
+.steam-section .player-status .status-text {
+    color: inherit;
+}
+
+/* The status pill lives in the title bar, at its left edge (the window
+   buttons take the right edge on hover). */
+.steam-section .plugin-header .player-status {
+    position: absolute;
+    left: 12px;
+    top: 50%;
+    transform: translateY(-50%);
+    margin: 0;
+    padding: 3px 9px 3px 7px;
+    gap: 6px;
+    font-size: 11px;
+    z-index: 2;
+}
+
+.steam-section .plugin-header .player-status .status-indicator {
+    width: 6px;
+    height: 6px;
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--st) 22%, transparent);
+}
+
+/* nothing sits above the first list any more */
+.steam-section .plugin__inner > .recent-games:first-child h3.steam-sub {
+    margin-top: 0;
+}
+
+/* Header status: just a dot and the word in the state colour - no pill. */
+.steam-section .plugin-header .player-status {
+    padding: 0;
+    background: none !important;
+    box-shadow: none !important;
+    border: 0 !important;
+    font-size: 11.5px;
+    font-weight: 600;
+    text-transform: lowercase;
+}
+
+.steam-section .plugin-header .player-status .status-indicator {
+    box-shadow: none;
+}
+
+/* header status is the word only */
+.steam-section .plugin-header .player-status .status-indicator {
+    display: none;
 }

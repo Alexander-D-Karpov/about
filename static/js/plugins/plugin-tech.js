@@ -10,7 +10,6 @@
         filterPopup = document.createElement('div');
         filterPopup.className = 'tech-filter-popup';
         filterPopup.innerHTML = `
-            <span class="filter-icon">🔧</span>
             <span class="filter-text">Filtering:</span>
             <strong class="filter-tech"></strong>
             <button class="clear-filter-btn" type="button">Clear ✕</button>
@@ -49,8 +48,6 @@
         document.querySelectorAll('.tech-item.filtered').forEach(x => x.classList.remove('filtered'));
         currentFilter = null;
         hideFilterPopup();
-
-        if (window.mosaicUtils) window.mosaicUtils.resizeAll();
     }
 
     function applyTechFilter(name) {
@@ -85,12 +82,22 @@
 
         if (matchCount > 0) {
             showFilterPopup(name);
-            projectsSection.scrollIntoView({behavior: 'smooth', block: 'start'});
+            scrollToProjects(projectsSection);
         } else {
             clearTechFilter();
         }
+        // No mosaic repack here: the filter only touches opacity/transform/
+        // filter, which never change a card's size, and a repack restores its
+        // scroll anchor with an instant scrollTo that cut the smooth scroll to
+        // the projects short.
+    }
 
-        if (window.mosaicUtils) setTimeout(() => window.mosaicUtils.resizeAll(), 100);
+    // Brings the first matching project into view, just under the top edge.
+    function scrollToProjects(projectsSection) {
+        const first = Array.from(projectsSection.querySelectorAll('.project-card'))
+            .find(c => c.style.opacity === '1') || projectsSection;
+        const top = first.getBoundingClientRect().top + window.scrollY - 72;
+        window.scrollTo({top: Math.max(0, top), behavior: 'smooth'});
     }
 
     function initTechFiltering() {

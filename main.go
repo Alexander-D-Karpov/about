@@ -99,6 +99,9 @@ func main() {
 	go startBackgroundTasks(store, pluginManager)
 	go pluginManager.StartPrometheusMetrics(context.Background())
 
+	if geo, err := staticFiles.ReadFile("static/libs/geo/countries.geo.json"); err == nil {
+		plugins.CountryShapesJSON = geo
+	}
 	bundler := assets.NewBundler(staticFiles)
 	bundler.Build()
 
@@ -496,17 +499,39 @@ func startBackgroundTasks(store *storage.Storage, pm *plugins.Manager) {
 		lastFMTicker := time.NewTicker(20 * time.Second)
 		generalTicker := time.NewTicker(10 * time.Minute)
 		systemTicker := time.NewTicker(30 * time.Second)
+		// Service health has its own short cycle: riding along with the hourly general update meant one failed
+		// probe (a site briefly hung) kept that service "offline" on the page for up to an hour.
+		servicesTicker := time.NewTicker(2 * time.Minute)
+		var servicesMutex sync.Mutex
 
 		defer func() {
 			lastFMTicker.Stop()
 			generalTicker.Stop()
 			systemTicker.Stop()
+			servicesTicker.Stop()
 		}()
 
 		for {
 			select {
 			case <-quit:
 				return
+			case <-servicesTicker.C:
+				go func() {
+					defer func() {
+						if r := recover(); r != nil {
+							log.Printf("Services update panic recovered: %v", r)
+						}
+					}()
+
+					if !servicesMutex.TryLock() {
+						return
+					}
+					defer servicesMutex.Unlock()
+
+					if err := pm.UpdatePlugin("services"); err != nil {
+						log.Printf("Services update failed (non-fatal): %v", err)
+					}
+				}()
 			case <-lastFMTicker.C:
 				go func() {
 					defer func() {

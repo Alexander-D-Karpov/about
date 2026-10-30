@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"hash/fnv"
 	"html/template"
 	"net/http"
 	"net/url"
@@ -118,17 +119,29 @@ func (p *PhotosPlugin) Render(ctx context.Context) (string, error) {
 
 		folderUrl := fmt.Sprintf("%s/p/%s/", apiUrl, url.PathEscape(f.Path))
 
-		var photoThumbs []string
+		// Up to five of the newest photos stick out of the folder, each
+		// tilted and shifted a little. The jitter is seeded from the folder
+		// and photo ids, so it looks hand-thrown but stays the same on every
+		// render (a re-render must not reshuffle the pile).
+		type photoSlip struct {
+			URL   string
+			Style template.CSS
+		}
+		var slips []photoSlip
 		for i, photo := range f.Photos {
-			if i >= 4 {
+			if i >= 5 {
 				break
 			}
-			thumbUrl := fmt.Sprintf("%s%s", apiUrl, photo.Thumbnails.Small)
-			photoThumbs = append(photoThumbs, thumbUrl)
-		}
-
-		for len(photoThumbs) < 4 && len(photoThumbs) > 0 {
-			photoThumbs = append(photoThumbs, photoThumbs[len(photoThumbs)-1])
+			h := fnv.New32a()
+			fmt.Fprintf(h, "%d/%d/%s", f.ID, i, photo.Thumbnails.Small)
+			r := h.Sum32()
+			rot := float64(int(r%11)-5) + float64(i-2)*4    // about -13..+13deg, fanned
+			dx := float64(int((r>>8)%7)-3) + float64(i-2)*6 // stays inside the walls
+			dy := float64((r>>16)%8) - 2
+			slips = append(slips, photoSlip{
+				URL:   apiUrl + photo.Thumbnails.Small,
+				Style: template.CSS(fmt.Sprintf("--rot:%.0fdeg;--dx:%.0f%%;--dy:%.0fpx;z-index:%d", rot, dx, dy, i+1)),
+			})
 		}
 
 		folders = append(folders, map[string]interface{}{
@@ -136,8 +149,8 @@ func (p *PhotosPlugin) Render(ctx context.Context) (string, error) {
 			"Name":       f.Name,
 			"Url":        folderUrl,
 			"PhotoCount": f.PhotoCount,
-			"Photos":     photoThumbs,
-			"HasPhotos":  len(photoThumbs) > 0,
+			"Photos":     slips,
+			"HasPhotos":  len(slips) > 0,
 		})
 
 		if len(folders) >= maxFolders {
@@ -164,28 +177,14 @@ func (p *PhotosPlugin) Render(ctx context.Context) (string, error) {
 	<div class="plugin__inner">
 		<div class="photos-grid">
 			{{range .Folders}}
-			<a href="{{.Url}}" target="_blank" rel="noopener" class="photos-card">
-				<div class="photos-cover">
-					{{if .HasPhotos}}
-					<div class="photos-preview-grid">
-						{{range .Photos}}
-						<div class="photos-preview-item">
-							<img src="{{.}}" alt="" loading="lazy">
-						</div>
-						{{end}}
-					</div>
-					{{else}}
-					<div class="photos-no-preview">
-						<svg viewBox="0 0 24 24" width="32" height="32" fill="currentColor">
-							<path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"/>
-						</svg>
-					</div>
-					{{end}}
-					<div class="photos-badge">{{.PhotoCount}}</div>
+			<a href="{{.Url}}" target="_blank" rel="noopener" class="photos-card" title="{{.Name}} · {{.PhotoCount}} photos">
+				<div class="photos-folder">
+					<span class="photos-folder__back" aria-hidden="true"></span>
+					{{range .Photos}}<img class="photos-slip" src="{{.URL}}" alt="" loading="lazy" decoding="async" style="{{.Style}}">{{end}}
+					<span class="photos-folder__front" aria-hidden="true"></span>
+					<span class="photos-badge">{{.PhotoCount}}</span>
 				</div>
-				<div class="photos-info">
-					<span class="photos-name">{{.Name}}</span>
-				</div>
+				<span class="photos-name">{{.Name}}</span>
 			</a>
 			{{end}}
 		</div>

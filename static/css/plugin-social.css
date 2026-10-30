@@ -138,41 +138,177 @@
         box-shadow: 0 3px 6px rgba(0, 0, 0, .12);
     }
 }
-/* Slightly smaller link tiles: 34px, 18px icons. */
+/* Link tiles: one monochrome glyph set (masked, drawn in currentColor) on
+   identical quiet tiles; the brand colour (--brand) comes in on hover. Tiles
+   stretch to share the row evenly instead of leaving a ragged right edge. */
+.plugin.social-section .plugin__inner {
+    padding-top: 4px;
+}
+
 .plugin.social-section .social-links {
+    display: grid;
+    grid-template-columns: repeat(var(--link-cols, auto-fill), minmax(36px, 1fr));
     gap: 6px;
+    padding: 0;
 }
 
 .plugin.social-section .social-link {
-    width: 34px;
-    height: 34px;
-    border-radius: 8px;
+    width: auto;
+    height: 36px;
+    border-radius: 9px;
+    background: rgba(255, 255, 255, .03);
+    box-shadow: inset 0 0 0 1px var(--edge-0);
+    color: var(--ink-2);
+    transition: background .15s ease, box-shadow .15s ease, color .15s ease, transform .15s ease;
 }
 
-.plugin.social-section .social-link :is(img, svg) {
+.plugin.social-section .social-link:hover,
+.plugin.social-section .social-link:focus-visible {
+    transform: translateY(-1px);
+    color: var(--brand, var(--accent));
+    background: color-mix(in srgb, var(--brand, var(--accent)) 12%, transparent);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--brand, var(--accent)) 45%, transparent);
+    outline: none;
+}
+
+.plugin.social-section .social-glyph {
+    display: block;
     width: 18px;
     height: 18px;
+    background: currentColor;
+    -webkit-mask: var(--glyph) center / contain no-repeat;
+    mask: var(--glyph) center / contain no-repeat;
 }
 
-/* Small tiles: keep them close to the title bar. */
-.plugin.social-section .plugin__inner {
-    padding-top: 4px;
+.plugin.social-section .social-link img {
+    width: 18px;
+    height: 18px;
+    opacity: .8;
+    filter: grayscale(1) brightness(1.6);
+}
+
+.plugin.social-section .social-link:hover img {
+    opacity: 1;
+    filter: none;
+}
+
+/* Site pages (Tier Rankings): a full-width row button with a chevron. */
+.plugin.social-section .social-pages {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px dashed var(--edge-0);
+}
+
+.plugin.social-section .social-page-link {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    height: 36px;
+    padding: 0 10px 0 12px;
+    border-radius: 9px;
+    background: rgba(255, 255, 255, .03);
+    box-shadow: inset 0 0 0 1px var(--edge-0);
+    color: var(--ink);
+    font-size: 13px;
+    font-weight: 600;
+    transition: background .15s ease, box-shadow .15s ease, color .15s ease;
+}
+
+.plugin.social-section .social-page-link:hover {
+    transform: none;
+    background: color-mix(in srgb, var(--accent) 10%, transparent);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent);
+    color: var(--ink);
+}
+
+.plugin.social-section .social-page-icon {
+    color: var(--accent);
+}
+
+.plugin.social-section .social-page-name {
+    flex: 1;
+}
+
+.plugin.social-section .social-page-arrow {
+    width: 14px;
+    height: 14px;
+    color: var(--muted);
+    transition: transform .15s ease, color .15s ease;
+}
+
+.plugin.social-section .social-page-link:hover .social-page-arrow {
+    transform: translateX(2px);
+    color: var(--accent);
 }
 
 /* Phones: bigger, easier-to-hit tiles. */
 @media (max-width: 720px) {
     .plugin.social-section .social-links {
+        grid-template-columns: repeat(var(--link-cols, auto-fill), minmax(44px, 1fr));
         gap: 8px;
     }
 
     .plugin.social-section .social-link {
-        width: 44px;
         height: 44px;
         border-radius: 10px;
     }
 
-    .plugin.social-section .social-link :is(img, svg) {
+    .plugin.social-section .social-glyph,
+    .plugin.social-section .social-link img {
         width: 22px;
         height: 22px;
+    }
+
+    .plugin.social-section .social-page-link {
+        height: 44px;
+    }
+}
+
+@media (prefers-color-scheme: light) {
+    .plugin.social-section .social-link,
+    .plugin.social-section .social-page-link {
+        background: rgba(0, 0, 0, .03);
+        border: 0;
+        box-shadow: inset 0 0 0 1px var(--edge-1);
+    }
+
+    .plugin.social-section .social-link img {
+        filter: grayscale(1) brightness(.6);
+    }
+}
+
+@media (prefers-color-scheme: light) {
+    .plugin.social-section .social-link[data-icon="github"],
+    .plugin.social-section .social-link[data-icon="x"] {
+        --brand: var(--ink) !important;
+    }
+}
+
+/* Each glyph always wears its own brand colour; hover only tints the tile. */
+.plugin.social-section .social-link {
+    color: var(--brand, var(--ink-2));
+}
+
+.plugin.social-section .social-link img {
+    filter: none;
+    opacity: 1;
+}
+
+.plugin.social-section .social-link:hover,
+.plugin.social-section .social-link:focus-visible {
+    color: var(--brand, var(--accent));
+    background: color-mix(in srgb, var(--brand, var(--accent)) 16%, transparent);
+}
+
+@media (prefers-color-scheme: light) {
+    .plugin.social-section .social-link img {
+        filter: none;
+    }
+
+    .plugin.social-section .social-link:hover {
+        background: color-mix(in srgb, var(--brand, var(--accent)) 14%, transparent) !important;
     }
 }

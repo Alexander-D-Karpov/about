@@ -268,7 +268,7 @@
             zoomControl: true,
             attributionControl: false,
             scrollWheelZoom: false,
-            worldCopyJump: true,
+            worldCopyJump: false,
             maxBounds: [[-60, -180], [80, 180]],
             maxBoundsViscosity: 1.0,
         });
@@ -311,9 +311,14 @@
         // CARTO basemaps now require an API key. OSM has no key requirement;
         // the dark look comes from the .leaflet-tile-pane CSS filter.
         // Note OSM serves a/b/c only - 'd' would 404.
+        // noWrap + bounds: a phone-width map is fitted at a zoom where the
+        // world is narrower than the container, and wrapped tiles then drew
+        // a second copy of the continents either side of the choropleth.
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
             subdomains: 'abc',
-            maxZoom: 19
+            maxZoom: 19,
+            noWrap: true,
+            bounds: [[-85, -180], [85, 180]]
         }).addTo(map);
 
         loadGeo()
@@ -408,6 +413,7 @@
     }
 
     window.applyVisitorsRegionsUpdate = applyRegionsUpdate;
+    window.loadCountriesGeo = loadGeo;
 
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', init);

@@ -58,6 +58,26 @@ func socialIconSlug(iconField, name string) string {
 	return strings.Trim(b.String(), "-")
 }
 
+// socialGlyphs maps a link's icon slug to its monochrome glyph in
+// static/icons/brand and the brand colour used on hover.
+var socialGlyphs = map[string]struct{ file, color string }{
+	"telegram":   {"telegram", "#26a5e4"},
+	"github":     {"github", "#e6edf3"},
+	"vk":         {"vk", "#0077ff"},
+	"x":          {"x", "#e7e9ea"},
+	"twitter":    {"x", "#e7e9ea"},
+	"linkedin":   {"linkedin", "#0a66c2"},
+	"email":      {"email", "#4d9fff"},
+	"mail":       {"email", "#4d9fff"},
+	"discord":    {"discord", "#5865f2"},
+	"ctftime":    {"ctftime", "#e0383e"},
+	"codewars":   {"codewars", "#b1361e"},
+	"lastfm":     {"lastfm", "#d51007"},
+	"last-fm":    {"lastfm", "#d51007"},
+	"steam":      {"steam", "#66c0f4"},
+	"beatleader": {"beatleader", "#d63ea6"},
+}
+
 func (p *SocialPlugin) Render(ctx context.Context) (string, error) {
 	config := p.storage.GetPluginConfig(p.Name())
 	settings := config.Settings
@@ -90,8 +110,8 @@ func (p *SocialPlugin) Render(ctx context.Context) (string, error) {
 	<div class="plugin__inner">
 		<div class="social-links">
 			{{range .Links}}
-			<a href="{{.URL}}" title="{{.Name}}" target="_blank" rel="noopener" class="social-link" data-icon="{{.Slug}}">
-				<img src="{{.IconURL}}" alt="{{.Name}} icon" class="icon icon-social" width="20" height="20" loading="lazy" decoding="async">
+			<a href="{{.URL}}" title="{{.Name}}" aria-label="{{.Name}}" target="_blank" rel="noopener" class="social-link" data-icon="{{.Slug}}"{{if .Style}} style="{{.Style}}"{{end}}>
+				{{if .Glyph}}<span class="social-glyph" aria-hidden="true"></span>{{else}}<img src="{{.IconURL}}" alt="" class="icon icon-social" width="20" height="20" loading="lazy" decoding="async">{{end}}
 			</a>
 			{{end}}
 		</div>
@@ -102,6 +122,7 @@ func (p *SocialPlugin) Render(ctx context.Context) (string, error) {
 			<a href="{{.URL}}" title="{{.Name}}" class="social-page-link">
 				<span class="social-page-icon">{{.IconSVG}}</span>
 				<span class="social-page-name">{{.Name}}</span>
+				<svg class="social-page-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg>
 			</a>
 			{{end}}
 		</div>
@@ -114,6 +135,8 @@ func (p *SocialPlugin) Render(ctx context.Context) (string, error) {
 		URL     string
 		IconURL string
 		Slug    string
+		Glyph   bool
+		Style   template.CSS
 	}
 
 	type pageLink struct {
@@ -150,12 +173,20 @@ func (p *SocialPlugin) Render(ctx context.Context) (string, error) {
 				iconURL = "/static/icons/" + iconField + ".svg"
 			}
 		}
-		socialLinks = append(socialLinks, socialLink{
+		slug := socialIconSlug(iconField, name)
+		link := socialLink{
 			Name:    name,
 			URL:     url,
 			IconURL: iconURL,
-			Slug:    socialIconSlug(iconField, name),
-		})
+			Slug:    slug,
+		}
+		// Known brands draw from one monochrome glyph set (static/icons/brand)
+		// so every tile matches; the brand colour only shows on hover.
+		if g, ok := socialGlyphs[slug]; ok {
+			link.Glyph = true
+			link.Style = template.CSS(fmt.Sprintf("--glyph:url(/static/icons/brand/%s.svg);--brand:%s", g.file, g.color))
+		}
+		socialLinks = append(socialLinks, link)
 	}
 
 	var pageLinks []pageLink

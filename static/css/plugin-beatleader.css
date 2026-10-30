@@ -212,3 +212,220 @@ a.stat-item {
         font-size: 12px;
     }
 }
+/* Stat tiles: number first and large, the "#" / "pp" around it smaller and
+   muted so the digits carry the tile, label underneath. */
+.plugin.beatleader-section .stat-item {
+    gap: 7px;
+    padding: 14px 8px 12px;
+}
+
+.plugin.beatleader-section .stat-value {
+    order: -1;
+    display: inline-flex;
+    align-items: baseline;
+    gap: 1px;
+    font-size: clamp(17px, 2.4cqi + 8px, 24px);
+    font-weight: 700;
+    letter-spacing: -.5px;
+    color: var(--ink);
+}
+
+.plugin.beatleader-section .stat-pre,
+.plugin.beatleader-section .stat-unit {
+    font-size: .62em;
+    font-weight: 600;
+    letter-spacing: 0;
+    color: var(--accent);
+}
+
+.plugin.beatleader-section .stat-unit {
+    margin-left: 2px;
+}
+
+.plugin.beatleader-section .stat-label {
+    font-size: 9.5px;
+    letter-spacing: .7px;
+    color: var(--muted);
+}
+
+.plugin.beatleader-section .plugin__inner {
+    container-type: inline-size;
+}
+
+/* Recent maps: the difficulty is the one coloured tag (Beat Saber's own
+   difficulty colours), the numbers follow as plain mono text, FC is a small
+   green mark, and a replay is a play button on the card's right edge. */
+.plugin.beatleader-section .maps-list {
+    gap: 8px;
+}
+
+.plugin.beatleader-section .map-item {
+    padding: 10px 12px 10px 10px;
+    gap: 12px;
+}
+
+.plugin.beatleader-section a.map-item {
+    text-decoration: none;
+    color: inherit;
+}
+
+.plugin.beatleader-section .map-cover {
+    width: 48px;
+    height: 48px;
+}
+
+.plugin.beatleader-section .map-info {
+    gap: 5px;
+}
+
+.plugin.beatleader-section .map-name {
+    -webkit-line-clamp: 1;
+    font-size: 13px;
+}
+
+.plugin.beatleader-section .map-stats {
+    gap: 4px 10px;
+    font: 600 11px/1 var(--mono);
+    color: var(--ink-2);
+}
+
+.plugin.beatleader-section .map-stats span {
+    padding: 0;
+    background: none;
+    border-radius: 0;
+}
+
+.plugin.beatleader-section .map-stats .map-diff {
+    --dc: var(--muted);
+    padding: 3px 6px;
+    border-radius: 4px;
+    background: color-mix(in srgb, var(--dc) 16%, transparent);
+    color: var(--dc);
+    font-size: 10px;
+    letter-spacing: .2px;
+}
+
+.plugin.beatleader-section .map-diff[data-diff="Easy"] { --dc: #3cb371; }
+.plugin.beatleader-section .map-diff[data-diff="Normal"] { --dc: #59b0f4; }
+.plugin.beatleader-section .map-diff[data-diff="Hard"] { --dc: #ff9f43; }
+.plugin.beatleader-section .map-diff[data-diff="Expert"] { --dc: #ff5a6e; }
+.plugin.beatleader-section .map-diff[data-diff="ExpertPlus"] { --dc: #b78cff; }
+
+.plugin.beatleader-section .map-stars {
+    color: var(--warn);
+}
+
+.plugin.beatleader-section .map-pp {
+    color: var(--ink);
+}
+
+.plugin.beatleader-section .map-pp small {
+    margin-left: 1px;
+    font-size: .85em;
+    color: var(--muted);
+}
+
+.plugin.beatleader-section .map-stats .map-fc {
+    padding: 2px 4px;
+    border-radius: 3px;
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--good) 55%, transparent);
+    color: var(--good);
+    font-size: 9.5px;
+}
+
+.plugin.beatleader-section .map-replay {
+    display: grid;
+    place-items: center;
+    flex-shrink: 0;
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    box-shadow: inset 0 0 0 1px var(--edge-1);
+    color: var(--muted);
+    transition: color .15s ease, box-shadow .15s ease, background .15s ease;
+}
+
+.plugin.beatleader-section .map-item:hover .map-replay {
+    background: var(--accent);
+    box-shadow: none;
+    color: #fff;
+}
+
+/* Replay: a labelled pill, not a bare play glyph. */
+.plugin.beatleader-section .map-replay {
+    width: auto;
+    height: 24px;
+    gap: 4px;
+    padding: 0 9px 0 7px;
+    border-radius: 99px;
+    display: inline-flex;
+    align-items: center;
+    font: 700 10.5px/1 var(--mono);
+    color: var(--accent);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent);
+}
+
+/* Replay: an icon button (circular replay arrow with a play mark). */
+.plugin.beatleader-section .map-replay {
+    width: 30px;
+    height: 30px;
+    padding: 0;
+    justify-content: center;
+    border-radius: 50%;
+    color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 10%, transparent);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 40%, transparent);
+}
+
+/* Stat tiles: four across when they fit, otherwise an even 2x2. */
+.plugin.beatleader-section .stats-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+@container (max-width: 620px) {
+    .plugin.beatleader-section .stats-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+/* Replay: the clapperboard on a small square chip, as before. */
+.plugin.beatleader-section .map-replay {
+    width: 30px;
+    height: 28px;
+    border-radius: 7px;
+    font-size: 15px;
+    line-height: 1;
+    background: rgba(255, 255, 255, .05);
+    box-shadow: inset 0 0 0 1px var(--edge-1);
+    transition: background .15s ease, box-shadow .15s ease;
+}
+
+.plugin.beatleader-section .map-item:hover .map-replay {
+    background: color-mix(in srgb, var(--accent) 18%, transparent);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 50%, transparent);
+}
+
+@media (prefers-color-scheme: light) {
+    .plugin.beatleader-section .map-replay {
+        background: rgba(15, 23, 42, .05);
+    }
+}
+
+/* flag before the country rank label */
+.plugin.beatleader-section .stat-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.plugin.beatleader-section .stat-flag {
+    flex-shrink: 0;
+    border-radius: 2px;
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, .25);
+    font-size: 12px;
+    line-height: 1;
+}
+
+.plugin.beatleader-section span.stat-flag {
+    box-shadow: none;
+}

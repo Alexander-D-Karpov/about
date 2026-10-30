@@ -351,6 +351,8 @@
     scrollbar-color: var(--edge-2) transparent;
     padding-right: 4px;
     scroll-behavior: smooth;
+    /* reaching either end of the list must not start scrolling the page */
+    overscroll-behavior: contain;
 }
 
 .bike-rides-list::-webkit-scrollbar { width: 4px }
@@ -585,4 +587,57 @@
 .bike-map-toast.in {
     opacity: 1;
     transform: translate(-50%, 0);
+}
+/* Layout follows the card's own width (a phone, or a narrow desktop
+   column), not the screen's. */
+.bike-section .plugin__inner {
+    container-type: inline-size;
+}
+
+/* Ride rows: a grid instead of a wrapping flex row. Wide cards keep one
+   line - colour bar, name/date/elevation, chips, eye. Narrow cards put the
+   chips on their own line under the name and keep the eye top-right, so it
+   no longer ends up alone on a third line. */
+.bike-section .bike-ride-item {
+    display: grid;
+    grid-template-columns: 3px minmax(0, 1fr) auto auto;
+    grid-template-areas: "bar info chips eye";
+    align-items: center;
+    column-gap: 10px;
+    row-gap: 6px;
+    padding: 8px 10px;
+}
+
+.bike-section .bike-ride-color { grid-area: bar; align-self: stretch; height: auto; min-height: 24px; }
+.bike-section .bike-ride-info { grid-area: info; }
+.bike-section .bike-ride-chips { grid-area: chips; width: auto; flex-wrap: nowrap; }
+.bike-section .bike-toggle-btn { grid-area: eye; }
+
+.bike-section .bike-ride-name { font-size: 12.5px; }
+
+.bike-section .bike-chip {
+    font-size: 10px;
+    padding: 3px 6px;
+}
+
+@container (max-width: 560px) {
+    .bike-section .bike-stats {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 6px;
+    }
+
+    .bike-section .bike-stat { min-width: 0; padding: 10px 4px; }
+    .bike-section .bike-stat-value { font-size: 15px; }
+    .bike-section .bike-stat-label { font-size: 9px; white-space: nowrap; }
+
+    .bike-section .bike-ride-item {
+        grid-template-columns: 3px minmax(0, 1fr) auto;
+        grid-template-areas:
+            "bar info eye"
+            "bar chips chips";
+    }
+
+    .bike-section .bike-ride-chips { flex-wrap: wrap; }
+    .bike-section .bike-toggle-btn { align-self: start; padding: 4px; }
 }

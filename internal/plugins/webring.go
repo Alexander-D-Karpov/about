@@ -105,52 +105,44 @@ func (p *WebringPlugin) Render(ctx context.Context) (string, error) {
 
 	tmpl := `
 <section class="webring-section section plugin"
+         aria-label="Webring"
          data-w="2"
          data-base-url="{{.BaseURL}}"
          data-username="{{.Username}}">
-	<header class="plugin-header">
-		<h2 class="plugin-title">Webring</h2>
-	</header>
-
 	<div class="plugin__inner">
 		<nav class="webring-nav" role="navigation" aria-label="Webring navigation">
-			<a href="{{.PrevURL}}" 
-			   class="webring-prev" 
+			<a href="{{.PrevURL}}"
+			   class="webring-prev"
 			   rel="prev external nofollow noopener"
 			   title="Previous: {{.PrevName}}"
 			   aria-label="Previous site: {{.PrevName}}">
-				{{if .HasPrevFavicon}}
-				<img src="{{.PrevFavicon}}" alt="" width="18" height="18" loading="lazy">
-				{{else}}
-				<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
-					<path d="M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z"/>
-				</svg>
-				{{end}}
-				<span class="webring-text">← {{.PrevName}}</span>
+				<svg class="webring-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg>
+				{{if .HasPrevFavicon}}<img src="{{.PrevFavicon}}" alt="" width="16" height="16" loading="lazy">{{end}}
+				<span class="webring-text">{{.PrevName}}</span>
 			</a>
-			
+
 			<a href="{{.HomeURL}}"
 			   class="webring-home"
 			   target="_blank"
 			   rel="external nofollow noopener"
 			   title="Webring Home"
 			   aria-label="Webring home">
+				<svg class="webring-globe" viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+					<circle cx="24" cy="24" r="21"/>
+					<ellipse cx="24" cy="24" rx="9" ry="21"/>
+					<path d="M3 24h42M7 13h34M7 35h34"/>
+				</svg>
 				<span class="webring-text">webring</span>
 			</a>
 			
-			<a href="{{.NextURL}}" 
-			   class="webring-next" 
+			<a href="{{.NextURL}}"
+			   class="webring-next"
 			   rel="next external nofollow noopener"
 			   title="Next: {{.NextName}}"
 			   aria-label="Next site: {{.NextName}}">
-				<span class="webring-text">{{.NextName}} →</span>
-				{{if .HasNextFavicon}}
-				<img src="{{.NextFavicon}}" alt="" width="18" height="18" loading="lazy">
-				{{else}}
-				<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
-					<path d="M8.59 16.59L10 18l6-6-6-6-1.41 1.41L13.17 12z"/>
-				</svg>
-				{{end}}
+				<span class="webring-text">{{.NextName}}</span>
+				{{if .HasNextFavicon}}<img src="{{.NextFavicon}}" alt="" width="16" height="16" loading="lazy">{{end}}
+				<svg class="webring-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
 			</a>
 		</nav>
 	</div>

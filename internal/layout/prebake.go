@@ -401,7 +401,7 @@ func estimateHeightFromHTML(name string, span, pluginWidth int, html string) int
 		// this span actually occupies, counting characters wide enough to
 		// over-estimate the line count rather than under-estimate it.
 		const (
-			profileHeaderH = 168 // name + role lines + avatar block + paddings
+			profileHeaderH = 150 // avatar + name/roles header row, bio rule, paddings
 			profileCharPx  = 11  // deliberately wide: over-counts lines vs word-wrap
 			profileLineH   = 24
 		)
@@ -420,18 +420,24 @@ func estimateHeightFromHTML(name string, span, pluginWidth int, html string) int
 	case "social":
 		icons := countToken(lower, "social-link")
 		pages := countToken(lower, "social-page-link")
-		iconRows := ceilDiv(max(icons, 1), itemsPerRowByPixelWidth(usableWidth, 40, 0)) // 34px tiles, 6px gap
-		pageRows := 0
-		if pages > 0 {
-			pageRows = ceilDiv(pages, itemsPerRowByPixelWidth(usableWidth, 170, 3))
-		}
-		h = 90 + iconRows*40 + pageRows*42
+		iconRows := ceilDiv(max(icons, 1), itemsPerRowByPixelWidth(usableWidth, 42, 0)) // 36px tiles, 6px gap
+		// each site page is its own full-width 36px row
+		h = 90 + iconRows*42 + pages*42
 
 	case "tech":
-		items := countToken(lower, "tech-item")
-		// 40px tiles in a 46px pitch (plugin-tech.css)
-		rows := ceilDiv(max(items, 1), itemsPerRowByPixelWidth(usableWidth, 46, 0))
-		h = 100 + rows*46
+		// One row per category: a 72px label column and wrapping ~100px chips
+		// on a 34px pitch (plugin-tech.css); narrow cards stack the label.
+		items := countToken(lower, `class="tech-item"`)
+		groups := max(countToken(lower, `class="tech-group"`), 1)
+		chipsW := usableWidth - 82
+		labelH := 0
+		if usableWidth <= 340 {
+			chipsW = usableWidth
+			labelH = 18
+		}
+		perRow := itemsPerRowByPixelWidth(chipsW, 100, 0)
+		rows := groups + max(0, ceilDiv(max(items, 1), perRow)-groups)
+		h = 90 + rows*34 + groups*(11+labelH)
 
 	case "projects":
 		items := countToken(lower, "project-card")
@@ -440,8 +446,13 @@ func estimateHeightFromHTML(name string, span, pluginWidth int, html string) int
 
 	case "photos":
 		items := countToken(lower, "photos-card")
-		rows := ceilDiv(max(items, 1), itemsPerRowByPixelWidth(usableWidth, 210, 4))
-		h = 110 + rows*260
+		// folders: 112px+ columns, square folder art (max 140px) + name, 18px row gap
+		// balanced rows (see the photos-grid script): fewest rows that fit
+		maxCols := itemsPerRowByPixelWidth(usableWidth, 126, 0)
+		rows := ceilDiv(max(items, 1), maxCols)
+		cols := ceilDiv(max(items, 1), rows)
+		folderW := min(240, (usableWidth-(cols-1)*14)/max(cols, 1))
+		h = 90 + rows*(folderW*4/5+52)
 
 	case "bike":
 		rides := countToken(lower, "bike-ride-item")
@@ -480,17 +491,21 @@ func estimateHeightFromHTML(name string, span, pluginWidth int, html string) int
 		stats := countToken(lower, "visitor-stat")
 		rows := ceilDiv(max(stats, 1), 3)
 		h = 90 + rows*70
-		if strings.Contains(lower, "visitors-chart") {
+		if strings.Contains(lower, `class="visitors-chart"`) {
 			h += 125 // head + 64px bars + axis
 		}
 		if strings.Contains(lower, "visitors-map") {
-			h += 220 // label row + map capped at 160px
+			h += 60 + min(200, roundInt(float64(usableWidth-22)/1.92)) // label row + 1.92:1 map, capped at 200px
 		}
 
 	case "services":
 		items := countToken(lower, "service-item")
-		rows := ceilDiv(max(items, 1), itemsPerRowByPixelWidth(usableWidth, 290, 3))
-		h = 132 + rows*158 + 116
+		cols := itemsPerRowByPixelWidth(usableWidth, 290, 3)
+		if usableWidth <= 520 {
+			cols = 2 // phones show services two-up
+		}
+		rows := ceilDiv(max(items, 1), cols)
+		h = 110 + rows*118 // no summary block under the cards any more
 
 	case "personal":
 		items := countToken(lower, "personal-item")
@@ -591,7 +606,7 @@ func estimateHeightFromHTML(name string, span, pluginWidth int, html string) int
 		h = 440
 
 	case "webring":
-		h = 88 // 38px title bar + 32px links + padding
+		h = 52 // one 34px row of links + padding, no title bar
 	}
 
 	h += 16

@@ -201,10 +201,14 @@
                 const out = sec.querySelector(`#neofetch-${idx}`);
                 if (out) out.style.display = 'block';
 
-                requestAnimationFrame(autoScaleAllNeofetch);
-                setTimeout(() => {
-                    if (window.mosaicUtils) window.mosaicUtils.resizeAll();
-                }, 50);
+                // Size the terminal and repack in the same frame as the click;
+                // the old rAF + 50ms + debounced-observer chain resized the
+                // card in visible steps a beat after the switch.
+                autoScaleAllNeofetch();
+                if (window.mosaicUtils) {
+                    window.mosaicUtils.notifyContentChanged(sec);
+                    window.mosaicUtils.fullRepack();
+                }
             });
         });
 
@@ -233,27 +237,6 @@
         });
     }
 
-    function initAnimatedCounters(){
-        const anim = (el) => {
-            const text = el.textContent;
-            const n = parseFloat(text.replace(/[^\d.]/g,''));
-            if (isNaN(n)) return;
-            const suffix = text.replace(/[\d.,]/g,'');
-            const dur = 1000, steps = 30, stepVal = n/steps;
-            let i = 0, cur = 0;
-            const t = setInterval(() => {
-                i++; cur += stepVal;
-                if (i >= steps){ cur=n; clearInterval(t); }
-                el.textContent = Math.floor(cur).toLocaleString() + suffix;
-            }, dur/steps);
-        };
-        $$('.visitor-number, .stat-value').forEach(el => {
-            const io = new IntersectionObserver(ents => {
-                ents.forEach(en => { if (en.isIntersecting){ anim(el); io.unobserve(el); } });
-            });
-            io.observe(el);
-        });
-    }
 
 
     function shufflePlugins() {
@@ -375,7 +358,6 @@
                     initServices();
                     initWebring();
                     initNeofetchSwitch();
-                    initAnimatedCounters();
                     initHealthInteractions();
                 }, 80);
             };
@@ -384,6 +366,58 @@
         };
 
         waitForMosaic();
+    }
+
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+    else init();
+})();
+
+// Balanced grids: auto-fill left lone items on the last row (six photo
+// folders in five columns, twelve links as 7 + 5). For each grid below this
+// picks the column count that splits the items into the fewest, evenest rows
+// that fit the current width (six -> 3 + 3, twelve -> 6 + 6) and exposes it
+// as a CSS variable the grid's template reads.
+(function () {
+    'use strict';
+    if (!window.ResizeObserver) return;
+
+    const phone = () => window.innerWidth <= 720;
+    const GRIDS = [
+        {sel: '.photos-grid', prop: '--photo-cols', min: () => 112, gap: () => 14},
+        {sel: '.social-section .social-links', prop: '--link-cols', min: () => (phone() ? 44 : 36), gap: () => (phone() ? 8 : 6)},
+    ];
+
+    function balance(grid) {
+        const spec = GRIDS.find((g) => grid.matches(g.sel));
+        if (!spec) return;
+        const n = grid.children.length;
+        const w = grid.clientWidth;
+        if (!n || !w) return;
+        const gap = spec.gap(), min = spec.min();
+        const maxCols = Math.max(1, Math.floor((w + gap) / (min + gap)));
+        const rows = Math.ceil(n / maxCols);
+        const cols = Math.ceil(n / rows);
+        if (grid.style.getPropertyValue(spec.prop) !== String(cols)) {
+            grid.style.setProperty(spec.prop, String(cols));
+        }
+    }
+
+    const ro = new ResizeObserver((entries) => entries.forEach((e) => balance(e.target)));
+
+    function attach() {
+        GRIDS.forEach((spec) => document.querySelectorAll(spec.sel).forEach((g) => {
+            if (g.dataset.balanced) return;
+            g.dataset.balanced = '1';
+            ro.observe(g);
+            balance(g);
+        }));
+    }
+
+    function init() {
+        attach();
+        // sections are swapped wholesale on live updates
+        const mosaic = document.querySelector('.mosaic') || document.body;
+        new MutationObserver(attach).observe(mosaic, {childList: true});
     }
 
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);

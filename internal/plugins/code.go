@@ -203,7 +203,7 @@ func (p *CodePlugin) updateExternal(ctx context.Context) bool {
 			if apiKey != "" {
 				start := time.Now()
 				log.Printf("[Code] fetching wakatime stats...")
-				stats, err := fetchWakatimeStats(ctx, p.git.client, apiKey)
+				stats, err := fetchWakatimeStats(ctx, p.git.client, apiKey, p.getStr(settings, "wakatime.api_url", ""))
 				if err != nil {
 					log.Printf("[Code] wakatime stats fetch failed: %v", err)
 				} else {
@@ -257,6 +257,7 @@ type codeLangView struct {
 	Name    string
 	Color   string
 	Percent string
+	Hours   string // set when the row comes from coding hours; shown instead of Percent
 	Width   string
 }
 
@@ -282,6 +283,18 @@ type codeRepoView struct {
 	Stars       int
 	Source      string
 	SourceColor string
+	Mirrors     []GitRepoMirror
+}
+
+// codeTopLangs: rows in Top Languages when it is built from coding hours
+const codeTopLangs = 10
+
+// wakaHoursLabel: whole hours like coded total ("2,665h", "99h"); minutes only under an hour ("40m")
+func wakaHoursLabel(sec float64) string {
+	if h := int(sec / 3600); h >= 1 {
+		return formatCount(h) + "h"
+	}
+	return fmt.Sprintf("%dm", int(sec/60))
 }
 
 func compactWakaText(s string) string {
@@ -339,7 +352,23 @@ func (p *CodePlugin) Render(ctx context.Context) (string, error) {
 	gitCommits, _, _, gitRepos, gitPartial := p.git.CurrentStats()
 
 	var langs []codeLangView
-	if showLangs && gh != nil && len(gh.Languages) > 0 {
+	if showLangs && wk != nil && len(wk.LangsAllTime) > 0 {
+		// coding hours per language over the whole history (Hakatime): same bars, hours instead of shares
+		top := wk.LangsAllTime
+		if len(top) > codeTopLangs {
+			top = top[:codeTopLangs]
+		}
+		maxSec := top[0].Seconds
+		for _, l := range top {
+			langs = append(langs, codeLangView{
+				Name:    l.Name,
+				Color:   GetLanguageColor(l.Name),
+				Percent: fmt.Sprintf("%.2f%%", l.Percent),
+				Hours:   wakaHoursLabel(l.Seconds),
+				Width:   fmt.Sprintf("%.2f", l.Seconds/maxSec*100),
+			})
+		}
+	} else if showLangs && gh != nil && len(gh.Languages) > 0 {
 		maxPct := gh.Languages[0].Percent
 		for _, l := range gh.Languages {
 			if l.Percent > maxPct {
@@ -382,7 +411,7 @@ func (p *CodePlugin) Render(ctx context.Context) (string, error) {
 
 	var repos []codeRepoView
 	if showGitHub {
-		for _, r := range recent {
+		for _, r := range mergeRecentRepoMirrors(recent) {
 			rv := codeRepoView{
 				Name:        r.Name,
 				URL:         r.URL,
@@ -392,6 +421,7 @@ func (p *CodePlugin) Render(ctx context.Context) (string, error) {
 				Stars:       r.Stars,
 				Source:      r.Source,
 				SourceColor: r.SourceColor,
+				Mirrors:     r.Mirrors,
 			}
 			for _, l := range r.Languages {
 				rv.Langs = append(rv.Langs, codeLangView{
@@ -572,14 +602,14 @@ func (p *CodePlugin) Render(ctx context.Context) (string, error) {
 			<summary><span>Top Languages</span><span class="code-block-meta">{{len .Languages}}</span></summary>
 			<div class="code-block-body">
 				<div class="code-langbar">
-					{{range .Languages}}<i style="width:{{.Percent}};background:{{.Color}}" title="{{.Name}} {{.Percent}}"></i>{{end}}
+					{{range .Languages}}<i style="width:{{.Percent}};background:{{.Color}}" title="{{.Name}} {{if .Hours}}{{.Hours}}{{else}}{{.Percent}}{{end}}"></i>{{end}}
 				</div>
 				<div class="code-lang-rows">
 					{{range .Languages}}
 					<div class="code-lang-row" style="--lc:{{.Color}}">
 						<span class="code-lang-name">{{.Name}}</span>
 						<div class="code-lang-bar"><i style="width:{{.Width}}%;background:{{.Color}}"></i></div>
-						<span class="code-lang-val">{{.Percent}}</span>
+						<span class="code-lang-val">{{if .Hours}}{{.Hours}}{{else}}{{.Percent}}{{end}}</span>
 					</div>
 					{{end}}
 				</div>
@@ -600,17 +630,18 @@ func (p *CodePlugin) Render(ctx context.Context) (string, error) {
 		{{if .Repos}}
 		<details class="code-block" open>
 			<summary><span>Recent Repos</span><span class="code-block-meta">{{len .Repos}} · 3mo</span></summary>
-			<div class="code-block-body">
+			<div class="code-block-body code-repos">
 				{{range .Repos}}
-				<a class="code-repo code-repo--compact" href="{{.URL}}" target="_blank" rel="noopener">
+				<a class="code-repo code-repo--card" href="{{.URL}}" target="_blank" rel="noopener" title="{{.Name}}">
 					<div class="code-repo-row">
-						<span class="code-repo-dot" style="background:{{.MainColor}}"></span>
 						<span class="code-repo-name">{{.Name}}</span>
-						<span class="code-repo-cmeta">
-							{{if .MainLang}}<em>{{.MainLang}}</em>{{end}}
-							{{if .Stars}}<span class="code-repo-stars">★ {{.Stars}}</span>{{end}}
-							{{if .Commits}}<b>{{.Commits}}c</b>{{end}}
-							{{if .Source}}<span class="code-repo-src" style="--sc:{{.SourceColor}}">{{.Source}}</span>{{end}}
+						{{if .Stars}}<span class="code-repo-stars">★ {{.Stars}}</span>{{end}}
+					</div>
+					<div class="code-repo-meta">
+						{{if .MainLang}}<span class="code-repo-lang">{{.MainLang}}</span>{{end}}
+						{{if .Commits}}<span class="code-repo-commits"><b>{{.Commits}}</b> commits</span>{{end}}
+						<span class="code-repo-srcs">
+							{{if .Mirrors}}{{range .Mirrors}}<span class="code-repo-src" style="--sc:{{.Color}}">{{.Source}}</span>{{end}}{{else if .Source}}<span class="code-repo-src" style="--sc:{{.SourceColor}}">{{.Source}}</span>{{end}}
 						</span>
 					</div>
 					{{if .Langs}}

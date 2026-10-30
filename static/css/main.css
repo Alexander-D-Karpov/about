@@ -575,10 +575,6 @@ body:has(#custom-music-player:not([style*="none"])) .container {
     pointer-events: auto;
 }
 
-.tech-filter-popup .filter-icon {
-    font-size: 16px;
-    color: var(--accent);
-}
 
 .tech-filter-popup .filter-text {
     font-weight: 600;
@@ -1341,4 +1337,106 @@ body.scroll-locked {
     .js .mosaic {
         grid-template-columns: minmax(0, 1fr);
     }
+}
+
+/* Light theme: white cards on a near-white page with a grey line round every
+   card *and* every tile inside it read as a wireframe. Cards now sit on a
+   slightly darker page with a soft shadow and no hard edge, and the tiles
+   inside them are separated by a faint fill instead of their own borders. */
+@media (prefers-color-scheme: light) {
+    :root {
+        --bg: #f3f4f6;
+        --edge-0: rgba(15, 23, 42, .05);
+        --edge-1: rgba(15, 23, 42, .07);
+        --edge-2: rgba(15, 23, 42, .11);
+        --card-edge: transparent;
+        --tile: transparent;
+        --tile-hover: rgba(15, 23, 42, .045);
+    }
+
+    .plugin.plugin {
+        border-color: transparent;
+        box-shadow: 0 1px 2px rgba(15, 23, 42, .05), 0 0 0 1px rgba(15, 23, 42, .04);
+    }
+
+    /* Inside a tile, small value chips are plain text, not another box. */
+    .plugin :is(.game-stats span, .game-stats a, .map-stats span:not(.map-diff):not(.map-fc)) {
+        background: none !important;
+        box-shadow: none !important;
+        padding-left: 0;
+        padding-right: 0;
+    }
+
+    .plugin .game-stats span {
+        color: var(--ink-2);
+    }
+
+    .plugin.plugin .plugin-header {
+        box-shadow: none;
+    }
+
+    .plugin :is(
+        .webring-prev, .webring-next, .webring-home,
+        .tech-item, .social-link, .social-page-link,
+        .player-status, .game-item, .steam-all-games-btn, .view-profile-btn, .steam-more-btn,
+        .music-recent__item, .music-stats__summary, .music-total, .badge,
+        .stat-item, .map-item,
+        .code-stat, .code-block, .code-repo--card, .code-os,
+        .bike-stat, .visitor-stat, .visitors-stats, .visitors-chart, .visitors-regions,
+        .service-item, .machine-btn, .places-country
+    ) {
+        border-color: transparent !important;
+        box-shadow: none !important;
+        background: var(--tile) !important;
+    }
+
+    .plugin :is(
+        .webring-prev, .webring-next, .webring-home,
+        .tech-item, .social-link, .social-page-link,
+        .game-item, .steam-all-games-btn, .view-profile-btn, .steam-more-btn,
+        .music-recent__item, .stat-item, .map-item, .code-repo--card,
+        .service-item, .machine-btn, .places-country
+    ):hover {
+        background: var(--tile-hover) !important;
+    }
+
+    /* Tiles nested in a tile stay flat. */
+    .plugin :is(.visitors-stats, .code-block) :is(.visitor-stat, .code-repo--card) {
+        background: transparent !important;
+    }
+
+    .plugin .code-block .code-repo--card {
+        background: transparent !important;
+    }
+
+    .plugin :is(.tech-item.filtered, .machine-btn[data-active="true"], .machine-btn.active) {
+        background: var(--accent) !important;
+        color: #fff;
+    }
+}
+
+/* Selection inverts the theme: text colour becomes the highlight, page
+   background becomes the text, in both themes, instead of the browser's
+   blue. Coloured spans (role words, accents, numbers) invert with it. */
+::selection {
+    background: var(--ink);
+    color: var(--bg);
+    text-shadow: none;
+}
+
+::-moz-selection {
+    background: var(--ink);
+    color: var(--bg);
+    text-shadow: none;
+}
+
+/* the terminal has its own dark surface in both themes */
+.neofetch-pre ::selection,
+.neofetch-pre::selection {
+    background: var(--nf-fg, #d4d4d4);
+    color: var(--nf-sel-text, #0c0c0c);
+}
+
+@media (prefers-color-scheme: light) {
+    .neofetch-pre { --nf-sel-text: #f7f8fa; }
 }

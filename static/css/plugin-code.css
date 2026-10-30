@@ -434,3 +434,98 @@
 .plugin.code-section .code-repo--compact {
     padding: 5px 4px;
 }
+
+/* Recent repos: a two-column grid of small cards - name (+stars) on top, the
+   language / commit count / hosts underneath, then the language split. A
+   repo mirrored on several hosts is one card listing every host. */
+.plugin.code-section .code-repos {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px;
+}
+
+.plugin.code-section .code-repo--card {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    min-width: 0;
+    padding: 8px 10px 9px;
+    border-radius: 8px;
+    background: rgba(255, 255, 255, .015);
+    box-shadow: inset 0 0 0 1px var(--edge-0);
+}
+
+.plugin.code-section .code-repo--card:hover {
+    background: rgba(255, 255, 255, .035);
+    box-shadow: inset 0 0 0 1px var(--edge-1);
+}
+
+.plugin.code-section .code-repo--card .code-repo-name {
+    flex: 1;
+    min-width: 0;
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--ink);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.plugin.code-section .code-repo--card .code-repo-stars {
+    font: 700 10.5px/1 var(--mono);
+    white-space: nowrap;
+}
+
+.plugin.code-section .code-repo-meta {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    padding-left: 16px;
+    font: 600 10px/1 var(--mono);
+    color: var(--muted);
+    white-space: nowrap;
+}
+
+.plugin.code-section .code-repo-commits b {
+    color: var(--accent);
+    font-weight: 700;
+}
+
+.plugin.code-section .code-repo-srcs {
+    display: inline-flex;
+    gap: 4px;
+    margin-left: auto;
+    min-width: 0;
+    overflow: hidden;
+}
+
+.plugin.code-section .code-repo-srcs .code-repo-src {
+    padding: 2px 5px;
+    border-radius: 4px;
+    background: color-mix(in srgb, var(--sc, var(--muted)) 14%, transparent);
+    font-size: 8.5px;
+    line-height: 1.2;
+}
+
+.plugin.code-section .code-repo--card .code-langbar--thin {
+    margin: 1px 0 0 16px;
+    height: 3px;
+}
+
+/* One column once a card would be too narrow for name + meta. */
+@media (max-width: 460px) {
+    .plugin.code-section .code-repos {
+        grid-template-columns: 1fr;
+    }
+}
+
+@media (prefers-color-scheme: light) {
+    .plugin.code-section .code-repo--card {
+        background: rgba(0, 0, 0, .02);
+    }
+}
+
+/* no language dot any more: meta and bar line up under the name */
+.plugin.code-section .code-repo--card .code-repo-meta { padding-left: 0; }
+.plugin.code-section .code-repo--card .code-langbar--thin { margin-left: 0; }

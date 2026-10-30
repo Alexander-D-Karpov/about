@@ -596,18 +596,6 @@ func (p *VisitorsPlugin) Render(ctx context.Context) (string, error) {
 				{{end}}
 			</div>
 			{{end}}
-			{{with .Trend}}
-			<div class="visitors-chart">
-				<div class="visitors-chart-head">
-					<span class="visitors-block-label">Unique visitors / day</span>
-					{{if .TrendDir}}<span class="visitors-trend" data-dir="{{.TrendDir}}" title="Unique visitors, last 7 days vs the 7 days before">{{.TrendLabel}}</span>{{end}}
-				</div>
-				<div class="visitors-bars" role="img" aria-label="Unique visitors per day since {{.FromLabel}}, peak {{.Peak}} on {{.PeakDate}}">
-					{{range .Bars}}<span class="visitors-bar{{if .Today}} is-today{{end}}{{if eq .Height 0}} is-empty{{end}}" style="--h: {{.Height}}%" title="{{.Title}}"></span>{{end}}
-				</div>
-				<div class="visitors-bars-axis"><span>{{.FromLabel}}</span><span class="visitors-axis-peak">peak {{.Peak}} · {{.PeakDate}}</span><span>today</span></div>
-			</div>
-			{{end}}
 		</div>
 		{{if .ShowRegions}}
 		<div class="visitors-regions visitors-regions--map">
