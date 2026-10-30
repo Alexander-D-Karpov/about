@@ -1,10 +1,13 @@
 package plugins
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"html/template"
+	"image/png"
 	"io"
 	"net/http"
 	"net/url"
@@ -17,7 +20,23 @@ import (
 
 	"github.com/Alexander-D-Karpov/about/internal/storage"
 	"github.com/Alexander-D-Karpov/about/internal/stream"
+	"github.com/buckket/go-blurhash"
 )
+
+func projectPlaceholder(hash string) template.URL {
+	if hash == "" {
+		return ""
+	}
+	img, err := blurhash.Decode(hash, 32, 20, 1)
+	if err != nil {
+		return ""
+	}
+	var buf bytes.Buffer
+	if png.Encode(&buf, img) != nil {
+		return ""
+	}
+	return template.URL("data:image/png;base64," + base64.StdEncoding.EncodeToString(buf.Bytes()))
+}
 
 // parseProjectDate parses a stored project date in ISO "2006-01-02", RFC3339, or
 // the old "02 Jan 2006" display form.
@@ -98,7 +117,8 @@ func (p *ProjectsPlugin) Render(ctx context.Context) (string, error) {
 				<article class="project-card">
 					{{if .Image}}
 					<div class="project-image">
-						<img src="{{.Image}}" alt="{{.Name}}" loading="lazy">
+						{{if .Placeholder}}<img class="project-image__placeholder" src="{{.Placeholder}}" alt="" aria-hidden="true">{{end}}
+						<img class="project-image__photo" src="{{.Image}}" alt="{{.Name}}" loading="lazy" decoding="async">
 					</div>
 					{{end}}
 					<div class="project-content">
@@ -156,6 +176,7 @@ func (p *ProjectsPlugin) Render(ctx context.Context) (string, error) {
 		Name         string
 		Description  string
 		Image        string
+		Placeholder  template.URL
 		GitHub       string
 		Live         string
 		Technologies []projectTech
@@ -176,6 +197,7 @@ func (p *ProjectsPlugin) Render(ctx context.Context) (string, error) {
 		name, _ := projMap["name"].(string)
 		desc, _ := projMap["description"].(string)
 		image, _ := projMap["image"].(string)
+		blurhash, _ := projMap["blurhash"].(string)
 		github, _ := projMap["github"].(string)
 		live, _ := projMap["live"].(string)
 		created, _ := projMap["created"].(string)
@@ -195,6 +217,7 @@ func (p *ProjectsPlugin) Render(ctx context.Context) (string, error) {
 			Name:         name,
 			Description:  desc,
 			Image:        image,
+			Placeholder:  projectPlaceholder(blurhash),
 			GitHub:       github,
 			Live:         live,
 			Technologies: technologies,

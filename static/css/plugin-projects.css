@@ -25,6 +25,7 @@
 }
 
 .project-image {
+    position: relative;
     width: 100%;
     height: 160px;
     overflow: hidden;
@@ -37,6 +38,17 @@
     object-fit: cover;
     transition: transform .2s ease;
     will-change: transform;
+}
+
+.project-image__placeholder {
+    position: absolute;
+    inset: 0;
+    filter: blur(6px);
+    transform: scale(1.05);
+}
+
+.project-image__photo {
+    position: relative;
 }
 
 .project-card:hover .project-image img {

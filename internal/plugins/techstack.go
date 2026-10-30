@@ -194,7 +194,19 @@ func lookupTechIcon(index map[string]string, name string) string {
 	if a, ok := techIconAliases[k]; ok {
 		return index[a]
 	}
-	return ""
+	// Project-only technologies need not be added to the curated tech stack.
+	return projectTechIcons[k]
+}
+
+var projectTechIcons = map[string]string{
+	"bubbletea":     "/static/icons/bubbletea.png",
+	"chromium":      "/static/icons/chromium.svg",
+	"drf":           "/static/icons/django.svg",
+	"ffmpeg":        "/static/icons/ffmpeg.svg",
+	"fyne":          "/static/icons/fyne.png",
+	"jupyter":       "/static/icons/jupyter.svg",
+	"osm":           "/static/icons/openstreetmap.svg",
+	"overpassturbo": "/static/icons/overpassturbo.ico",
 }
 
 // techCategoryOrder is the display order of the built-in categories; any other

@@ -3,6 +3,7 @@ module github.com/Alexander-D-Karpov/about
 go 1.26.0
 
 require (
+	github.com/buckket/go-blurhash v1.1.0
 	github.com/chromedp/cdproto v0.0.0-20250724212937-08a3db8b4327
 	github.com/chromedp/chromedp v0.14.2
 	github.com/disintegration/imaging v1.6.2

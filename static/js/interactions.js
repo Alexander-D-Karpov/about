@@ -6,6 +6,27 @@
     const $  = (q, c=document) => c.querySelector(q);
     const $$ = (q, c=document) => Array.from(c.querySelectorAll(q));
     const on = (el, ev, fn, opts) => el && el.addEventListener(ev, fn, opts);
+
+    // Capture image errors, including those from cards inserted over websocket.
+    // Limit retries per element so a permanently missing image does not loop.
+    function retryProjectImage(img) {
+        if (!(img instanceof HTMLImageElement) || !img.classList.contains('project-image__photo')) return;
+        const attempt = Number(img.dataset.retries || 0);
+        if (attempt >= 3) return;
+        img.dataset.retries = String(attempt + 1);
+        setTimeout(() => {
+            if (!img.isConnected) return;
+            const url = new URL(img.src, document.baseURI);
+            url.searchParams.set('_retry', String(Date.now()));
+            img.src = url.href;
+        }, 1000 * Math.pow(2, attempt));
+    }
+    document.addEventListener('error', (event) => retryProjectImage(event.target), true);
+    const retryAlreadyFailedImages = () => document.querySelectorAll('.project-image__photo').forEach((img) => {
+        if (img.complete && img.naturalWidth === 0) retryProjectImage(img);
+    });
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', retryAlreadyFailedImages);
+    else retryAlreadyFailedImages();
     const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
     const now = () => Date.now();
 
