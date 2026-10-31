@@ -41,6 +41,7 @@ type TemplateData struct {
 	CSSHash       string
 	JSHash        string
 	Plugins       []template.HTML
+	ProjectTail   []template.HTML
 	PrebakeCSS    template.CSS
 }
 
@@ -191,6 +192,10 @@ func (h *MainHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		_, jsHash = h.bundler.JSBundle()
 	}
 
+	var projectTail []template.HTML
+	if !potatoMode {
+		renderedPlugins, projectTail = layout.SplitProjectTail(renderedPlugins)
+	}
 	prebakedPlugins := layout.Prebake(renderedPlugins, h.heightStore)
 
 	data := TemplateData{
@@ -201,6 +206,7 @@ func (h *MainHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		CSSHash:     cssHash,
 		JSHash:      jsHash,
 		Plugins:     prebakedPlugins,
+		ProjectTail: projectTail,
 		PrebakeCSS:  layout.GenerateResponsiveCSS(),
 	}
 

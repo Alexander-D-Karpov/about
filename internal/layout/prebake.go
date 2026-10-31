@@ -783,6 +783,19 @@ func fixedEdgePackOrder(pluginHTMLs []template.HTML) []int {
 	return out
 }
 
+// SplitProjectTail keeps projects out of the mosaic from the very first paint.
+// The client also treats this section as a full-width sibling of the mosaic.
+func SplitProjectTail(pluginHTMLs []template.HTML) (mosaic, projects []template.HTML) {
+	for _, h := range pluginHTMLs {
+		if extractPluginName(string(h)) == "projects" {
+			projects = append(projects, h)
+		} else {
+			mosaic = append(mosaic, h)
+		}
+	}
+	return mosaic, projects
+}
+
 func Prebake(pluginHTMLs []template.HTML, store HeightLookup) []template.HTML {
 	if len(pluginHTMLs) == 0 {
 		return nil

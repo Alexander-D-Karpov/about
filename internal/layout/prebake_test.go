@@ -10,6 +10,19 @@ import (
 
 func reMustCompile(p string) *regexp.Regexp { return regexp.MustCompile(p) }
 
+func TestSplitProjectTail(t *testing.T) {
+	profile := template.HTML(`<section class="profile-section plugin"></section>`)
+	project := template.HTML(`<div class="projects-section plugin" data-w="3"></div>`)
+	social := template.HTML(`<section class="social-section plugin"></section>`)
+	mosaic, tail := SplitProjectTail([]template.HTML{profile, project, social})
+	if len(mosaic) != 2 || mosaic[0] != profile || mosaic[1] != social || len(tail) != 1 || tail[0] != project {
+		t.Fatalf("unexpected split: mosaic=%v tail=%v", mosaic, tail)
+	}
+	if strings.Contains(string(tail[0]), "data-prebaked") {
+		t.Fatal("project tail must not receive fixed mosaic dimensions")
+	}
+}
+
 // bucketFor resolves the bucket a browser lands in at this width, the way the
 // stacked `@media(min-width:...)` rules do: the last one whose MinWidth fits.
 func bucketFor(width int) ViewportBucket {
