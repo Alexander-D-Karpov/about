@@ -477,9 +477,9 @@ func (p *BeatLeaderPlugin) Render(ctx context.Context) (string, error) {
 	}
 
 	funcMap := template.FuncMap{
-		"mul":    func(a, b float64) float64 { return a * b },
-		"printf": fmt.Sprintf,
-		"gt":     func(a, b float64) bool { return a > b },
+		"mul":         func(a, b float64) float64 { return a * b },
+		"printf":      fmt.Sprintf,
+		"gt":          func(a, b float64) bool { return a > b },
 		"countryFlag": countryFlagHTML,
 		"commas": func(v interface{}) string {
 			switch n := v.(type) {
