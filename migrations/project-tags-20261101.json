@@ -1,0 +1,10 @@
+{
+  "remove_from_all_projects": ["Docker Compose", "docker-compose", "compose"],
+  "add": [
+    {
+      "name": "Aego",
+      "repo": "https://git.akarpov.ru/sanspie/aego",
+      "technologies": ["OpenGL"]
+    }
+  ]
+}

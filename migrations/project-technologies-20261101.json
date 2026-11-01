@@ -70,8 +70,7 @@
         "PostgreSQL",
         "Redis",
         "Celery",
-        "Docker",
-        "Docker Compose"
+        "Docker"
       ],
       "remove": []
     },
@@ -166,8 +165,7 @@
         "PostgreSQL",
         "Redis",
         "SQLAlchemy",
-        "Docker",
-        "Docker Compose"
+        "Docker"
       ],
       "remove": []
     },
@@ -178,8 +176,7 @@
         "Django",
         "PostgreSQL",
         "Celery",
-        "Docker",
-        "Docker Compose"
+        "Docker"
       ],
       "remove": []
     },
@@ -190,8 +187,7 @@
         "PostgreSQL",
         "Redis",
         "Celery",
-        "Docker",
-        "Docker Compose"
+        "Docker"
       ],
       "remove": []
     },
@@ -227,8 +223,7 @@
       "name": "akfs",
       "repo": "https://github.com/Alexander-D-Karpov/akfs",
       "add": [
-        "Docker",
-        "Docker Compose"
+        "Docker"
       ],
       "remove": []
     },
@@ -237,8 +232,7 @@
       "repo": "https://github.com/Alexander-D-Karpov/akarpov_music_bot",
       "add": [
         "python-telegram-bot",
-        "Docker",
-        "Docker Compose"
+        "Docker"
       ],
       "remove": [
         "aiogram"
@@ -248,8 +242,7 @@
       "name": "akarpov music tools",
       "repo": "https://github.com/Alexander-D-Karpov/akarpov_music_tools",
       "add": [
-        "Docker",
-        "Docker Compose"
+        "Docker"
       ],
       "remove": []
     },
@@ -258,8 +251,7 @@
       "repo": "https://github.com/Alexander-D-Karpov/akarpov_file_tools",
       "add": [
         "FFmpeg",
-        "Docker",
-        "Docker Compose"
+        "Docker"
       ],
       "remove": []
     },
@@ -272,7 +264,6 @@
         "gRPC",
         "Prometheus",
         "Docker",
-        "Docker Compose",
         "Nginx"
       ],
       "remove": []
@@ -296,7 +287,6 @@
         "HTML",
         "CSS",
         "Docker",
-        "Docker Compose",
         "Nginx"
       ],
       "remove": []
@@ -305,8 +295,7 @@
       "name": "bereal tg",
       "repo": "https://github.com/Alexander-D-Karpov/bereal-tg",
       "add": [
-        "Docker",
-        "Docker Compose"
+        "Docker"
       ],
       "remove": []
     },
@@ -316,8 +305,7 @@
       "add": [
         "JavaScript",
         "HTML",
-        "CSS",
-        "Docker Compose"
+        "CSS"
       ],
       "remove": []
     },
@@ -328,7 +316,6 @@
         "WebSockets",
         "Prometheus",
         "Docker",
-        "Docker Compose",
         "Nginx"
       ],
       "remove": []
@@ -340,7 +327,6 @@
         "JavaScript",
         "HTML",
         "CSS",
-        "Docker Compose",
         "Nginx",
         "NumPy"
       ],
@@ -350,6 +336,7 @@
       "name": "Aego",
       "repo": "https://git.akarpov.ru/sanspie/aego",
       "add": [
+        "OpenGL",
         "JavaScript",
         "HTML",
         "CSS",
@@ -365,7 +352,6 @@
         "HTML",
         "CSS",
         "Docker",
-        "Docker Compose",
         "NumPy"
       ],
       "remove": []

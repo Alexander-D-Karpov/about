@@ -156,8 +156,8 @@ func techIconURL(techMap map[string]interface{}) string {
 	if strings.EqualFold(strings.TrimSpace(name), "Docker Compose") && icon == "docker" {
 		icon = "docker-compose"
 	}
-	if (strings.EqualFold(strings.TrimSpace(name), "DRF") || strings.EqualFold(strings.TrimSpace(name), "Django REST Framework")) && icon == "django" {
-		icon = "drf"
+	if (strings.EqualFold(strings.TrimSpace(name), "DRF") || strings.EqualFold(strings.TrimSpace(name), "Django REST Framework")) && (icon == "django" || icon == "drf") {
+		icon = "drf-badge"
 	}
 	switch {
 	case icon == "":
@@ -213,8 +213,8 @@ func lookupTechIcon(index map[string]string, name string) string {
 var projectTechIcons = map[string]string{
 	"bubbletea":             "/static/icons/bubbletea.png",
 	"chromium":              "/static/icons/chromium-transparent.svg",
-	"drf":                   "/static/icons/drf.svg",
-	"django rest framework": "/static/icons/drf.svg",
+	"drf":                   "/static/icons/drf-badge.svg",
+	"django rest framework": "/static/icons/drf-badge.svg",
 	"sqlite":                "/static/icons/sqlite.svg",
 	"numpy":                 "/static/icons/numpy.svg",
 	"pandas":                "/static/icons/pandas.svg",
@@ -228,6 +228,7 @@ var projectTechIcons = map[string]string{
 	"osm":                   "/static/icons/openstreetmap.svg",
 	"overpassturbo":         "/static/icons/overpassturbo.ico",
 	"webassembly":           "/static/icons/webassembly.svg",
+	"opengl":                "/static/icons/opengl.svg",
 	"platformio":            "/static/icons/platformio.svg",
 	"esp8266":               "/static/icons/espressif.svg",
 	"raspberry pi":          "/static/icons/raspberrypi.svg",

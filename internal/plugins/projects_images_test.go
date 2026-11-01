@@ -13,7 +13,7 @@ import (
 )
 
 func TestProjectTechIcons(t *testing.T) {
-	for _, name := range []string{"BubbleTea", "chromium", "DRF", "ffmpeg", "Fyne", "Jupyter", "OSM", "OverpassTurbo", "WebAssembly", "PlatformIO", "ESP8266", "Raspberry Pi", "SQLite", "NumPy", "Pandas", "OpenCV", "WebRTC"} {
+	for _, name := range []string{"BubbleTea", "chromium", "DRF", "ffmpeg", "Fyne", "Jupyter", "OSM", "OverpassTurbo", "WebAssembly", "OpenGL", "PlatformIO", "ESP8266", "Raspberry Pi", "SQLite", "NumPy", "Pandas", "OpenCV", "WebRTC"} {
 		icon := lookupTechIcon(nil, name)
 		if icon == "" {
 			t.Errorf("missing icon for %s", name)
@@ -35,7 +35,7 @@ func TestDistinctRelatedTechnologyIcons(t *testing.T) {
 	if got := techIconURL(map[string]interface{}{"name": "Docker Compose", "icon": "docker"}); got != "/static/icons/docker-compose.svg" {
 		t.Fatalf("compose legacy icon = %s", got)
 	}
-	if got := techIconURL(map[string]interface{}{"name": "DRF", "icon": "django"}); got != "/static/icons/drf.svg" {
+	if got := techIconURL(map[string]interface{}{"name": "DRF", "icon": "django"}); got != "/static/icons/drf-badge.svg" {
 		t.Fatalf("DRF legacy icon = %s", got)
 	}
 	if got := techIconURL(map[string]interface{}{"name": "pgvector", "iconPath": "/custom.svg", "icon": "postgresql"}); got != "/custom.svg" {
