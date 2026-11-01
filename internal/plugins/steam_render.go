@@ -29,11 +29,7 @@ const steamSectionTemplate = `
 			</div>
 			{{if .CurrentGameImage}}
 			<div class="current-game-cover">
-				{{/* Steam header.jpg is always 460x215; stating it gives the box an
-				     aspect ratio before the image arrives, so the card reserves its
-				     real height instead of collapsing and shoving the layout down
-				     once the cover loads. */}}
-				<img src="{{.CurrentGameImage}}" alt="{{.CurrentGameName}}" class="game-cover-image" width="460" height="215" loading="lazy">
+				<img src="{{.CurrentGameImage}}" data-fallback="{{.CurrentGameImageFallback}}" onerror="if(this.dataset.fallback){this.src=this.dataset.fallback;this.dataset.fallback=''}" alt="{{.CurrentGameName}}" class="game-cover-image" width="460" height="215" loading="lazy">
 			</div>
 			{{end}}
 			<div class="current-game-info">
@@ -61,7 +57,7 @@ const steamSectionTemplate = `
 				<div class="game-item" data-app-id="{{.AppID}}">
 					<a class="game-link" href="https://store.steampowered.com/app/{{.AppID}}/" target="_blank" rel="noopener" aria-label="{{.Name}} on Steam"></a>
 					{{if .Icon}}
-					<img src="{{.Icon}}" alt="{{.Name}}" class="game-icon" width="40" height="40" loading="lazy">
+					<img src="{{.Icon}}" data-fallback="{{.FallbackIcon}}" onerror="if(this.dataset.fallback){this.src=this.dataset.fallback;this.dataset.fallback=''}" alt="{{.Name}}" class="game-icon" width="40" height="40" loading="lazy">
 					{{end}}
 					<div class="game-info">
 						<div class="game-name">{{.Name}}</div>
@@ -88,7 +84,7 @@ const steamSectionTemplate = `
 				<div class="game-item" data-app-id="{{.AppID}}">
 					<a class="game-link" href="https://store.steampowered.com/app/{{.AppID}}/" target="_blank" rel="noopener" aria-label="{{.Name}} on Steam"></a>
 					{{if .Icon}}
-					<img src="{{.Icon}}" alt="{{.Name}}" class="game-icon" width="40" height="40" loading="lazy">
+					<img src="{{.Icon}}" data-fallback="{{.FallbackIcon}}" onerror="if(this.dataset.fallback){this.src=this.dataset.fallback;this.dataset.fallback=''}" alt="{{.Name}}" class="game-icon" width="40" height="40" loading="lazy">
 					{{end}}
 					<div class="game-info">
 						<div class="game-name">{{.Name}}</div>
@@ -129,11 +125,12 @@ const steamSectionTemplate = `
 </section>`
 
 type steamGameView struct {
-	Name        string
-	Icon        string
-	RecentHours string
-	TotalHours  string
-	AppID       int
+	Name         string
+	Icon         string
+	FallbackIcon string
+	RecentHours  string
+	TotalHours   string
+	AppID        int
 }
 
 func steamGameViews(games []SteamGame, limit int) []steamGameView {
@@ -142,12 +139,18 @@ func steamGameViews(games []SteamGame, limit int) []steamGameView {
 		if i >= limit {
 			break
 		}
+		icon := steamIconImage(game.AppID, game.ImgIconURL)
+		cover := icon
+		if game.AppID > 0 {
+			cover = fmt.Sprintf("https://cdn.cloudflare.steamstatic.com/steam/apps/%d/library_600x900.jpg", game.AppID)
+		}
 		out = append(out, steamGameView{
-			Name:        game.Name,
-			Icon:        steamIconImage(game.AppID, game.ImgIconURL),
-			RecentHours: fmt.Sprintf("%.1f", float64(game.Playtime2w)/60.0),
-			TotalHours:  fmt.Sprintf("%.1f", float64(game.PlaytimeAll)/60.0),
-			AppID:       game.AppID,
+			Name:         game.Name,
+			Icon:         cover,
+			FallbackIcon: icon,
+			RecentHours:  fmt.Sprintf("%.1f", float64(game.Playtime2w)/60.0),
+			TotalHours:   fmt.Sprintf("%.1f", float64(game.PlaytimeAll)/60.0),
+			AppID:        game.AppID,
 		})
 	}
 	return out
@@ -182,6 +185,7 @@ func (p *SteamPlugin) Render(_ context.Context) (string, error) {
 	currentGameName := ""
 	currentGameNameEncoded := ""
 	currentGameImage := ""
+	currentGameImageFallback := ""
 	currentGameStoreURL := ""
 	playerStatusClass := "status-offline"
 	playerStatusText := "Offline"
@@ -193,8 +197,7 @@ func (p *SteamPlugin) Render(_ context.Context) (string, error) {
 
 			if summary.GameID != "" {
 				currentGameStoreURL = fmt.Sprintf("https://store.steampowered.com/app/%s/", summary.GameID)
-				currentGameImage = fmt.Sprintf(
-					"https://cdn.cloudflare.steamstatic.com/steam/apps/%s/header.jpg", summary.GameID)
+				currentGameImage, currentGameImageFallback = steamCurrentGameImages(summary.GameID)
 			}
 		}
 
@@ -217,35 +220,37 @@ func (p *SteamPlugin) Render(_ context.Context) (string, error) {
 	}
 
 	data := struct {
-		SectionTitle           string
-		RecentGames            []steamGameView
-		TopGames               []steamGameView
-		PlayerSummary          *SteamPlayerSummary
-		IsPlayingNow           bool
-		CurrentGameName        string
-		CurrentGameNameEncoded string
-		CurrentGameImage       string
-		PlayerStatusClass      string
-		PlayerStatusText       string
-		PlayerStatusState      string
-		CurrentGameStoreURL    string
-		HasLibrary             bool
-		LibraryCount           int
+		SectionTitle             string
+		RecentGames              []steamGameView
+		TopGames                 []steamGameView
+		PlayerSummary            *SteamPlayerSummary
+		IsPlayingNow             bool
+		CurrentGameName          string
+		CurrentGameNameEncoded   string
+		CurrentGameImage         string
+		CurrentGameImageFallback string
+		PlayerStatusClass        string
+		PlayerStatusText         string
+		PlayerStatusState        string
+		CurrentGameStoreURL      string
+		HasLibrary               bool
+		LibraryCount             int
 	}{
-		SectionTitle:           sectionTitle,
-		RecentGames:            steamGameViews(recent, 6),
-		TopGames:               steamGameViews(top, 9),
-		PlayerSummary:          summary,
-		IsPlayingNow:           isPlayingNow,
-		CurrentGameName:        currentGameName,
-		CurrentGameNameEncoded: currentGameNameEncoded,
-		CurrentGameImage:       currentGameImage,
-		PlayerStatusClass:      playerStatusClass,
-		PlayerStatusText:       playerStatusText,
-		PlayerStatusState:      steamStatusState(playerStatusText),
-		CurrentGameStoreURL:    currentGameStoreURL,
-		HasLibrary:             libraryCount > 0,
-		LibraryCount:           libraryCount,
+		SectionTitle:             sectionTitle,
+		RecentGames:              steamGameViews(recent, 6),
+		TopGames:                 steamGameViews(top, 9),
+		PlayerSummary:            summary,
+		IsPlayingNow:             isPlayingNow,
+		CurrentGameName:          currentGameName,
+		CurrentGameNameEncoded:   currentGameNameEncoded,
+		CurrentGameImage:         currentGameImage,
+		CurrentGameImageFallback: currentGameImageFallback,
+		PlayerStatusClass:        playerStatusClass,
+		PlayerStatusText:         playerStatusText,
+		PlayerStatusState:        steamStatusState(playerStatusText),
+		CurrentGameStoreURL:      currentGameStoreURL,
+		HasLibrary:               libraryCount > 0,
+		LibraryCount:             libraryCount,
 	}
 
 	tmplParsed, err := template.New("steam").Parse(steamSectionTemplate)

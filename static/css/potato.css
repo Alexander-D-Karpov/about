@@ -423,6 +423,10 @@ body.potato-mode .projects-grid {
     gap: 12px;
 }
 
+@media (max-width: 720px) {
+    body.potato-mode .projects-grid { grid-template-columns: 1fr; }
+}
+
 body.potato-mode .project-card {
     display: flex;
     flex-direction: column;

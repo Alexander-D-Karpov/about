@@ -1,0 +1,374 @@
+{
+  "description": "Curated project technology corrections from repository manifests and source, 2026-11-01. Entries only change technology tags.",
+  "projects": [
+    {
+      "name": "about me site",
+      "repo": "https://github.com/Alexander-D-Karpov/about",
+      "add": [
+        "HTML",
+        "CSS",
+        "WebSockets",
+        "Prometheus",
+        "Docker"
+      ],
+      "remove": []
+    },
+    {
+      "name": "netfetch",
+      "repo": "https://github.com/Alexander-D-Karpov/netfetch",
+      "add": [
+        "SQLite"
+      ],
+      "remove": []
+    },
+    {
+      "name": "amp",
+      "repo": "https://github.com/Alexander-D-Karpov/amp",
+      "add": [
+        "SQLite"
+      ],
+      "remove": []
+    },
+    {
+      "name": "webring",
+      "repo": "https://github.com/Alexander-D-Karpov/webring",
+      "add": [
+        "PostgreSQL",
+        "JavaScript",
+        "HTML",
+        "CSS",
+        "Docker"
+      ],
+      "remove": []
+    },
+    {
+      "name": "RTMP music stream",
+      "repo": "https://github.com/Alexander-D-Karpov/scripts/tree/master/stream",
+      "add": [
+        "Docker",
+        "NumPy"
+      ],
+      "remove": []
+    },
+    {
+      "name": "cookiecutter-django",
+      "repo": "https://github.com/Alexander-D-Karpov/cookiecutter-django",
+      "add": [
+        "DRF",
+        "PostgreSQL",
+        "Redis",
+        "Celery",
+        "Docker"
+      ],
+      "remove": []
+    },
+    {
+      "name": "Pitch Deck Generator",
+      "repo": "https://github.com/spbleadersofdigtal/backend",
+      "add": [
+        "DRF",
+        "PostgreSQL",
+        "Redis",
+        "Celery",
+        "Docker",
+        "Docker Compose"
+      ],
+      "remove": []
+    },
+    {
+      "name": "nlp doc title processer",
+      "repo": "https://github.com/mistakes-23/backend",
+      "add": [
+        "DRF",
+        "PostgreSQL",
+        "Redis",
+        "Celery",
+        "Pandas",
+        "NumPy",
+        "Docker"
+      ],
+      "remove": []
+    },
+    {
+      "name": "Telegram media downloader",
+      "repo": "https://github.com/Alexander-D-Karpov/scripts/tree/master/bots/poller",
+      "add": [
+        "Telethon"
+      ],
+      "remove": [
+        "aiogram"
+      ]
+    },
+    {
+      "name": "Tender statistics",
+      "repo": "https://github.com/Alexander-D-Karpov/tender_statistics",
+      "add": [
+        "DRF",
+        "PostgreSQL",
+        "Redis",
+        "Pandas",
+        "NumPy",
+        "Docker"
+      ],
+      "remove": []
+    },
+    {
+      "name": "Marking platform",
+      "repo": "https://github.com/marking-hack/backend",
+      "add": [
+        "DRF",
+        "PostgreSQL",
+        "Redis",
+        "Celery",
+        "Pandas",
+        "Docker"
+      ],
+      "remove": []
+    },
+    {
+      "name": "Podcast poller script",
+      "repo": "https://github.com/Alexander-D-Karpov/scripts/tree/master/podcasts",
+      "add": [
+        "FFmpeg",
+        "Docker"
+      ],
+      "remove": []
+    },
+    {
+      "name": "Exhauster analytics",
+      "repo": "https://github.com/evraz-hack/backend",
+      "add": [
+        "DRF",
+        "PostgreSQL",
+        "Redis",
+        "Celery",
+        "Pandas",
+        "Docker"
+      ],
+      "remove": []
+    },
+    {
+      "name": "Real estate search",
+      "repo": "https://github.com/BlackWallTeam/Backend",
+      "add": [
+        "PostgreSQL",
+        "Redis",
+        "Celery",
+        "Pandas",
+        "Docker"
+      ],
+      "remove": []
+    },
+    {
+      "name": "Med Manage Platform",
+      "repo": "https://github.com/Alexander-D-Karpov/med_backend",
+      "add": [
+        "PostgreSQL",
+        "Redis",
+        "SQLAlchemy",
+        "Docker",
+        "Docker Compose"
+      ],
+      "remove": []
+    },
+    {
+      "name": "DICOM edit platform",
+      "repo": "https://github.com/leaders-of-digital-9-task/backend",
+      "add": [
+        "Django",
+        "PostgreSQL",
+        "Celery",
+        "Docker",
+        "Docker Compose"
+      ],
+      "remove": []
+    },
+    {
+      "name": "NLP DOC processer",
+      "repo": "https://github.com/Ai-hack-MAGNUM-OPUS/backend",
+      "add": [
+        "PostgreSQL",
+        "Redis",
+        "Celery",
+        "Docker",
+        "Docker Compose"
+      ],
+      "remove": []
+    },
+    {
+      "name": "Block site generator",
+      "repo": "https://github.com/Alexander-D-Karpov/agora_hack_backend",
+      "add": [
+        "DRF"
+      ],
+      "remove": []
+    },
+    {
+      "name": "RPG backend",
+      "repo": "https://github.com/evgen-app/chess_rpg_backend",
+      "add": [
+        "Django",
+        "WebSockets",
+        "Redis",
+        "PostgreSQL",
+        "Docker"
+      ],
+      "remove": []
+    },
+    {
+      "name": "User app",
+      "repo": "https://github.com/Alexander-D-Karpov/django-user-app",
+      "add": [
+        "HTML"
+      ],
+      "remove": []
+    },
+    {
+      "name": "akfs",
+      "repo": "https://github.com/Alexander-D-Karpov/akfs",
+      "add": [
+        "Docker",
+        "Docker Compose"
+      ],
+      "remove": []
+    },
+    {
+      "name": "akarpov music bot",
+      "repo": "https://github.com/Alexander-D-Karpov/akarpov_music_bot",
+      "add": [
+        "python-telegram-bot",
+        "Docker",
+        "Docker Compose"
+      ],
+      "remove": [
+        "aiogram"
+      ]
+    },
+    {
+      "name": "akarpov music tools",
+      "repo": "https://github.com/Alexander-D-Karpov/akarpov_music_tools",
+      "add": [
+        "Docker",
+        "Docker Compose"
+      ],
+      "remove": []
+    },
+    {
+      "name": "akarpov file tools",
+      "repo": "https://github.com/Alexander-D-Karpov/akarpov_file_tools",
+      "add": [
+        "FFmpeg",
+        "Docker",
+        "Docker Compose"
+      ],
+      "remove": []
+    },
+    {
+      "name": "concord",
+      "repo": "https://github.com/Alexander-D-Karpov/concord",
+      "add": [
+        "PostgreSQL",
+        "Redis",
+        "gRPC",
+        "Prometheus",
+        "Docker",
+        "Docker Compose",
+        "Nginx"
+      ],
+      "remove": []
+    },
+    {
+      "name": "concord client",
+      "repo": "https://github.com/Alexander-D-Karpov/concord-client",
+      "add": [
+        "React",
+        "HTML",
+        "CSS",
+        "gRPC"
+      ],
+      "remove": []
+    },
+    {
+      "name": "photodock",
+      "repo": "https://github.com/Alexander-D-Karpov/photodock",
+      "add": [
+        "PostgreSQL",
+        "HTML",
+        "CSS",
+        "Docker",
+        "Docker Compose",
+        "Nginx"
+      ],
+      "remove": []
+    },
+    {
+      "name": "bereal tg",
+      "repo": "https://github.com/Alexander-D-Karpov/bereal-tg",
+      "add": [
+        "Docker",
+        "Docker Compose"
+      ],
+      "remove": []
+    },
+    {
+      "name": "AWheel",
+      "repo": "https://github.com/Alexander-D-Karpov/wheel",
+      "add": [
+        "JavaScript",
+        "HTML",
+        "CSS",
+        "Docker Compose"
+      ],
+      "remove": []
+    },
+    {
+      "name": "ACalendar",
+      "repo": "https://github.com/Alexander-D-Karpov/calendar",
+      "add": [
+        "WebSockets",
+        "Prometheus",
+        "Docker",
+        "Docker Compose",
+        "Nginx"
+      ],
+      "remove": []
+    },
+    {
+      "name": "MemeSearch",
+      "repo": "https://github.com/Alexander-D-Karpov/MemeSearch",
+      "add": [
+        "JavaScript",
+        "HTML",
+        "CSS",
+        "Docker Compose",
+        "Nginx",
+        "NumPy"
+      ],
+      "remove": []
+    },
+    {
+      "name": "Aego",
+      "repo": "https://git.akarpov.ru/sanspie/aego",
+      "add": [
+        "JavaScript",
+        "HTML",
+        "CSS",
+        "Docker",
+        "Nginx"
+      ],
+      "remove": []
+    },
+    {
+      "name": "Homelab Radio / SDR",
+      "repo": "https://git.akarpov.ru/sanspie/homelab-radio",
+      "add": [
+        "HTML",
+        "CSS",
+        "Docker",
+        "Docker Compose",
+        "NumPy"
+      ],
+      "remove": []
+    }
+  ]
+}

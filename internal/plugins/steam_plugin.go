@@ -233,6 +233,19 @@ func (p *SteamPlugin) snapshotSummary() *SteamPlayerSummary {
 
 // --- image helpers ---
 
+func steamCurrentGameImages(id string) (string, string) {
+	if id == "" {
+		return "", ""
+	}
+	for _, r := range id {
+		if r < '0' || r > '9' {
+			return "", ""
+		}
+	}
+	base := "https://cdn.cloudflare.steamstatic.com/steam/apps/" + id + "/"
+	return base + "library_hero.jpg", base + "header.jpg"
+}
+
 func steamHeaderImage(appID int) string {
 	return fmt.Sprintf("https://cdn.cloudflare.steamstatic.com/steam/apps/%d/header.jpg", appID)
 }

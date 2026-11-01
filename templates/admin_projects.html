@@ -248,6 +248,7 @@
 
     function normalize(p) {
         return {
+            ...p,
             name: p.name || '',
             description: p.description || '',
             github: p.github || '',
@@ -361,6 +362,10 @@
     }
 
     function updateField(i, field, value) {
+        if (field === 'image' && projects[i].image !== value) {
+            delete projects[i].image_original;
+            delete projects[i].blurhash;
+        }
         projects[i][field] = value;
         markDirty();
     }
@@ -452,7 +457,7 @@
             const res = await fetch('/admin/api/upload', { method: 'POST', body: form });
             if (!res.ok) throw new Error(await res.text());
             const data = await res.json();
-            projects[i].image = data.url;
+            updateField(i, 'image', data.url);
             markDirty();
             render();
             toast('Image uploaded', 'success');

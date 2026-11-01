@@ -466,7 +466,7 @@ select.sort:focus{outline:2px solid var(--steam-dim)}
     var c = s.current || {};
     if(c.playing){
       document.getElementById("now").innerHTML =
-        '<div class="now">'+(c.gameImage ? '<img src="'+esc(c.gameImage)+'" alt="">' : '')+
+      '<div class="now">'+(c.gameImage ? '<img src="'+esc(c.gameImage)+'" data-fallback="'+esc(c.gameImageFallback || '')+'" onerror="if(this.dataset.fallback){this.src=this.dataset.fallback;this.dataset.fallback=\'\'}" alt="">' : '')+
         '<div><div class="now-l">Now playing</div><div class="now-n">'+esc(c.gameName)+'</div></div></div>';
     }
 

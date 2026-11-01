@@ -330,18 +330,20 @@ func (p *SteamPlugin) updatePlayerSummary(summary *SteamPlayerSummary) {
 	}
 
 	gameImage := ""
+	gameImageFallback := ""
 	if summary.GameID != "" {
-		gameImage = fmt.Sprintf("https://cdn.cloudflare.steamstatic.com/steam/apps/%s/header.jpg", summary.GameID)
+		gameImage, gameImageFallback = steamCurrentGameImages(summary.GameID)
 	}
 
 	p.hub.Broadcast("steam_status_update", map[string]interface{}{
-		"isPlaying":    summary.GameExtraInfo != "",
-		"currentGame":  summary.GameExtraInfo,
-		"gameImage":    gameImage,
-		"gameId":       summary.GameID,
-		"personaState": summary.PersonaState,
-		"personaName":  summary.PersonaName,
-		"timestamp":    time.Now().Unix(),
+		"isPlaying":         summary.GameExtraInfo != "",
+		"currentGame":       summary.GameExtraInfo,
+		"gameImage":         gameImage,
+		"gameImageFallback": gameImageFallback,
+		"gameId":            summary.GameID,
+		"personaState":      summary.PersonaState,
+		"personaName":       summary.PersonaName,
+		"timestamp":         time.Now().Unix(),
 	})
 }
 

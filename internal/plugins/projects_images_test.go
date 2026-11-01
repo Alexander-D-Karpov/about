@@ -13,7 +13,7 @@ import (
 )
 
 func TestProjectTechIcons(t *testing.T) {
-	for _, name := range []string{"BubbleTea", "chromium", "DRF", "ffmpeg", "Fyne", "Jupyter", "OSM", "OverpassTurbo", "WebAssembly", "PlatformIO", "ESP8266", "Raspberry Pi"} {
+	for _, name := range []string{"BubbleTea", "chromium", "DRF", "ffmpeg", "Fyne", "Jupyter", "OSM", "OverpassTurbo", "WebAssembly", "PlatformIO", "ESP8266", "Raspberry Pi", "SQLite", "NumPy", "Pandas", "OpenCV", "WebRTC"} {
 		icon := lookupTechIcon(nil, name)
 		if icon == "" {
 			t.Errorf("missing icon for %s", name)
@@ -25,6 +25,24 @@ func TestProjectTechIcons(t *testing.T) {
 	}
 	if got := lookupTechIcon(map[string]string{"jupyter": "/custom.svg"}, "Jupyter"); got != "/custom.svg" {
 		t.Errorf("configured icon should override fallback: %s", got)
+	}
+}
+
+func TestDistinctRelatedTechnologyIcons(t *testing.T) {
+	if got := techIconURL(map[string]interface{}{"name": "pgvector", "icon": "postgresql"}); got != "/static/icons/pgvector.svg" {
+		t.Fatalf("pgvector legacy icon = %s", got)
+	}
+	if got := techIconURL(map[string]interface{}{"name": "Docker Compose", "icon": "docker"}); got != "/static/icons/docker-compose.svg" {
+		t.Fatalf("compose legacy icon = %s", got)
+	}
+	if got := techIconURL(map[string]interface{}{"name": "DRF", "icon": "django"}); got != "/static/icons/drf.svg" {
+		t.Fatalf("DRF legacy icon = %s", got)
+	}
+	if got := techIconURL(map[string]interface{}{"name": "pgvector", "iconPath": "/custom.svg", "icon": "postgresql"}); got != "/custom.svg" {
+		t.Fatalf("custom icon overridden: %s", got)
+	}
+	if got := lookupTechIcon(nil, "DRF"); got == "/static/icons/django.svg" || got == "" {
+		t.Fatalf("DRF should have a distinct icon: %s", got)
 	}
 }
 
@@ -50,6 +68,36 @@ func TestProjectImageOriginalFallback(t *testing.T) {
 		if !strings.Contains(html, want) {
 			t.Errorf("missing %s", want)
 		}
+	}
+}
+
+func TestProjectsSortedByUpdatedDate(t *testing.T) {
+	st := storage.New(t.TempDir())
+	if err := st.Load(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(st.Wait)
+	cfg := st.GetPluginConfig("projects")
+	cfg.Settings["projects"] = []interface{}{
+		map[string]interface{}{"name": "Old", "updated": "2024-01-01"},
+		map[string]interface{}{"name": "Undated"},
+		map[string]interface{}{"name": "Newest", "updated": "2026-11-01"},
+		map[string]interface{}{"name": "Middle", "updated": "2025-06-01"},
+	}
+	if err := st.SetPluginConfig("projects", cfg); err != nil {
+		t.Fatal(err)
+	}
+	html, err := NewProjectsPlugin(st, nil).Render(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	last := -1
+	for _, name := range []string{"Newest", "Middle", "Old", "Undated"} {
+		pos := strings.Index(html, `class="project-title">`+name+`</h3>`)
+		if pos <= last {
+			t.Fatalf("%s is missing or out of order", name)
+		}
+		last = pos
 	}
 }
 

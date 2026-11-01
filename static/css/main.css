@@ -1073,6 +1073,12 @@ body.scroll-locked {
     grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
 }
 
+@media (max-width: 720px) {
+    .js .container > .projects-section .projects-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
 .js .container > .projects-section .plugin-header {
     cursor: default;
 }

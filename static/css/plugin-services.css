@@ -228,7 +228,7 @@
 }
 
 .total-count {
-    color: var(--accent);
+    color: inherit;
 }
 
 .no-services { text-align: center; padding: 32px 20px; color: var(--muted); }

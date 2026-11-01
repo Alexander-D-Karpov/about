@@ -147,6 +147,18 @@ func techIconURL(techMap map[string]interface{}) string {
 	}
 	raw, _ := techMap["icon"].(string)
 	icon := strings.TrimSpace(raw)
+	// Older configs reused the database/container logos for extensions. Keep
+	// explicit custom icons intact while migrating those legacy defaults.
+	name, _ := techMap["name"].(string)
+	if strings.EqualFold(strings.TrimSpace(name), "pgvector") && icon == "postgresql" {
+		icon = "pgvector"
+	}
+	if strings.EqualFold(strings.TrimSpace(name), "Docker Compose") && icon == "docker" {
+		icon = "docker-compose"
+	}
+	if (strings.EqualFold(strings.TrimSpace(name), "DRF") || strings.EqualFold(strings.TrimSpace(name), "Django REST Framework")) && icon == "django" {
+		icon = "drf"
+	}
 	switch {
 	case icon == "":
 		return "/static/icons/stack.svg"
@@ -199,18 +211,26 @@ func lookupTechIcon(index map[string]string, name string) string {
 }
 
 var projectTechIcons = map[string]string{
-	"bubbletea":     "/static/icons/bubbletea.png",
-	"chromium":      "/static/icons/chromium-transparent.svg",
-	"drf":           "/static/icons/django.svg",
-	"ffmpeg":        "/static/icons/ffmpeg.svg",
-	"fyne":          "/static/icons/fyne.png",
-	"jupyter":       "/static/icons/jupyter.svg",
-	"osm":           "/static/icons/openstreetmap.svg",
-	"overpassturbo": "/static/icons/overpassturbo.ico",
-	"webassembly":   "/static/icons/webassembly.svg",
-	"platformio":    "/static/icons/platformio.svg",
-	"esp8266":       "/static/icons/espressif.svg",
-	"raspberry pi":  "/static/icons/raspberrypi.svg",
+	"bubbletea":             "/static/icons/bubbletea.png",
+	"chromium":              "/static/icons/chromium-transparent.svg",
+	"drf":                   "/static/icons/drf.svg",
+	"django rest framework": "/static/icons/drf.svg",
+	"sqlite":                "/static/icons/sqlite.svg",
+	"numpy":                 "/static/icons/numpy.svg",
+	"pandas":                "/static/icons/pandas.svg",
+	"opencv":                "/static/icons/opencv.svg",
+	"webrtc":                "/static/icons/webrtc.svg",
+	"telethon":              "/static/icons/telethon.svg",
+	"python-telegram-bot":   "/static/icons/python-telegram-bot.svg",
+	"ffmpeg":                "/static/icons/ffmpeg.svg",
+	"fyne":                  "/static/icons/fyne.png",
+	"jupyter":               "/static/icons/jupyter.svg",
+	"osm":                   "/static/icons/openstreetmap.svg",
+	"overpassturbo":         "/static/icons/overpassturbo.ico",
+	"webassembly":           "/static/icons/webassembly.svg",
+	"platformio":            "/static/icons/platformio.svg",
+	"esp8266":               "/static/icons/espressif.svg",
+	"raspberry pi":          "/static/icons/raspberrypi.svg",
 }
 
 // techCategoryOrder is the display order of the built-in categories; any other

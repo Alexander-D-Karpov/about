@@ -961,7 +961,7 @@
         setupRecentTracksHandlers(section);
     }
 
-    function loadImageSmoothly(imgElement, newSrc) {
+    function loadImageSmoothly(imgElement, newSrc, fallbackSrc) {
         if (!imgElement || !newSrc) return;
 
         if (imgElement.src === newSrc) return;
@@ -986,7 +986,7 @@
                 fadeIn();
             },
             () => {
-                imgElement.src = '/static/images/default-album.png';
+                imgElement.src = fallbackSrc || '/static/images/default-album.png';
                 fadeIn();
             }
         );
@@ -1066,7 +1066,7 @@
                         </div>
                         ${data.gameImage ? `
                         <div class="current-game-cover">
-                            <img src="${data.gameImage}" alt="${data.currentGame}" loading="lazy" class="game-cover-image">
+                            <img src="${data.gameImage}" data-fallback="${data.gameImageFallback || ''}" onerror="if(this.dataset.fallback){this.src=this.dataset.fallback;this.dataset.fallback=''}" alt="${data.currentGame}" loading="lazy" class="game-cover-image" width="460" height="215">
                         </div>
                         ` : ''}
                         <div class="current-game-info">
@@ -1101,14 +1101,17 @@
                     if (infoDiv) {
                         const coverHTML = `
                         <div class="current-game-cover">
-                            <img src="${data.gameImage}" alt="${data.currentGame}" loading="lazy" class="game-cover-image">
+                            <img src="${data.gameImage}" data-fallback="${data.gameImageFallback || ''}" onerror="if(this.dataset.fallback){this.src=this.dataset.fallback;this.dataset.fallback=''}" alt="${data.currentGame}" loading="lazy" class="game-cover-image" width="460" height="215">
                         </div>
                     `;
                         infoDiv.insertAdjacentHTML('beforebegin', coverHTML);
                     }
                 } else if (data.gameImage && gameCover) {
                     const img = gameCover.querySelector('img');
-                    if (img) loadImageSmoothly(img, data.gameImage);
+                    if (img) {
+                        img.dataset.fallback = data.gameImageFallback || '';
+                        loadImageSmoothly(img, data.gameImage, data.gameImageFallback);
+                    }
                 }
             }
 

@@ -72,12 +72,8 @@
         setPreviewRect(preview, rect);
         // Grow around the original card, clamping only when near a screen edge.
         const ratio = photo.naturalWidth && photo.naturalHeight ? photo.naturalWidth / photo.naturalHeight : rect.width / rect.height;
-        let width = Math.min(rect.width * 1.9, 720, window.innerWidth - 24);
-        let height = width / ratio;
-        if (height > window.innerHeight * .72) {
-            height = window.innerHeight * .72;
-            width = height * ratio;
-        }
+        const width = Math.min(640, window.innerWidth - 24);
+        const height = Math.min(width / ratio, window.innerHeight * .72);
         const left = Math.max(12, Math.min(rect.left + (rect.width - width) / 2, window.innerWidth - width - 12));
         const top = Math.max(12, Math.min(rect.top + (rect.height - height) / 2, window.innerHeight - height - 12));
         requestAnimationFrame(() => requestAnimationFrame(() => {

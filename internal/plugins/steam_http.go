@@ -230,7 +230,7 @@ func (p *SteamPlugin) libraryStats(games []SteamGame, year steamYearPlaytime, fi
 			current["gameName"] = summary.GameExtraInfo
 			current["gameId"] = summary.GameID
 			if summary.GameID != "" {
-				current["gameImage"] = "https://cdn.cloudflare.steamstatic.com/steam/apps/" + summary.GameID + "/header.jpg"
+				current["gameImage"], current["gameImageFallback"] = steamCurrentGameImages(summary.GameID)
 			}
 		}
 	}

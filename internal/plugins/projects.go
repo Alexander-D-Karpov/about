@@ -256,9 +256,7 @@ func (p *ProjectsPlugin) Render(ctx context.Context) (string, error) {
 	return buf.String(), err
 }
 
-// UpdateData refreshes each project's "last updated" (and fills a missing
-// "created") from its GitHub repo's pushed_at/created_at. Called daily from the
-// background scheduler. Only advances "updated" forward, never regresses it.
+// UpdateData refreshes dates from GitHub and configured Gitea/Forgejo sources.
 func (p *ProjectsPlugin) UpdateData(ctx context.Context) error {
 	config := p.storage.GetPluginConfig(p.Name())
 	projects, ok := config.Settings["projects"].([]interface{})
@@ -269,6 +267,19 @@ func (p *ProjectsPlugin) UpdateData(ctx context.Context) error {
 	token := os.Getenv("GITHUB_TOKEN")
 	client := &http.Client{Timeout: 15 * time.Second}
 	changed := false
+	var sources []gitSourceConfig
+	if git, ok := p.storage.GetPluginConfig("code").Settings["git"].(map[string]interface{}); ok {
+		if raw, ok := git["sources"].([]interface{}); ok {
+			for _, item := range raw {
+				if m, ok := item.(map[string]interface{}); ok {
+					cfg := parseGitSourceConfig(m)
+					if cfg.Type == "gitea" || cfg.Type == "forgejo" {
+						sources = append(sources, cfg)
+					}
+				}
+			}
+		}
+	}
 
 	for _, proj := range projects {
 		m, ok := proj.(map[string]interface{})
@@ -276,18 +287,27 @@ func (p *ProjectsPlugin) UpdateData(ctx context.Context) error {
 			continue
 		}
 		gh, _ := m["github"].(string)
-		owner, repo, path := parseGitHubRepo(gh)
-		if owner == "" || repo == "" {
-			continue
-		}
-
 		var created, updated string
 		var err error
-		if path != "" {
-			// Folder link inside a (mono)repo: use that folder's commit history.
-			created, updated, err = fetchPathDates(ctx, client, token, owner, repo, path)
+		owner, repo, path := parseGitHubRepo(gh)
+		if owner != "" && repo != "" {
+			if path != "" {
+				created, updated, err = fetchPathDates(ctx, client, token, owner, repo, path)
+			} else {
+				created, updated, err = fetchRepoDates(ctx, client, token, owner, repo)
+			}
 		} else {
-			created, updated, err = fetchRepoDates(ctx, client, token, owner, repo)
+			matched := false
+			for _, source := range sources {
+				owner, repo, matched = matchGiteaRepo(source.BaseURL, gh)
+				if matched {
+					created, updated, err = fetchGiteaRepoDates(ctx, client, source, owner, repo)
+					break
+				}
+			}
+			if !matched {
+				continue
+			}
 		}
 		if err != nil {
 			continue
@@ -316,6 +336,72 @@ func (p *ProjectsPlugin) UpdateData(ctx context.Context) error {
 	}
 	config.Settings["projects"] = projects
 	return p.storage.SetPluginConfig(p.Name(), config)
+}
+
+var gitRepoPart = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9_.-]*$`)
+
+// Only send a source's token to its configured origin, never to a URL from a
+// project entry. A subpath deployment is supported; nested project paths are not.
+func matchGiteaRepo(base, projectURL string) (string, string, bool) {
+	b, err := url.Parse(base)
+	if err != nil || b.Host == "" || (b.Scheme != "http" && b.Scheme != "https") || b.User != nil || b.RawQuery != "" || b.Fragment != "" {
+		return "", "", false
+	}
+	u, err := url.Parse(projectURL)
+	if err != nil || u.User != nil || !strings.EqualFold(u.Scheme, b.Scheme) || !strings.EqualFold(u.Host, b.Host) || u.RawQuery != "" || u.Fragment != "" {
+		return "", "", false
+	}
+	prefix := strings.TrimRight(b.EscapedPath(), "/") + "/"
+	if !strings.HasPrefix(u.EscapedPath(), prefix) {
+		return "", "", false
+	}
+	parts := strings.Split(strings.Trim(strings.TrimPrefix(u.EscapedPath(), prefix), "/"), "/")
+	if len(parts) != 2 || !gitRepoPart.MatchString(parts[0]) || !gitRepoPart.MatchString(parts[1]) {
+		return "", "", false
+	}
+	return parts[0], strings.TrimSuffix(parts[1], ".git"), true
+}
+
+func fetchGiteaRepoDates(ctx context.Context, client *http.Client, source gitSourceConfig, owner, repo string) (string, string, error) {
+	endpoint := strings.TrimRight(source.BaseURL, "/") + "/api/v1/repos/" + url.PathEscape(owner) + "/" + url.PathEscape(repo)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return "", "", err
+	}
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("User-Agent", "about-app")
+	if source.Token != "" {
+		req.Header.Set("Authorization", "token "+source.Token)
+	}
+	// Repository metadata must not redirect credentials to another origin.
+	safeClient := *client
+	safeClient.CheckRedirect = func(next *http.Request, via []*http.Request) error {
+		if len(via) >= 10 || !strings.EqualFold(next.URL.Scheme, req.URL.Scheme) || !strings.EqualFold(next.URL.Host, req.URL.Host) {
+			return http.ErrUseLastResponse
+		}
+		return nil
+	}
+	resp, err := safeClient.Do(req)
+	if err != nil {
+		return "", "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", "", fmt.Errorf("gitea %s/%s: %s", owner, repo, resp.Status)
+	}
+	var d struct {
+		CreatedAt string `json:"created_at"`
+		UpdatedAt string `json:"updated_at"`
+		PushedAt  string `json:"pushed_at"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&d); err != nil {
+		return "", "", err
+	}
+	updated := d.PushedAt
+	if updated == "" || strings.HasPrefix(updated, "0001-") {
+		updated = d.UpdatedAt
+	}
+	return dateOnly(d.CreatedAt), dateOnly(updated), nil
 }
 
 // ghGet issues an authenticated GET against the GitHub API.
